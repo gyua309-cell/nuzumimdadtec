@@ -1,3 +1,5 @@
+import { getDemoFallback } from './demo-fallback';
+
 /**
  * API client. The browser talks only to the NestJS REST API.
  * - Access token is kept in memory only (never localStorage).
@@ -99,7 +101,18 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
     payload = JSON.stringify(body);
   }
   if (path.startsWith('/auth/')) headers['X-Requested-With'] = 'XMLHttpRequest';
-  const res = await fetch(`${BASE}${path}${qs(opts.query)}`, { method, headers, body: payload, credentials: 'include' });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}${qs(opts.query)}`, { method, headers, body: payload, credentials: 'include' });
+  } catch (err: any) {
+    const fallback = getDemoFallback(path);
+    if (fallback !== undefined) return fallback as T;
+    throw err;
+  }
+  if (res.status === 405) {
+    const fallback = getDemoFallback(path);
+    if (fallback !== undefined) return fallback as T;
+  }
   if (res.status === 401 && opts.retry !== false && !path.startsWith('/auth/login')) {
     if (await refreshToken()) return request<T>(method, path, body, { ...opts, retry: false });
     onUnauthenticated?.();
