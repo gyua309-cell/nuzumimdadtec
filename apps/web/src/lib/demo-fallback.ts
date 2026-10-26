@@ -226,6 +226,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
     if (path.includes('/cost')) {
       return {
+        employedDays: 22,
+        periodDays: 22,
+        totalCostBase: '22500.00',
+        distributableCostBase: '22500.00',
+        totalDeductionsBase: '0.00',
         dailyDirectCost: '1022.73',
         dailyOverheadCost: '250.00',
         dailyTotalCost: '1272.73',
@@ -235,6 +240,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           { component: 'التأمينات الاجتماعية (GOSI المنشأة)', amount: '181.82', currency: 'SAR' },
           { component: 'التأمين الطبي السنوي الموزع', amount: '22.73', currency: 'SAR' },
           { component: 'حصة مصاريف المقر والبرمجيات (Overhead)', amount: '250.00', currency: 'SAR' },
+        ],
+        lines: [
+          { componentNameAr: 'الراتب الأساسي وبدل السكن', componentCode: 'BASIC', kind: 'DIRECT', amountBase: '18000.00', currencyCode: 'SAR', originalAmount: '18000.00' },
+          { componentNameAr: 'التأمينات الاجتماعية (GOSI)', componentCode: 'GOSI', kind: 'BENEFIT', amountBase: '4000.00', currencyCode: 'SAR', originalAmount: '4000.00' },
+          { componentNameAr: 'تأمين طبي سنوي موزع', componentCode: 'MED', kind: 'BENEFIT', amountBase: '500.00', currencyCode: 'SAR', originalAmount: '500.00' },
         ],
       };
     }
@@ -409,15 +419,27 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/fiscal-years')) {
-    return makeList([
-      { id: 'fy-2026', code: '2026', nameAr: 'السنة المالية 2026', startDate: '2026-01-01', endDate: '2026-12-31', isClosed: false },
-    ]);
+    const years = [
+      {
+        id: 'fy-2026',
+        code: '2026',
+        nameAr: 'السنة المالية 2026',
+        startDate: '2026-01-01',
+        endDate: '2026-12-31',
+        isClosed: false,
+        periods: [
+          { id: 'fp-2026-10', code: '2026-10', nameAr: 'أكتوبر 2026', status: 'OPEN', startDate: '2026-10-01', endDate: '2026-10-31' },
+          { id: 'fp-2026-09', code: '2026-09', nameAr: 'سبتمبر 2026', status: 'CLOSED', startDate: '2026-09-01', endDate: '2026-09-30' },
+        ],
+      },
+    ];
+    return makeList(years);
   }
 
   if (path.includes('/fiscal-periods')) {
     return makeList([
-      { id: 'fp-2026-10', code: '2026-10', nameAr: 'أكتوبر 2026', periodNumber: 10, startDate: '2026-10-01', endDate: '2026-10-31', isClosed: false, isCurrent: true },
-      { id: 'fp-2026-09', code: '2026-09', nameAr: 'سبتمبر 2026', periodNumber: 9, startDate: '2026-09-01', endDate: '2026-09-30', isClosed: true, isCurrent: false },
+      { id: 'fp-2026-10', code: '2026-10', name: 'أكتوبر 2026', nameAr: 'أكتوبر 2026', periodNumber: 10, startDate: '2026-10-01', endDate: '2026-10-31', isClosed: false, isCurrent: true, status: 'OPEN', isAdjustmentPeriod: false },
+      { id: 'fp-2026-09', code: '2026-09', name: 'سبتمبر 2026', nameAr: 'سبتمبر 2026', periodNumber: 9, startDate: '2026-09-01', endDate: '2026-09-30', isClosed: true, isCurrent: false, status: 'CLOSED', isAdjustmentPeriod: false },
     ]);
   }
 
@@ -511,20 +533,61 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/ledger/income')) {
+    const lines = [
+      { accountId: 'acc-12', code: '4110', nameAr: 'إيرادات مشاريع البرمجيات والاستشارات', amount: '302000.00', accountClass: 'REVENUE' },
+      { accountId: 'acc-13', code: '5100', nameAr: 'تكلفة المطورين والكوادر المباشرة', amount: '125000.00', accountClass: 'DIRECT_COST' },
+      { accountId: 'acc-14', code: '6100', nameAr: 'مصاريف عمومية وإدارية وخوادم سحابية', amount: '41000.00', accountClass: 'EXPENSE' },
+    ];
     return {
+      lines,
+      totals: {
+        revenue: '302000.00',
+        directCost: '125000.00',
+        grossProfit: '177000.00',
+        operatingExpense: '41000.00',
+        netIncome: '136000.00',
+        netMarginPct: '45.03',
+      },
       period: '2026-10',
       grossRevenue: 302000,
       directCost: 125000,
       grossProfit: 177000,
       grossMarginPct: 58.6,
       overheadCost: 41000,
-      netProfit: 136000,
+      netProfit: '136000.00',
       netMarginPct: 45.03,
     };
   }
 
   if (path.includes('/ledger/balance')) {
     return {
+      assets: {
+        lines: [
+          { code: '1110', nameAr: 'النقدية بالصندوق والبنوك', amount: '542000.00' },
+          { code: '1200', nameAr: 'العملاء وحسابات القبض', amount: '174800.00' },
+          { code: '1300', nameAr: 'عهد الموظفين', amount: '25000.00' },
+          { code: '1500', nameAr: 'الأصول الثابتة', amount: '185000.00' },
+          { code: '1590', nameAr: 'مجمع الإهلاك', amount: '-28800.00' },
+        ],
+        total: '898000.00',
+      },
+      liabilities: {
+        lines: [
+          { code: '2100', nameAr: 'الموردون وحسابات الدفع', amount: '48200.00' },
+          { code: '2200', nameAr: 'أمانات ومستحقات الرواتب', amount: '65000.00' },
+          { code: '2400', nameAr: 'مخرجات ضريبة القيمة المضافة', amount: '22800.00' },
+        ],
+        total: '136000.00',
+      },
+      equity: {
+        lines: [
+          { code: '3100', nameAr: 'رأس المال المدفوع', amount: '500000.00' },
+          { code: '3200', nameAr: 'الأرباح المبقاة', amount: '150000.00' },
+        ],
+        total: '650000.00',
+      },
+      currentEarnings: '112000.00',
+      liabilitiesAndEquity: '898000.00',
       period: '2026-10',
       totalAssets: 898000,
       totalLiabilities: 136000,
@@ -534,14 +597,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/ledger/account-statement')) {
+    const txs = [
+      { entryId: 'je-1', entryDate: '2026-10-05', entryNo: 'JV-2026-0001', lineDescription: 'تحصيل دفعة مشروع ZATCA', currencyCode: 'SAR', debitTx: '100000.00', creditTx: '0.00', debitBase: '100000.00', creditBase: '0.00', runningBalance: '550000.00' },
+      { entryId: 'je-4', entryDate: '2026-10-15', entryNo: 'JV-2026-0004', lineDescription: 'سداد فواتير استضافة سحابية AWS', currencyCode: 'SAR', debitTx: '0.00', creditTx: '8000.00', debitBase: '0.00', creditBase: '8000.00', runningBalance: '542000.00' },
+    ];
     return {
-      account: { code: '1110', nameAr: 'النقدية بالصندوق والبنوك' },
-      openingBalance: 450000,
-      closingBalance: 542000,
-      transactions: [
-        { date: '2026-10-05', refNo: 'JV-2026-0001', descAr: 'تحصيل دفعة مشروع ZATCA', debit: 100000, credit: 0, balance: 550000 },
-        { date: '2026-10-15', refNo: 'JV-2026-0004', descAr: 'سداد فواتير الاستضافة السحابية', debit: 0, credit: 8000, balance: 542000 },
-      ],
+      account: { id: 'acc-1', code: '1110', nameAr: 'النقدية بالصندوق والبنوك', normalBalance: 'DEBIT' },
+      openingBalance: '450000.00',
+      periodDebit: '100000.00',
+      periodCredit: '8000.00',
+      closingBalance: '542000.00',
+      data: txs,
+      meta: { page: 1, pageSize: 100, total: txs.length },
     };
   }
 
@@ -763,9 +830,27 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/depreciation-runs')) {
-    return makeList([
+    if (path.includes('/preview')) {
+      return {
+        lines: [
+          { assetNo: 'AST-2026-001', assetName: 'خادم معالجة مركزي Dell PowerEdge', month: '2026-10', employeeName: 'م. أحمد الفايد', days: 30, amountBase: '1354.17' },
+          { assetNo: 'AST-2026-002', assetName: 'أجهزة MacBook Pro M3 Max للمطورين', month: '2026-10', employeeName: 'م. إسلام حسن', days: 30, amountBase: '1333.33' },
+        ],
+      };
+    }
+    const runs = [
       { id: 'dr-2026-09', runNumber: 'DEP-2026-09', period: '2026-09', totalDepreciation: '3150.00', status: 'POSTED', runDate: '2026-09-30' },
-    ]);
+    ];
+    const singleDr = runs.find((r) => path.endsWith(`/${r.id}`));
+    if (singleDr) {
+      return {
+        ...singleDr,
+        lines: [
+          { assetNo: 'AST-2026-001', assetName: 'خادم معالجة مركزي Dell PowerEdge', month: '2026-09', employeeName: 'م. أحمد الفايد', days: 30, amountBase: '1354.17' },
+        ],
+      };
+    }
+    return makeList(runs);
   }
 
   if (path.includes('/custodies')) {
@@ -807,6 +892,56 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/cost-sheet')) {
     return {
+      period: { id: 'fp-2026-10', name: 'أكتوبر 2026' },
+      totals: {
+        totalCostBase: '60500.00',
+        distributableCostBase: '52000.00',
+        totalDeductionsBase: '0.00',
+      },
+      rows: [
+        {
+          employeeId: 'emp-01',
+          code: 'EMP-001',
+          fullNameAr: 'م. أحمد عبد الرحمن الفايد',
+          employedDays: 22,
+          periodDays: 22,
+          totalCostBase: '22500.00',
+          distributableCostBase: '22500.00',
+          totalDeductionsBase: '0.00',
+          lines: [
+            { componentNameAr: 'الراتب الأساسي وبدل السكن', amountBase: '18000.00' },
+            { componentNameAr: 'التأمينات الاجتماعية GOSI', amountBase: '4000.00' },
+            { componentNameAr: 'تأمين طبي سنوي موزع', amountBase: '500.00' },
+          ],
+        },
+        {
+          employeeId: 'emp-02',
+          code: 'EMP-002',
+          fullNameAr: 'م. إسلام حسن عبد العليم',
+          employedDays: 22,
+          periodDays: 22,
+          totalCostBase: '18000.00',
+          distributableCostBase: '18000.00',
+          totalDeductionsBase: '0.00',
+          lines: [
+            { componentNameAr: 'الراتب الأساسي (45,000 ج.م)', amountBase: '15500.00' },
+            { componentNameAr: 'بدل عمل إقليمي وتطوير', amountBase: '2500.00' },
+          ],
+        },
+        {
+          employeeId: 'emp-03',
+          code: 'EMP-003',
+          fullNameAr: 'سارة محمد المنصور',
+          employedDays: 20,
+          periodDays: 22,
+          totalCostBase: '20000.00',
+          distributableCostBase: '20000.00',
+          totalDeductionsBase: '0.00',
+          lines: [
+            { componentNameAr: 'الراتب والبدلات الإدارية', amountBase: '20000.00' },
+          ],
+        },
+      ],
       dailyWorkingHours: 8,
       annualWorkingDays: 240,
       monthlyWorkingDays: 22,
@@ -837,9 +972,44 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 15. Revenue Recognition & Runs (استحقاق الإيرادات)
   if (path.includes('/revenue-runs')) {
+    if (path.includes('/preview')) {
+      return {
+        lines: [
+          { employeeName: 'م. أحمد عبد الرحمن الفايد', projectName: 'مشروع التحول الرقمي ZATCA', pricingBasis: 'DAYS', units: 22, allocationPct: 100, grossRevenueBase: '85000.00' },
+          { employeeName: 'م. إسلام حسن عبد العليم', projectName: 'تطوير منصة التجارة والتوزيع', pricingBasis: 'DAYS', units: 22, allocationPct: 100, grossRevenueBase: '67000.00' },
+        ],
+      };
+    }
     return makeList([
       { id: 'rr-2026-10', runCode: 'REV-2026-10', period: '2026-10', recognizedRevenue: '302000.00', totalDirectCost: '125000.00', grossProfit: '177000.00', status: 'POSTED', runDate: '2026-10-25' },
     ]);
+  }
+
+  if (path.includes('/profitability/employees') || path.includes('/reports/employee-profitability')) {
+    const employees = [
+      { employeeId: 'emp-01', employeeCode: 'EMP-001', employeeName: 'م. أحمد عبد الرحمن الفايد', departmentName: 'تطوير البرمجيات', billableDays: 22, totalDays: 22, utilizationPct: 100, revenueBase: '85000.00', costBase: '22500.00', profitBase: '62500.00', marginPct: '73.53' },
+      { employeeId: 'emp-02', employeeCode: 'EMP-002', employeeName: 'م. إسلام حسن عبد العليم', departmentName: 'تطوير البرمجيات', billableDays: 22, totalDays: 22, utilizationPct: 100, revenueBase: '67000.00', costBase: '18000.00', profitBase: '49000.00', marginPct: '73.13' },
+      { employeeId: 'emp-03', employeeCode: 'EMP-003', employeeName: 'سارة محمد المنصور', departmentName: 'إدارة المشاريع', billableDays: 20, totalDays: 22, utilizationPct: 91, revenueBase: '60000.00', costBase: '20000.00', profitBase: '40000.00', marginPct: '66.67' },
+    ];
+    return {
+      summary: {
+        employeeCount: 3,
+        totalRevenueBase: '212000.00',
+        totalCostBase: '60500.00',
+        totalUnutilizedCostBase: '0.00',
+        totalProfitBase: '151500.00',
+        averageMarginPct: '71.46',
+      },
+      employees,
+      data: employees,
+    };
+  }
+
+  if (path.includes('/profitability/clients')) {
+    return [
+      { clientId: 'cli-01', clientCode: 'CLI-001', clientName: 'شركة التقنية المتقدمة', revenueBase: '1450000.00', costBase: '750000.00', profitBase: '700000.00', marginPct: '48.28' },
+      { clientId: 'cli-02', clientCode: 'CLI-002', clientName: 'مؤسسة الحلول الرقمية الكبرى', revenueBase: '1000000.00', costBase: '520000.00', profitBase: '480000.00', marginPct: '48.00' },
+    ];
   }
 
   // 16. Reports & Financial Intelligence (الذكاء المالي والتقارير)
@@ -932,7 +1102,17 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/closing/periods')) {
-    return { canClose: true, isClosed: false, warnings: [] };
+    return {
+      canClose: true,
+      isClosed: false,
+      warnings: [],
+      results: [
+        { code: 'CHK-01', titleAr: 'فحص ميزان المراجعة وتوازن القيود المحاسبية', status: 'OK', message: 'ميزان المراجعة متزن تماماً (المدين = الدائن)' },
+        { code: 'CHK-02', titleAr: 'فحص ترحيل مسير رواتب الشهر', status: 'OK', message: 'تم ترحيل مسير الرواتب بنجاح' },
+        { code: 'CHK-03', titleAr: 'فحص إهلاك الأصول الثابتة للفترة', status: 'OK', message: 'تم ترحيل قيود الإهلاك' },
+        { code: 'CHK-04', titleAr: 'فحص مطابقة إقرارات ضريبة القيمة المضافة ZATCA', status: 'OK', message: 'جميع الفواتير معتمدة ومطابقة' },
+      ],
+    };
   }
 
   if (path.includes('/revenue-adjustments')) {
