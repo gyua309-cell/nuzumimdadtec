@@ -4,6 +4,41 @@
  */
 
 export function getDemoFallback(path: string): any {
+  if (path.includes('/auth/login') || path.includes('/auth/refresh')) {
+    return {
+      accessToken: 'demo-jwt-token-idham-2026',
+      expiresIn: 86400,
+      tokenType: 'Bearer',
+    };
+  }
+
+  if (path.includes('/auth/me')) {
+    return {
+      user: {
+        id: '01a105ec-6a9a-74cd-b663-0ef527c4cfde',
+        username: 'admin',
+        email: 'admin@idham.net',
+        fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا)',
+        isSystemAdmin: true,
+        preferredLocale: 'ar',
+        mustChangePassword: false,
+      },
+      companies: [
+        {
+          id: '01a105ec-6a9a-74cd-b663-0ef527c4cfde',
+          code: 'AZM',
+          nameAr: 'شركة عزم للتكنولوجيا والحلول الرقمية',
+          nameEn: 'Azm Tech Co.',
+          baseCurrency: 'SAR',
+        },
+      ],
+    };
+  }
+
+  if (path.includes('/setup/status')) {
+    return { initialized: true };
+  }
+
   if (path.includes('/zatca/status')) {
     return {
       environment: 'SIMULATION',

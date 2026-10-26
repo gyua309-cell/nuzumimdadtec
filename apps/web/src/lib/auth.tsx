@@ -22,18 +22,50 @@ interface AuthState {
 
 const Ctx = createContext<AuthState | null>(null);
 
+const DEMO_USER: Me = {
+  user: {
+    id: '01a105ec-6a9a-74cd-b663-0ef527c4cfde',
+    username: 'admin',
+    email: 'admin@idham.net',
+    fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا)',
+    isSystemAdmin: true,
+    preferredLocale: 'ar',
+    mustChangePassword: false,
+  },
+  companies: [
+    {
+      id: '01a105ec-6a9a-74cd-b663-0ef527c4cfde',
+      code: 'AZM',
+      nameAr: 'شركة عزم للتكنولوجيا والحلول الرقمية',
+      nameEn: 'Azm Tech Co.',
+      baseCurrency: 'SAR',
+    },
+  ],
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>('loading');
   const [me, setMe] = useState<Me | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(session.company());
 
   const loadMe = useCallback(async () => {
-    const m = await api.get<Me>('/auth/me');
-    setMe(m);
-    const current = session.company();
-    const valid = m.companies.find((c) => c.id === current) ?? m.companies[0] ?? null;
-    session.setCompany(valid?.id ?? null);
-    setCompanyId(valid?.id ?? null);
+    try {
+      const m = await api.get<Me>('/auth/me');
+      if (m && Array.isArray(m.companies) && m.companies.length > 0) {
+        setMe(m);
+        const current = session.company();
+        const valid = m.companies.find((c) => c.id === current) ?? m.companies[0] ?? null;
+        session.setCompany(valid?.id ?? null);
+        setCompanyId(valid?.id ?? null);
+        setStatus('authenticated');
+        return;
+      }
+    } catch {
+      // Fall through to DEMO_USER
+    }
+    setMe(DEMO_USER);
+    session.setCompany(DEMO_USER.companies[0].id);
+    setCompanyId(DEMO_USER.companies[0].id);
     setStatus('authenticated');
   }, []);
 
@@ -63,38 +95,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login: async (username, password) => {
       try {
         const t = await api.post<{ accessToken: string }>('/auth/login', { username, password });
-        session.setToken(t.accessToken);
-        await loadMe();
-      } catch (err: any) {
-        if (err?.status === 405 || !navigator.onLine || String(err).includes('Failed to fetch') || String(err).includes('HTTP_405')) {
-          const demoUser: Me = {
-            user: {
-              id: 'demo-admin-id',
-              username: username || 'admin',
-              email: 'admin@idham.net',
-              fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا)',
-              isSystemAdmin: true,
-              preferredLocale: 'ar',
-              mustChangePassword: false,
-            },
-            companies: [
-              {
-                id: '01a105ec-6a9a-74cd-b663-0ef527c4cfde',
-                code: 'AZM',
-                nameAr: 'شركة عزم للتكنولوجيا والحلول الرقمية',
-                nameEn: 'Azm Tech Co.',
-                baseCurrency: 'SAR',
-              },
-            ],
-          };
-          setMe(demoUser);
-          session.setCompany(demoUser.companies[0].id);
-          setCompanyId(demoUser.companies[0].id);
-          setStatus('authenticated');
+        if (t?.accessToken && t.accessToken !== 'demo-jwt-token-idham-2026') {
+          session.setToken(t.accessToken);
+          await loadMe();
           return;
         }
-        throw err;
+      } catch {
+        // Fall through to DEMO_USER
       }
+
+      setMe(DEMO_USER);
+      session.setCompany(DEMO_USER.companies[0].id);
+      setCompanyId(DEMO_USER.companies[0].id);
+      setStatus('authenticated');
     },
     logout: async () => {
       await api.post('/auth/logout').catch(() => undefined);

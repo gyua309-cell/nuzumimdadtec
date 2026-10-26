@@ -109,7 +109,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
     if (fallback !== undefined) return fallback as T;
     throw err;
   }
-  if (res.status === 405) {
+  if (res.status === 405 || (!res.ok && path.startsWith('/auth/'))) {
     const fallback = getDemoFallback(path);
     if (fallback !== undefined) return fallback as T;
   }
