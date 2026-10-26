@@ -1,0 +1,444 @@
+@import 'tailwindcss';
+@import '@fontsource/ibm-plex-sans-arabic/400.css';
+@import '@fontsource/ibm-plex-sans-arabic/500.css';
+@import '@fontsource/ibm-plex-sans-arabic/600.css';
+@import '@fontsource/ibm-plex-sans-arabic/700.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Cairo', 'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif;
+  /* Deep corporate blue brand palette */
+  --color-brand-50:  #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-100 text-slate-900 antialiased selection:bg-brand-500 selection:text-white dark:bg-gray-950 dark:text-slate-100;
+  font-family: var(--font-sans);
+  letter-spacing: -0.01em;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Slim luxury modern scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: all 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.65);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(129, 140, 248, 0.55);
+}
+
+/* Custom sleek scrollbar for sidebar & panels */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.3) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, rgba(99,102,241,0.4), rgba(79,70,229,0.6));
+  border-radius: 9999px;
+  transition: all 0.3s ease;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, rgba(99,102,241,0.7), rgba(79,70,229,0.9));
+}
+
+/* ── Keyframe animations ────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeInScale {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulseGlow {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.1); opacity: 0.7; }
+}
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes floatUp {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-4px); }
+}
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  50%       { box-shadow: 0 0 20px 6px rgba(99, 102, 241, 0.12); }
+}
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes borderGlow {
+  0%, 100% { border-color: rgba(99,102,241,0.2); }
+  50%       { border-color: rgba(99,102,241,0.6); }
+}
+
+.animate-fade-in    { animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-fade-in-scale { animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-slide-in   { animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-pulse-glow { animation: pulseGlow 2.5s infinite ease-in-out; }
+.animate-count-up   { animation: countUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-float-up   { animation: floatUp 3s ease-in-out infinite; }
+.animate-glow-pulse { animation: glowPulse 2s infinite; }
+.animate-gradient-bg {
+  background-size: 200% 200%;
+  animation: gradientShift 5s ease infinite;
+}
+.animate-border-glow { animation: borderGlow 2s infinite; }
+
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(10px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes floatUp {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-4px); }
+}
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  50%       { box-shadow: 0 0 20px 4px rgba(99, 102, 241, 0.15); }
+}
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animate-count-up  { animation: countUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-float-up  { animation: floatUp 3s ease-in-out infinite; }
+.animate-glow-pulse { animation: glowPulse 2s infinite; }
+.animate-gradient-bg {
+  background-size: 200% 200%;
+  animation: gradientShift 4s ease infinite;
+}
+
+/* ── Design system component tokens ────────────────────── */
+@layer components {
+
+/* ·· Card ·· */
+.card {
+  @apply rounded-2xl border border-slate-200/90 bg-white shadow-sm
+         transition-all duration-200
+         dark:border-slate-800/90 dark:bg-slate-900;
+  box-shadow: 0 1px 4px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+}
+.card-hover {
+  @apply hover:-translate-y-1 hover:border-brand-300/60 hover:shadow-lg
+         hover:shadow-slate-200/70 dark:hover:border-brand-600/50
+         dark:hover:shadow-slate-950/60;
+}
+
+/* Glass card */
+.card-glass {
+  @apply rounded-2xl border border-white/25 bg-white/85 shadow-lg backdrop-blur-sm
+         dark:border-white/10 dark:bg-slate-900/85;
+}
+
+/* Premium gradient stat card backgrounds */
+.card-gradient-blue    { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 60%, #bfdbfe 100%); }
+.card-gradient-emerald { background: linear-gradient(135deg, #f0fdf4 0%, #d1fae5 60%, #a7f3d0 100%); }
+.card-gradient-violet  { background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 60%, #ddd6fe 100%); }
+.card-gradient-amber   { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 60%, #fde68a 100%); }
+.card-gradient-rose    { background: linear-gradient(135deg, #fff1f2 0%, #ffe4e6 60%, #fecdd3 100%); }
+.card-gradient-cyan    { background: linear-gradient(135deg, #ecfeff 0%, #cffafe 60%, #a5f3fc 100%); }
+.card-gradient-teal    { background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 60%, #99f6e4 100%); }
+.card-gradient-purple  { background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 60%, #e9d5ff 100%); }
+
+.dark .card-gradient-blue    { background: linear-gradient(135deg, rgba(30,58,138,0.25) 0%, rgba(29,78,216,0.15) 100%); }
+.dark .card-gradient-emerald { background: linear-gradient(135deg, rgba(6,78,59,0.25) 0%, rgba(4,120,87,0.15) 100%); }
+.dark .card-gradient-violet  { background: linear-gradient(135deg, rgba(76,29,149,0.25) 0%, rgba(109,40,217,0.15) 100%); }
+.dark .card-gradient-amber   { background: linear-gradient(135deg, rgba(120,53,15,0.25) 0%, rgba(146,64,14,0.15) 100%); }
+.dark .card-gradient-rose    { background: linear-gradient(135deg, rgba(136,19,55,0.25) 0%, rgba(159,18,57,0.15) 100%); }
+.dark .card-gradient-cyan    { background: linear-gradient(135deg, rgba(22,78,99,0.25) 0%, rgba(14,116,144,0.15) 100%); }
+.dark .card-gradient-teal    { background: linear-gradient(135deg, rgba(19,78,74,0.25) 0%, rgba(17,94,89,0.15) 100%); }
+.dark .card-gradient-purple  { background: linear-gradient(135deg, rgba(88,28,135,0.25) 0%, rgba(107,33,168,0.15) 100%); }
+
+/* Sidebar nav group label with gradient text */
+.nav-group-label {
+  display: block;
+  padding: 6px 10px 4px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #818cf8, #c084fc, #818cf8);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  margin-bottom: 4px;
+  animation: gradientShift 4s linear infinite;
+  background-size: 200% 200%;
+}
+
+/* ·· Inputs ·· */
+.input {
+  @apply h-10 w-full rounded-xl border border-slate-300/90 bg-white px-3.5 text-sm
+         text-slate-900 shadow-2xs outline-none transition
+         placeholder:text-slate-400
+         focus:border-brand-500 focus:ring-3 focus:ring-brand-500/20
+         disabled:opacity-60
+         dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100;
+}
+.label {
+  @apply mb-1.5 block text-xs font-bold text-slate-800 dark:text-slate-200;
+}
+
+/* ·· Buttons ·· */
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.btn-ghost {
+  @apply inline-flex h-9.5 items-center justify-center gap-2 rounded-xl px-4
+         text-sm font-bold transition-all duration-150
+         active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50;
+}
+.btn-primary {
+  @apply bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-xs
+         hover:from-brand-700 hover:to-indigo-700 hover:shadow-md hover:shadow-brand-500/20
+         focus:ring-2 focus:ring-brand-500/30;
+}
+.btn-secondary {
+  @apply border border-slate-300/90 bg-white text-slate-800 shadow-2xs
+         hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900
+         dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200
+         dark:hover:bg-slate-800;
+}
+.btn-danger {
+  @apply bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-xs
+         hover:from-rose-700 hover:to-red-700 hover:shadow-md hover:shadow-rose-500/20
+         focus:ring-2 focus:ring-rose-500/30;
+}
+.btn-ghost {
+  @apply text-slate-700 hover:bg-slate-100 hover:text-slate-900
+         dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white;
+}
+
+/* ·· Data Table ·· */
+.table { @apply w-full border-collapse text-sm; }
+.table th {
+  @apply sticky top-0 z-10 border-b-2 border-brand-500/20
+         bg-slate-900 px-4 py-3.5 text-start text-xs font-black
+         uppercase tracking-wide text-white
+         dark:bg-slate-950 dark:border-brand-700/40;
+}
+.table td {
+  @apply border-b border-slate-200/90 px-4 py-3.5
+         text-slate-900 dark:border-slate-800/90 dark:text-slate-100;
+}
+.table tbody tr:hover {
+  @apply bg-brand-50/50 dark:bg-slate-800/60;
+}
+.table tbody tr:nth-child(even) {
+  @apply bg-slate-50/40 dark:bg-slate-900/30;
+}
+
+/* ·· Stat card accent bar ·· */
+.stat-bar { @apply absolute inset-x-0 top-0 h-1.5 rounded-t-2xl; }
+
+/* Premium glass card effect */
+.card-glass {
+  @apply rounded-2xl border border-white/20 bg-white/80 backdrop-blur-sm shadow-lg
+         dark:border-white/10 dark:bg-slate-900/80;
+}
+
+/* Gradient stat cards */
+.stat-card-blue {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 50%, #bfdbfe 100%);
+  @apply dark:bg-gradient-to-br dark:from-blue-950/80 dark:to-blue-900/40;
+}
+.stat-card-emerald {
+  background: linear-gradient(135deg, #f0fdf4 0%, #d1fae5 50%, #a7f3d0 100%);
+}
+.stat-card-violet {
+  background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 50%, #ddd6fe 100%);
+}
+.stat-card-amber {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 50%, #fde68a 100%);
+}
+.stat-card-rose {
+  background: linear-gradient(135deg, #fff1f2 0%, #ffe4e6 50%, #fecdd3 100%);
+}
+.stat-card-cyan {
+  background: linear-gradient(135deg, #ecfeff 0%, #cffafe 50%, #a5f3fc 100%);
+}
+
+/* Executive KPI number display */
+.kpi-value {
+  @apply text-2xl font-black tracking-tight;
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-feature-settings: "tnum";
+}
+
+/* Sidebar group label enhanced */
+.nav-group-label {
+  @apply px-2 pb-1.5 pt-2 text-[10px] font-black tracking-widest uppercase;
+  background: linear-gradient(90deg, #6366f1, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 4px;
+}
+
+}
+
+/* ── Print Media Optimization ─────────────────────────── */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 8mm 10mm 8mm;
+  }
+
+  /* Hide navigation, chrome, sidebars, interactive controls */
+  aside,
+  header,
+  nav,
+  .no-print,
+  button:not(.print-include),
+  input,
+  select,
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .btn-danger,
+  .fixed,
+  [role="dialog"] {
+    display: none !important;
+  }
+
+  /* Reset layout constraints so printed page fills entire sheet cleanly */
+  html, body, #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 10pt !important;
+  }
+
+  /* Expand main container */
+  main, .flex-1 {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Cards styling for paper print */
+  .card {
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: none !important;
+    border-radius: 6px !important;
+    background: #ffffff !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 10px !important;
+  }
+
+  /* Tables styling for paper print */
+  .table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  .table th {
+    background: #0f172a !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-size: 8pt !important;
+    padding: 5px 6px !important;
+    border-bottom: 2px solid #0f172a !important;
+  }
+
+  .table td {
+    border-bottom: 1px solid #cbd5e1 !important;
+    padding: 5px 6px !important;
+    font-size: 8pt !important;
+    color: #0f172a !important;
+  }
+
+  .table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Color adjustments for print accuracy */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Show print-only elements */
+  .print-only {
+    display: block !important;
+  }
+
+  .page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+}
+
+.print-only {
+  display: none;
+}
+
