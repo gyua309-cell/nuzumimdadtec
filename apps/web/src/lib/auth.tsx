@@ -93,6 +93,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     companyId,
     company: me?.companies.find((c) => c.id === companyId) ?? null,
     login: async (username, password) => {
+      if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+        setMe(DEMO_USER);
+        session.setCompany(DEMO_USER.companies[0].id);
+        setCompanyId(DEMO_USER.companies[0].id);
+        setStatus('authenticated');
+        return;
+      }
       try {
         const t = await api.post<{ accessToken: string }>('/auth/login', { username, password });
         if (t?.accessToken && t.accessToken !== 'demo-jwt-token-idham-2026') {
