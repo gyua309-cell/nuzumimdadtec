@@ -437,7 +437,8 @@ export function CrudPage({
   const handleExport = () => {
     const colKeys = columns.map((c) => c.key);
     const colLabels = columns.map((c) => c.label);
-    const rows = (list.data?.data ?? []).map((row) =>
+    const dataRows = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
+    const exportRows = dataRows.map((row) =>
       colKeys.map((k) => {
         const val = row[k];
         if (val === true) return 'نعم';
@@ -446,9 +447,13 @@ export function CrudPage({
         return String(val);
       })
     );
-    downloadCsv(`${title}-${today()}.csv`, [colLabels, ...rows]);
+    downloadCsv(`${title}-${today()}.csv`, [colLabels, ...exportRows]);
     toast.success('تم تصدير البيانات إلى ملف CSV بنجاح');
   };
+
+  const rows = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
+  const totalCount = list.data?.meta?.total ?? rows.length;
+  const meta = list.data?.meta ?? { page, pageSize: 50, total: totalCount };
 
   return (
     <div>
@@ -492,9 +497,9 @@ export function CrudPage({
             <Search className="absolute start-3 top-3 size-4 text-slate-400" />
             <input className="input ps-9 h-9.5 text-xs" placeholder="بحث بالرمز أو الاسم…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          {list.data?.meta && (
+          {totalCount > 0 && (
             <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              النتائج المعروضة: <strong className="font-mono text-slate-900 dark:text-white font-bold">{list.data.meta.total}</strong> سجل
+              النتائج المعروضة: <strong className="font-mono text-slate-900 dark:text-white font-bold">{totalCount}</strong> سجل
             </div>
           )}
         </div>
@@ -502,7 +507,7 @@ export function CrudPage({
           <Loading />
         ) : list.error ? (
           <div className="p-4"><ErrorState error={list.error} /></div>
-        ) : list.data!.data.length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyState
             text={search ? 'لا توجد نتائج مطابقة' : `لا توجد بيانات بعد. ابدأ بإضافة ${entityLabel}.`}
             action={!search && <button className="btn-primary" onClick={() => open(null)}><Plus className="size-4" /> إضافة {entityLabel}</button>}
@@ -520,7 +525,7 @@ export function CrudPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {list.data!.data.map((row) => (
+                  {rows.map((row) => (
                     <tr key={row.id} className={onRowClick ? 'cursor-pointer' : ''} onClick={() => onRowClick?.(row)}>
                       {columns.map((c) => (
                         <td key={c.key} className={c.className}>{c.render ? c.render(row) : row[c.key] ?? '—'}</td>
@@ -547,7 +552,7 @@ export function CrudPage({
                 </tbody>
               </table>
             </div>
-            <Pager {...list.data!.meta} onPage={setPage} />
+            <Pager {...meta} onPage={setPage} />
           </>
         )}
       </div>

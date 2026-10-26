@@ -105,13 +105,13 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
   try {
     res = await fetch(`${BASE}${path}${qs(opts.query)}`, { method, headers, body: payload, credentials: 'include' });
   } catch (err: any) {
-    const fallback = getDemoFallback(path);
+    const fallback = getDemoFallback(path, method, body);
     if (fallback !== undefined) return fallback as T;
     throw err;
   }
   // Catch 404, 405, 500 on static preview hosts and provide rich demo data
   if (!res.ok && (res.status === 404 || res.status === 405 || res.status >= 500)) {
-    const fallback = getDemoFallback(path);
+    const fallback = getDemoFallback(path, method, body);
     if (fallback !== undefined) return fallback as T;
   }
   if (res.status === 401 && opts.retry !== false && !path.startsWith('/auth/login')) {
