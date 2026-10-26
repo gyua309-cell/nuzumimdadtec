@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 // The browser talks ONLY to the API (never to PostgreSQL). In development the
 // Vite server proxies /api to the NestJS backend so cookies stay same-origin.
 export default defineConfig({
+  base: './',
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
