@@ -4,6 +4,8 @@ node_modules/
 .pnp.js
 
 # Build outputs
+# Tools & scripts
+tools/
 dist/
 build/
 *.tsbuildinfo

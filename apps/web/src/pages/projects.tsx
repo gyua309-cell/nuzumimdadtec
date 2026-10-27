@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Layers, Plus, Printer, Search } from 'lucide-react';
+import { ArrowRight, Download, Eye, Layers, Pencil, Plus, Printer, Search, Trash2 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { opts, PRICING_BASIS, PROJECT_STATUS } from '../lib/labels';
@@ -147,6 +147,7 @@ export function ProjectsPage() {
                     <tr>
                       <th>الرمز</th><th>المشروع</th><th>العميل</th><th>المدير</th>
                       <th>البداية</th><th>النهاية</th><th>الهامش المستهدف</th><th>الحالة</th>
+                      <th className="w-24 text-end">الإجراءات</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -173,6 +174,40 @@ export function ProjectsPage() {
                           ) : '—'}
                         </td>
                         <td><ProjStatus s={p.status} /></td>
+                        <td onClick={(evt) => evt.stopPropagation()}>
+                          <div className="flex justify-end gap-1">
+                            <button
+                              className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                              title="معاينة المشروع"
+                              onClick={() => nav(`/prj/projects/${p.id}`)}
+                            >
+                              <Eye className="size-3.5" />
+                            </button>
+                            <button
+                              className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                              title="تعديل"
+                              onClick={() => nav(`/prj/projects/${p.id}`)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                            <button
+                              className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                              title="حذف"
+                              onClick={() => {
+                                if (confirm(`هل أنت متأكد من حذف المشروع ${p.nameAr}؟`)) {
+                                  api.del(`/projects/${p.id}`)
+                                    .then(() => {
+                                      toast.success('تم حذف المشروع');
+                                      qc.invalidateQueries({ queryKey: ['/projects'] });
+                                    })
+                                    .catch((err) => toast.error(err));
+                                }
+                              }}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

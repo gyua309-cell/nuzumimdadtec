@@ -4,12 +4,23 @@ import { AccountingModule } from '../accounting/accounting.module';
 import { CoreModule } from '../core/core.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { InvoicesService } from './application/invoices.service';
-import { CreditNotesController, InvoicesController } from './presentation/sales.controllers';
+import { ServicesCatalogService } from './application/services-catalog.service';
+import {
+  CreditNotesController,
+  InvoicesController,
+  SalServicesAliasController,
+  ServicesCatalogController,
+} from './presentation/sales.controllers';
 
 @Module({
   imports: [DbModule, AccountingModule, CoreModule, ProjectsModule],
-  providers: [InvoicesService],
-  controllers: [InvoicesController, CreditNotesController],
-  exports: [InvoicesService],
+  providers: [InvoicesService, ServicesCatalogService],
+  controllers: [
+    InvoicesController,
+    CreditNotesController,
+    ServicesCatalogController,
+    SalServicesAliasController,
+  ],
+  exports: [InvoicesService, ServicesCatalogService],
 })
 export class SalesModule {}

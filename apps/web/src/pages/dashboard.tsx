@@ -49,13 +49,13 @@ export function DashboardPage() {
   const allocRows = allocData?.rows || [];
 
   // Financial figures with fallback to contracts/assignments if GL is fresh
-  const totalAssets = Number(bs.data?.assets?.total ?? 1000000);
+  const totalAssets = Number(bs.data?.assets?.total ?? 0);
   const revenueGL = Number(ytd.data?.revenue ?? 0);
-  const revenueContract = Number(allocSummary?.totalRevenue ?? 145000);
+  const revenueContract = Number(allocSummary?.totalRevenue ?? 0);
   const effectiveRevenue = revenueGL > 0 ? revenueGL : revenueContract;
 
   const directCostGL = Number(ytd.data?.directCost ?? 0);
-  const directCostContract = Number(allocSummary?.totalCost ?? 122000);
+  const directCostContract = Number(allocSummary?.totalCost ?? 0);
   const effectiveDirectCost = directCostGL > 0 ? directCostGL : directCostContract;
 
   const effectiveNetProfit = effectiveRevenue - effectiveDirectCost;
@@ -66,8 +66,9 @@ export function DashboardPage() {
 
   // Monthly Revenue & Cost Interactive Chart
   const mainTrendOption = useMemo(() => {
-    let revSeries = [120000, 135000, 145000, 150000, 140000, 160000, 155000, 170000, 165000, effectiveRevenue, 175000, 190000];
-    let costSeries = [98000, 105000, 112000, 118000, 115000, 125000, 122000, 130000, 128000, effectiveDirectCost, 132000, 140000];
+    const currentMonthIdx = new Date().getMonth();
+    let revSeries = monthLabels.map((_, i) => (i === currentMonthIdx ? effectiveRevenue : 0));
+    let costSeries = monthLabels.map((_, i) => (i === currentMonthIdx ? effectiveDirectCost : 0));
     let profitSeries = revSeries.map((r, i) => r - costSeries[i]);
 
     if (chartViewMode === 'YTD') {
@@ -189,20 +190,13 @@ export function DashboardPage() {
 
   // Project Portfolio Donut Chart
   const projectDonutOption = useMemo(() => {
-    const defaultData = [
-      { name: 'مشروع بناء منصة التجارة B2B', value: 58000, itemStyle: { color: '#4f46e5' } },
-      { name: 'تطبيق الخدمات السحابية والذكاء الاصطناعي', value: 45000, itemStyle: { color: '#06b6d4' } },
-      { name: 'بوابة العملاء وأنظمة المدفوعات', value: 32000, itemStyle: { color: '#10b981' } },
-      { name: 'استشارات التطوير ومقاولة الباطن', value: 10000, itemStyle: { color: '#f59e0b' } },
-    ];
-
     const data = allocRows.length > 0
       ? allocRows.slice(0, 5).map((r: any, i: number) => ({
           name: r.projectName,
-          value: Number(r.revenueGenerated) || 25000,
+          value: Number(r.revenueGenerated) || 0,
           itemStyle: { color: ['#4f46e5', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'][i % 5] },
         }))
-      : defaultData;
+      : [{ name: 'لا توجد مشاريع مسجلة بعد', value: 0, itemStyle: { color: '#94a3b8' } }];
 
     return {
       tooltip: {
@@ -246,10 +240,11 @@ export function DashboardPage() {
 
   // Utilization & Staff Allocation Radial / Semi Donut
   const staffUtilizationOption = useMemo(() => {
-    const allocatedDays = allocSummary?.totalAllocatedDays || 66;
-    const totalDaysAvailable = (emps.data?.meta?.total || 4) * 22;
+    const allocatedDays = Number(allocSummary?.totalAllocatedDays || 0);
+    const totalEmployees = Number(emps.data?.meta?.total || 0);
+    const totalDaysAvailable = totalEmployees * 22;
     const benchDays = Math.max(0, totalDaysAvailable - allocatedDays);
-    const utilPct = totalDaysAvailable > 0 ? Math.round((allocatedDays / totalDaysAvailable) * 100) : 82;
+    const utilPct = totalDaysAvailable > 0 ? Math.round((allocatedDays / totalDaysAvailable) * 100) : 0;
 
     return {
       tooltip: {
@@ -294,8 +289,8 @@ export function DashboardPage() {
   // Working Capital / Liquidity Horizontal Bar
   const workingCapitalOption = useMemo(() => {
     const cash = totalAssets;
-    const ar = Number(allocSummary?.totalRevenue || 145000);
-    const ap = 17250;
+    const ar = Number(allocSummary?.totalRevenue || 0);
+    const ap = Number(bs.data?.liabilities?.lines?.find((l: any) => l.code === '20101')?.amount || 0);
     const netWorkingCapital = cash + ar - ap;
 
     return {
@@ -496,7 +491,7 @@ export function DashboardPage() {
         />
         <Stat
           label={`حركة الشهر - مدين (${base})`}
-          value={money(month.data?.totals?.periodDebit ?? effectiveRevenue)}
+          value={money(month.data?.totals?.periodDebit ?? 0)}
           tone="purple"
           icon={Activity}
           hint={
@@ -519,21 +514,21 @@ export function DashboardPage() {
         />
         <Stat
           label="معدل استغلال المطورين"
-          value={`${allocSummary?.totalAllocatedDays ?? 66} يوم`}
+          value={`${allocSummary?.totalAllocatedDays ?? 0} يوم`}
           tone="green"
           icon={Clock}
-          hint="81.8% معدل الإشغال الفعلي"
+          hint={`${allocSummary?.utilizationRate ?? 0}% معدل الإشغال الفعلي`}
         />
         <Stat
           label="قيود مرحّلة في الدفاتر"
-          value={posted.data?.meta.total ?? '4'}
+          value={posted.data?.meta?.total ?? 0}
           tone="green"
           icon={CheckCircle2}
           hint="مرحلة في دفتر الأستاذ العام"
         />
         <Stat
           label="فواتير بانتظار الفوترة"
-          value={`${allocSummary?.pendingInvoiceCount ?? 4} خدمات`}
+          value={`${allocSummary?.pendingInvoiceCount ?? 0} خدمات`}
           tone="amber"
           icon={Receipt}
           hint={
@@ -557,7 +552,7 @@ export function DashboardPage() {
               <div>
                 <div className="text-[11px] font-semibold text-blue-600/80 dark:text-blue-400">الكوادر البشرية</div>
                 <div className="num text-xl font-black text-slate-800 dark:text-slate-100">
-                  {emps.data?.meta?.total ?? 4} <span className="text-sm font-semibold text-slate-500">موظف نشط</span>
+                  {emps.data?.meta?.total ?? 0} <span className="text-sm font-semibold text-slate-500">موظف نشط</span>
                 </div>
               </div>
             </div>
@@ -578,7 +573,7 @@ export function DashboardPage() {
               <div>
                 <div className="text-[11px] font-semibold text-cyan-600/80 dark:text-cyan-400">المشاريع التعاقدية</div>
                 <div className="num text-xl font-black text-slate-800 dark:text-slate-100">
-                  {prjs.data?.meta?.total ?? 2} <span className="text-sm font-semibold text-slate-500">مشاريع نشطة</span>
+                  {prjs.data?.meta?.total ?? 0} <span className="text-sm font-semibold text-slate-500">مشاريع نشطة</span>
                 </div>
               </div>
             </div>
@@ -641,7 +636,7 @@ export function DashboardPage() {
               <div>
                 <div className="text-[11px] font-semibold text-amber-700/80 dark:text-amber-400">سيولة فرع مصر (EGP)</div>
                 <div className="num text-base font-black text-slate-800 dark:text-slate-100 font-mono">
-                  {money(custReport.data?.kpis?.totalRemainingBalanceEgp ?? 15000)} <span className="text-xs font-semibold text-slate-500">EGP</span>
+                  {money(custReport.data?.kpis?.totalRemainingBalanceEgp ?? 0)} <span className="text-xs font-semibold text-slate-500">EGP</span>
                 </div>
               </div>
             </div>

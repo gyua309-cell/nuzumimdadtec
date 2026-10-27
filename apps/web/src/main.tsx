@@ -29,6 +29,7 @@ import { CreditNotesPage, InvoiceDetailPage, InvoicesPage } from './pages/sales'
 import { PurchaseDebitNotesPage, PurchaseInvoiceDetailPage, PurchaseInvoicesPage, VendorsPage } from './pages/purchases';
 import { EmployeeAllocationDaysReportPage } from './pages/allocation-days-report';
 import { CustodiesPage } from './pages/custodies';
+import { ServiceCatalogPage } from './pages/services';
 import { CustodyReportPage } from './pages/custody-report';
 import { MultiCurrencyPayrollReportPage } from './pages/multi-currency-payroll-report';
 import { CashFlowReportPage } from './pages/cash-flow-report';
@@ -85,6 +86,8 @@ function Root() {
         <Route path="prj/allocation-days" element={<EmployeeAllocationDaysReportPage />} />
         <Route path="prj/utilization" element={<UtilizationPage />} />
         <Route path="prj/prices" element={<ServicePricesPage />} />
+        <Route path="services/catalog" element={<ServiceCatalogPage />} />
+        <Route path="prj/services" element={<ServiceCatalogPage />} />
         <Route path="pay/variable-types" element={<VariableTypesPage />} />
         <Route path="pay/variables" element={<MonthlyVariablesPage />} />
         <Route path="pay/loans" element={<LoansPage />} />

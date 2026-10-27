@@ -127,45 +127,126 @@ export function Badge({ color = 'slate', dot, children }: { color?: keyof typeof
 }
 
 // ------------------------------------------------------------------ overlays
-export function Modal({ open, onClose, title, children, footer, wide, maxWidth }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; wide?: boolean; maxWidth?: string }) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  wide,
+  maxWidth,
+  centered = false,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  wide?: boolean;
+  maxWidth?: string;
+  centered?: boolean;
+}) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     if (open) window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [open, onClose]);
+
   if (!open) return null;
+
+  if (centered) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 backdrop-blur-xs p-4 pt-10" onMouseDown={onClose}>
+        <div className={`card w-full ${maxWidth ? maxWidth : wide ? 'max-w-5xl' : 'max-w-lg'} shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden animate-fade-in`} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between border-b border-slate-200/90 px-6 py-4 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">
+            <h2 className="font-bold text-base text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
+            <button className="btn-ghost size-8 p-0 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg" onClick={onClose}>
+              <X className="size-4" />
+            </button>
+          </div>
+          <div className="max-h-[78vh] overflow-y-auto p-6">{children}</div>
+          {footer && <div className="flex justify-end gap-2 border-t border-slate-200/90 px-6 py-4 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">{footer}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  // Right-docked slide-over panel over dashboard (الشاشات تفتح في الجانب الأيمن فوق لوحة التحكم)
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 backdrop-blur-xs p-4 pt-10" onMouseDown={onClose}>
-      <div className={`card w-full ${maxWidth ? maxWidth : wide ? 'max-w-5xl' : 'max-w-lg'} shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden animate-fade-in`} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-200/90 px-5 py-4 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">
-          <h2 className="font-bold text-base text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
-          <button className="btn-ghost size-8 p-0 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg" onClick={onClose}>
-            <X className="size-4" />
+    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs transition-opacity animate-fade-in" onMouseDown={onClose}>
+      <div
+        className={`fixed inset-y-0 right-0 z-50 flex w-full ${
+          maxWidth ? maxWidth : wide ? 'max-w-3xl' : 'max-w-xl'
+        } flex-col bg-white shadow-2xl dark:bg-slate-900 border-s border-slate-200/90 dark:border-slate-800 animate-slide-in overflow-hidden`}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/90 px-6 py-4.5 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md">
+          <div className="flex items-center gap-2.5">
+            <div className="size-2 rounded-full bg-brand-500 animate-pulse" />
+            <h2 className="font-bold text-base text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
+          </div>
+          <button
+            className="flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+            onClick={onClose}
+          >
+            <X className="size-4.5" />
           </button>
         </div>
-        <div className="max-h-[78vh] overflow-y-auto p-5">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-slate-200/90 px-5 py-3.5 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">{footer}</div>}
+        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">{children}</div>
+        {footer && (
+          <div className="sticky bottom-0 z-10 flex justify-end gap-2.5 border-t border-slate-200/90 px-6 py-4 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-export function Drawer({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode }) {
+export function Drawer({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  wide,
+  maxWidth,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  wide?: boolean;
+  maxWidth?: string;
+}) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs transition-opacity animate-fade-in" onMouseDown={onClose}>
       <div
-        className="absolute inset-y-0 start-0 flex w-full max-w-xl flex-col bg-white shadow-2xl dark:bg-slate-900 animate-slide-in border-e border-slate-200/90 dark:border-slate-800"
+        className={`fixed inset-y-0 right-0 z-50 flex w-full ${
+          maxWidth ? maxWidth : wide ? 'max-w-3xl' : 'max-w-xl'
+        } flex-col bg-white shadow-2xl dark:bg-slate-900 border-s border-slate-200/90 dark:border-slate-800 animate-slide-in overflow-hidden`}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-200/90 px-5 py-4 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">
-          <h2 className="font-bold text-base text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
-          <button className="btn-ghost size-8 p-0 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg" onClick={onClose}>
-            <X className="size-4" />
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/90 px-6 py-4.5 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md">
+          <div className="flex items-center gap-2.5">
+            <div className="size-2 rounded-full bg-brand-500 animate-pulse" />
+            <h2 className="font-bold text-base text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
+          </div>
+          <button
+            className="flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+            onClick={onClose}
+          >
+            <X className="size-4.5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-slate-200/90 px-5 py-4 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">{footer}</div>}
+        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">{children}</div>
+        {footer && (
+          <div className="sticky bottom-0 z-10 flex justify-end gap-2.5 border-t border-slate-200/90 px-6 py-4 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

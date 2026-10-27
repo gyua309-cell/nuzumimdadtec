@@ -1,11 +1,12 @@
+import { getStoredCompany, saveStoredCompany } from './storage-company';
+import { getEntityList, saveEntityItem, deleteEntityItem } from './local-store';
+
 /**
  * Comprehensive Demo Fallback Engine for Cloud Previews
  * (GitHub Pages, Vercel, Netlify) when the backend API is unhosted.
  * 
- * Provides rich, realistic Saudi & Egyptian ERP data for all 161+ system endpoints.
+ * Provides clean production-ready Saudi & Egyptian ERP data for all 161+ system endpoints.
  */
-
-const DEMO_COMPANY_ID = '01a105ec-6a9a-74cd-b663-0ef527c4cfde';
 
 export function makeList<T = any>(items: T[]): T[] & { data: T[]; meta: { page: number; pageSize: number; total: number }; items: T[]; success: boolean } {
   const arr = (Array.isArray(items) ? [...items] : []) as any;
@@ -19,6 +20,48 @@ export function makeList<T = any>(items: T[]): T[] & { data: T[]; meta: { page: 
 export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   // Handle mutations (POST/PATCH/PUT/DELETE) smoothly
   if (method !== 'GET') {
+    if (path.includes('/companies/current')) {
+      return saveStoredCompany(body);
+    }
+
+    const entityMap: Record<string, string> = {
+      '/employees': 'employees',
+      '/projects': 'projects',
+      '/clients': 'clients',
+      '/vendors': 'vendors',
+      '/journal-entries': 'journal_entries',
+      '/journals': 'journal_entries',
+      '/invoices': 'invoices',
+      '/sal/invoices': 'invoices',
+      '/purchase-invoices': 'purchase_invoices',
+      '/pur/invoices': 'purchase_invoices',
+      '/custodies': 'custodies',
+      '/services/catalog': 'services_catalog',
+      '/services': 'services_catalog',
+      '/assets': 'assets',
+      '/loans': 'loans',
+      '/monthly-variables': 'monthly_variables',
+    };
+
+    let targetKey: string | null = null;
+    for (const [route, key] of Object.entries(entityMap)) {
+      if (path.includes(route)) {
+        targetKey = key;
+        break;
+      }
+    }
+
+    if (targetKey) {
+      if (method === 'DELETE') {
+        const id = path.split('/').filter(Boolean).pop();
+        if (id) deleteEntityItem(targetKey, id);
+        return { success: true };
+      }
+      if (typeof body === 'object' && body !== null) {
+        return saveEntityItem(targetKey, body);
+      }
+    }
+
     return {
       id: (body && body.id) || `demo-id-${Date.now()}`,
       success: true,
@@ -39,23 +82,24 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/auth/me')) {
+    const comp = getStoredCompany();
     return {
       user: {
-        id: 'user-admin-01',
+        id: '01a17cb2-9afa-7ef5-91f6-b47561899afb',
         username: 'admin',
         email: 'admin@idham.net',
-        fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا)',
+        fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا والحلول الرقمية)',
         isSystemAdmin: true,
         preferredLocale: 'ar',
         mustChangePassword: false,
       },
       companies: [
         {
-          id: DEMO_COMPANY_ID,
-          code: 'AZM',
-          nameAr: 'شركة عزم للتكنولوجيا والحلول الرقمية',
-          nameEn: 'Azm Tech Co.',
-          baseCurrency: 'SAR',
+          id: comp.id,
+          code: comp.code,
+          nameAr: comp.nameAr,
+          nameEn: comp.nameEn,
+          baseCurrency: comp.baseCurrency || 'SAR',
         },
       ],
     };
@@ -66,17 +110,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/companies/current')) {
-    return {
-      id: DEMO_COMPANY_ID,
-      code: 'AZM',
-      nameAr: 'شركة عزم للتكنولوجيا والحلول الرقمية',
-      nameEn: 'Azm Tech Co.',
-      baseCurrency: 'SAR',
-      vatNumber: '310123456700003',
-      crNumber: '1010123456',
-      city: 'الرياض',
-      country: 'SA',
-    };
+    return getStoredCompany();
   }
 
   // 2. Positions (الوظائف والهيكل الوظيفي)
@@ -92,488 +126,79 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     ]);
   }
 
-  // 3. Profitability Modules (Must precede general /projects and /clients!)
+  // 3. Profitability Modules (Production Zero Baseline)
   if (path.includes('/profitability/projects')) {
-    return makeList([
-      {
-        projectId: 'prj-01',
-        projectCode: 'PRJ-2026-001',
-        projectName: 'مشروع التحول الرقمي والفوترة الإلكترونية (ZATCA)',
-        clientId: 'cli-01',
-        clientCode: 'CLI-001',
-        clientName: 'شركة التقنية المتقدمة',
-        revenueBase: '350000.00',
-        directCostBase: '150000.00',
-        overheadCostBase: '35000.00',
-        overheadBase: '35000.00',
-        totalCostBase: '185000.00',
-        grossProfitBase: '165000.00',
-        grossMarginPct: '47.14',
-        marginPct: '47.14',
-        requiredMarginPct: '35.00',
-        targetMarginPct: '35.00',
-        meetsTarget: true,
-        status: 'HEALTHY',
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-      },
-      {
-        projectId: 'prj-02',
-        projectCode: 'PRJ-2026-002',
-        projectName: 'تطوير منصة التجارة والتوزيع السحابية',
-        clientId: 'cli-02',
-        clientCode: 'CLI-002',
-        clientName: 'مؤسسة الحلول الرقمية الكبرى',
-        revenueBase: '220000.00',
-        directCostBase: '90000.00',
-        overheadCostBase: '20000.00',
-        overheadBase: '20000.00',
-        totalCostBase: '110000.00',
-        grossProfitBase: '110000.00',
-        grossMarginPct: '50.00',
-        marginPct: '50.00',
-        requiredMarginPct: '40.00',
-        targetMarginPct: '40.00',
-        meetsTarget: true,
-        status: 'HEALTHY',
-        startDate: '2026-02-01',
-        endDate: '2026-10-31',
-      },
-      {
-        projectId: 'prj-03',
-        projectCode: 'PRJ-2026-003',
-        projectName: 'تطبيقات الذكاء الاصطناعي للموارد البشرية',
-        clientId: 'cli-01',
-        clientCode: 'CLI-001',
-        clientName: 'شركة التقنية المتقدمة',
-        revenueBase: '180000.00',
-        directCostBase: '75000.00',
-        overheadCostBase: '20000.00',
-        overheadBase: '20000.00',
-        totalCostBase: '95000.00',
-        grossProfitBase: '85000.00',
-        grossMarginPct: '47.22',
-        marginPct: '47.22',
-        requiredMarginPct: '40.00',
-        targetMarginPct: '40.00',
-        meetsTarget: true,
-        status: 'HEALTHY',
-        startDate: '2026-03-01',
-        endDate: '2026-12-31',
-      },
-    ]);
+    return makeList(getEntityList('projects_profitability', []));
   }
 
   if (path.includes('/profitability/clients')) {
-    return makeList([
-      {
-        clientId: 'cli-01',
-        clientCode: 'CLI-001',
-        clientName: 'شركة التقنية المتقدمة',
-        projectCount: 2,
-        revenueBase: '530000.00',
-        directCostBase: '225000.00',
-        overheadBase: '55000.00',
-        totalCostBase: '280000.00',
-        grossProfitBase: '250000.00',
-        grossMarginPct: '47.17',
-        marginPct: '47.17',
-      },
-      {
-        clientId: 'cli-02',
-        clientCode: 'CLI-002',
-        clientName: 'مؤسسة الحلول الرقمية الكبرى',
-        projectCount: 1,
-        revenueBase: '220000.00',
-        directCostBase: '90000.00',
-        overheadBase: '20000.00',
-        totalCostBase: '110000.00',
-        grossProfitBase: '110000.00',
-        grossMarginPct: '50.00',
-        marginPct: '50.00',
-      },
-    ]);
+    return makeList(getEntityList('clients_profitability', []));
   }
 
   if (path.includes('/profitability/employees') || path.includes('/reports/employee-profitability')) {
-    const employees = [
-      {
-        employeeId: 'emp-01',
-        employeeCode: 'EMP-001',
-        employeeName: 'م. أحمد عبد الرحمن الفايد',
-        positionTitle: 'كبير مهندسي البرمجيات (Lead Architect)',
-        departmentName: 'تطوير البرمجيات والأنظمة',
-        billableDays: 22,
-        totalDays: 22,
-        allocatedPct: 100,
-        unutilizedDays: 0,
-        unutilizedPct: 0,
-        unutilizedCostBase: '0.00',
-        directCostBase: '22500.00',
-        revenueBase: '85000.00',
-        profitBase: '62500.00',
-        marginPct: '73.53',
-        projects: [{ projectId: 'prj-01', projectName: 'مشروع التحول الرقمي ZATCA', days: 22, billableAmount: 85000 }],
-      },
-      {
-        employeeId: 'emp-02',
-        employeeCode: 'EMP-002',
-        employeeName: 'م. إسلام حسن عبد العليم',
-        positionTitle: 'مطور تطبيقات سحابية أول (Senior Full Stack)',
-        departmentName: 'تطوير البرمجيات والأنظمة',
-        billableDays: 22,
-        totalDays: 22,
-        allocatedPct: 100,
-        unutilizedDays: 0,
-        unutilizedPct: 0,
-        unutilizedCostBase: '0.00',
-        directCostBase: '18000.00',
-        revenueBase: '67000.00',
-        profitBase: '49000.00',
-        marginPct: '73.13',
-        projects: [{ projectId: 'prj-02', projectName: 'تطوير منصة التجارة والتوزيع', days: 22, billableAmount: 67000 }],
-      },
-      {
-        employeeId: 'emp-03',
-        employeeCode: 'EMP-003',
-        employeeName: 'سارة محمد المنصور',
-        positionTitle: 'مدير مشاريع تقنية (Scrum Master)',
-        departmentName: 'إدارة المشاريع والتحول الرقمي',
-        billableDays: 20,
-        totalDays: 22,
-        allocatedPct: 91,
-        unutilizedDays: 2,
-        unutilizedPct: 9.1,
-        unutilizedCostBase: '1818.18',
-        directCostBase: '20000.00',
-        revenueBase: '60000.00',
-        profitBase: '40000.00',
-        marginPct: '66.67',
-        projects: [{ projectId: 'prj-01', projectName: 'مشروع التحول الرقمي ZATCA', days: 20, billableAmount: 60000 }],
-      },
-      {
-        employeeId: 'emp-04',
-        employeeCode: 'EMP-004',
-        employeeName: 'مريم عبد الله العتيبي',
-        positionTitle: 'مصمم واجهات وتجربة المستخدم (UI/UX Designer)',
-        departmentName: 'تطوير البرمجيات والأنظمة',
-        billableDays: 18,
-        totalDays: 22,
-        allocatedPct: 82,
-        unutilizedDays: 4,
-        unutilizedPct: 18.2,
-        unutilizedCostBase: '2681.82',
-        directCostBase: '8000.00',
-        revenueBase: '30000.00',
-        profitBase: '22000.00',
-        marginPct: '73.33',
-        projects: [{ projectId: 'prj-03', projectName: 'تطبيقات الذكاء الاصطناعي للموارد البشرية', days: 18, billableAmount: 30000 }],
-      },
-    ];
     return {
       summary: {
-        employeeCount: 4,
-        totalRevenueBase: '242000.00',
-        totalCostBase: '68500.00',
-        totalUnutilizedCostBase: '4500.00',
-        totalProfitBase: '173500.00',
-        averageMarginPct: '71.69',
+        employeeCount: 0,
+        totalRevenueBase: '0.00',
+        totalCostBase: '0.00',
+        totalUnutilizedCostBase: '0.00',
+        totalProfitBase: '0.00',
+        averageMarginPct: '0.00',
       },
-      employees,
-      data: employees,
+      employees: [],
+      data: [],
     };
   }
 
-  // 4. Assignments Reports (Must precede general /assignments!)
+  // 4. Assignments Reports (Production Zero Baseline)
   if (path.includes('/assignments/employee-days-report')) {
-    const rows = [
-      {
-        assignmentId: 'as-1',
-        employeeId: 'emp-01',
-        employeeCode: 'EMP-001',
-        employeeName: 'م. أحمد عبد الرحمن الفايد',
-        positionTitle: 'كبير مهندسي البرمجيات (Lead Architect)',
-        projectId: 'prj-01',
-        projectCode: 'PRJ-2026-001',
-        projectName: 'مشروع التحول الرقمي والفوترة الإلكترونية (ZATCA)',
-        clientId: 'cli-01',
-        clientName: 'شركة التقنية المتقدمة',
-        allocationBasis: 'DAYS',
-        workingDaysInMonth: 22,
-        allocatedDays: 22,
-        allocationPct: 100,
-        unutilizedDays: 0,
-        unutilizedPct: 0,
-        pricingBasis: 'DAILY',
-        unitPrice: '3863.64',
-        employeeMonthlyCost: '22500.00',
-        projectCostShare: '22500.00',
-        revenueGenerated: '85000.00',
-        grossProfit: '62500.00',
-        marginPct: 73.5,
-        invoiceStatus: 'POSTED',
-        invoiceId: 'inv-01',
-        invoiceNo: 'INV-2026-0001',
-      },
-      {
-        assignmentId: 'as-2',
-        employeeId: 'emp-02',
-        employeeCode: 'EMP-002',
-        employeeName: 'م. إسلام حسن عبد العليم',
-        positionTitle: 'مطور تطبيقات سحابية أول (Senior Full Stack)',
-        projectId: 'prj-02',
-        projectCode: 'PRJ-2026-002',
-        projectName: 'تطوير منصة التجارة والتوزيع السحابية',
-        clientId: 'cli-02',
-        clientName: 'مؤسسة الحلول الرقمية الكبرى',
-        allocationBasis: 'DAYS',
-        workingDaysInMonth: 22,
-        allocatedDays: 22,
-        allocationPct: 100,
-        unutilizedDays: 0,
-        unutilizedPct: 0,
-        pricingBasis: 'MONTHLY',
-        unitPrice: '67000.00',
-        employeeMonthlyCost: '18000.00',
-        projectCostShare: '18000.00',
-        revenueGenerated: '67000.00',
-        grossProfit: '49000.00',
-        marginPct: 73.1,
-        invoiceStatus: 'POSTED',
-        invoiceId: 'inv-02',
-        invoiceNo: 'INV-2026-0002',
-      },
-      {
-        assignmentId: 'as-3',
-        employeeId: 'emp-03',
-        employeeCode: 'EMP-003',
-        employeeName: 'سارة محمد المنصور',
-        positionTitle: 'مدير مشاريع تقنية (Scrum Master)',
-        projectId: 'prj-01',
-        projectCode: 'PRJ-2026-001',
-        projectName: 'مشروع التحول الرقمي والفوترة الإلكترونية (ZATCA)',
-        clientId: 'cli-01',
-        clientName: 'شركة التقنية المتقدمة',
-        allocationBasis: 'DAYS',
-        workingDaysInMonth: 22,
-        allocatedDays: 20,
-        allocationPct: 91,
-        unutilizedDays: 2,
-        unutilizedPct: 9,
-        pricingBasis: 'DAILY',
-        unitPrice: '3000.00',
-        employeeMonthlyCost: '20000.00',
-        projectCostShare: '18181.82',
-        revenueGenerated: '60000.00',
-        grossProfit: '41818.18',
-        marginPct: 69.7,
-        invoiceStatus: 'UNINVOICED',
-        invoiceId: null,
-        invoiceNo: null,
-      },
-    ];
+    const stored = getEntityList('assignments_employee_days', []);
     return {
-      period: { id: 'fp-2026-10', name: 'أكتوبر 2026', start: '2026-10-01', end: '2026-10-31' },
       summary: {
-        totalAssignments: 3,
-        totalAllocatedDays: 64,
-        totalRevenue: '212000.00',
-        totalCost: '60500.00',
-        totalProfit: '151500.00',
-        averageMarginPct: 71.5,
-        invoicedCount: 2,
-        pendingInvoiceCount: 1,
+        employeeCount: stored.length,
+        totalRevenue: 0,
+        totalCost: 0,
+        totalGrossProfit: 0,
+        averageMarginPct: 0,
+        totalAllocatedDays: 0,
+        workingDaysInPeriod: 22,
+        utilizationRate: 0,
+        pendingInvoiceCount: 0,
+        pendingInvoiceAmount: 0,
       },
-      rows,
-      data: rows,
-      meta: { page: 1, pageSize: 50, total: rows.length },
+      rows: stored,
+      meta: { total: stored.length },
     };
   }
 
   if (path.includes('/assignments/utilization')) {
-    return makeList([
-      {
-        employeeId: 'emp-01',
-        employeeCode: 'EMP-001',
-        employeeName: 'م. أحمد عبد الرحمن الفايد',
-        allocatedPct: 100,
-        unutilizedPct: 0,
-        overAllocatedPct: 0,
-        isOverAllocated: false,
-        projectNames: ['مشروع التحول الرقمي ZATCA'],
-      },
-      {
-        employeeId: 'emp-02',
-        employeeCode: 'EMP-002',
-        employeeName: 'م. إسلام حسن عبد العليم',
-        allocatedPct: 100,
-        unutilizedPct: 0,
-        overAllocatedPct: 0,
-        isOverAllocated: false,
-        projectNames: ['تطوير منصة التجارة والتوزيع'],
-      },
-      {
-        employeeId: 'emp-03',
-        employeeCode: 'EMP-003',
-        employeeName: 'سارة محمد المنصور',
-        allocatedPct: 91,
-        unutilizedPct: 9,
-        overAllocatedPct: 0,
-        isOverAllocated: false,
-        projectNames: ['مشروع التحول الرقمي ZATCA'],
-      },
-      {
-        employeeId: 'emp-04',
-        employeeCode: 'EMP-004',
-        employeeName: 'مريم عبد الله العتيبي',
-        allocatedPct: 82,
-        unutilizedPct: 18,
-        overAllocatedPct: 0,
-        isOverAllocated: false,
-        projectNames: ['تطبيقات الذكاء الاصطناعي للموارد البشرية'],
-      },
-    ]);
+    return makeList(getEntityList('assignments_utilization', []));
   }
 
-  // 5. Employees & Placement
+  // 5. Employees & Placement (Production Zero Baseline)
   if (path.includes('/employees')) {
-    const emps = [
-      {
-        id: 'emp-01',
-        code: 'EMP-001',
-        fullNameAr: 'م. أحمد عبد الرحمن الفايد',
-        fullNameEn: 'Ahmed Al-Fayed',
-        nationalId: '1088776655',
-        departmentId: 'dept-01',
-        departmentName: 'تطوير البرمجيات والأنظمة',
-        positionId: 'pos-1',
-        positionTitle: 'كبير مهندسي البرمجيات (Lead Architect)',
-        branchId: 'br-01',
-        branchName: 'المقر الرئيسي - الرياض',
-        employmentType: 'FULL_TIME',
-        status: 'ACTIVE',
-        hireDate: '2024-01-15',
-        currency: 'SAR',
-        basicSalary: '18000.00',
-        totalCost: '22500.00',
-        isBillableResource: true,
-        requiredMarginPct: '35.00',
-        email: 'ahmed.fayed@azmtech.sa',
-        phone: '+966501122334',
-        costProfileName: 'ملف تكلفة مهندسين أول',
-        costProfileId: 'cp-01',
-      },
-      {
-        id: 'emp-02',
-        code: 'EMP-002',
-        fullNameAr: 'م. إسلام حسن عبد العليم',
-        fullNameEn: 'Eslam Hassan',
-        nationalId: '29201011234567',
-        departmentId: 'dept-01',
-        departmentName: 'تطوير البرمجيات والأنظمة',
-        positionId: 'pos-2',
-        positionTitle: 'مطور تطبيقات سحابية أول (Senior Full Stack)',
-        branchId: 'br-02',
-        branchName: 'فرع جمهورية مصر العربية - القاهرة',
-        employmentType: 'FULL_TIME',
-        status: 'ACTIVE',
-        hireDate: '2024-03-01',
-        currency: 'EGP',
-        basicSalary: '45000.00',
-        totalCost: '18000.00',
-        isBillableResource: true,
-        requiredMarginPct: '40.00',
-        email: 'eslam.hassan@azmtech.sa',
-        phone: '+201012345678',
-        costProfileName: 'ملف تكلفة كوادر إقليمية (EGP)',
-        costProfileId: 'cp-02',
-      },
-      {
-        id: 'emp-03',
-        code: 'EMP-003',
-        fullNameAr: 'سارة محمد المنصور',
-        fullNameEn: 'Sarah Al-Mansoor',
-        nationalId: '1099887766',
-        departmentId: 'dept-02',
-        departmentName: 'إدارة المشاريع والتحول الرقمي',
-        positionId: 'pos-6',
-        positionTitle: 'مدير مشاريع تقنية (Scrum Master)',
-        branchId: 'br-01',
-        branchName: 'المقر الرئيسي - الرياض',
-        employmentType: 'FULL_TIME',
-        status: 'ACTIVE',
-        hireDate: '2024-06-01',
-        currency: 'SAR',
-        basicSalary: '16000.00',
-        totalCost: '20000.00',
-        isBillableResource: true,
-        requiredMarginPct: '30.00',
-        email: 'sarah.mansoor@azmtech.sa',
-        phone: '+966552233445',
-        costProfileName: 'ملف تكلفة مدراء المشاريع',
-        costProfileId: 'cp-01',
-      },
-      {
-        id: 'emp-04',
-        code: 'EMP-004',
-        fullNameAr: 'مريم عبد الله العتيبي',
-        fullNameEn: 'Mariam Al-Otaibi',
-        nationalId: '1077665544',
-        departmentId: 'dept-01',
-        departmentName: 'تطوير البرمجيات والأنظمة',
-        positionId: 'pos-5',
-        positionTitle: 'مصمم واجهات وتجربة المستخدم (UI/UX Designer)',
-        branchId: 'br-01',
-        branchName: 'المقر الرئيسي - الرياض',
-        employmentType: 'FULL_TIME',
-        status: 'ACTIVE',
-        hireDate: '2025-01-01',
-        currency: 'SAR',
-        basicSalary: '12000.00',
-        totalCost: '15000.00',
-        isBillableResource: true,
-        requiredMarginPct: '35.00',
-        email: 'mariam.otaibi@azmtech.sa',
-        phone: '+966563344556',
-        costProfileName: 'ملف تكلفة كوادر إدارية',
-        costProfileId: 'cp-03',
-      },
-    ];
-
+    const emps = getEntityList<any>('employees', []);
     if (path.includes('/cost')) {
       return {
-        employedDays: 22,
+        employedDays: 0,
         periodDays: 22,
-        totalCostBase: '22500.00',
-        distributableCostBase: '22500.00',
+        totalCostBase: '0.00',
+        distributableCostBase: '0.00',
         totalDeductionsBase: '0.00',
-        dailyDirectCost: '1022.73',
-        dailyOverheadCost: '250.00',
-        dailyTotalCost: '1272.73',
+        dailyDirectCost: '0.00',
+        dailyOverheadCost: '0.00',
+        dailyTotalCost: '0.00',
         currency: 'SAR',
-        breakdown: [
-          { component: 'الراتب الأساسي وبدل السكن والنقل', amount: '818.18', currency: 'SAR' },
-          { component: 'التأمينات الاجتماعية (GOSI المنشأة)', amount: '181.82', currency: 'SAR' },
-          { component: 'التأمين الطبي السنوي الموزع', amount: '22.73', currency: 'SAR' },
-          { component: 'حصة مصاريف المقر والبرمجيات (Overhead)', amount: '250.00', currency: 'SAR' },
-        ],
-        lines: [
-          { componentNameAr: 'الراتب الأساسي وبدل السكن', componentCode: 'BASIC', kind: 'DIRECT', amountBase: '18000.00', currencyCode: 'SAR', originalAmount: '18000.00' },
-          { componentNameAr: 'التأمينات الاجتماعية (GOSI)', componentCode: 'GOSI', kind: 'BENEFIT', amountBase: '4000.00', currencyCode: 'SAR', originalAmount: '4000.00' },
-          { componentNameAr: 'تأمين طبي سنوي موزع', componentCode: 'MED', kind: 'BENEFIT', amountBase: '500.00', currencyCode: 'SAR', originalAmount: '500.00' },
-        ],
+        breakdown: [],
+        lines: [],
       };
     }
 
     if (path.includes('/documents')) {
-      return makeList([
-        { id: 'doc-01', docType: 'NATIONAL_ID', documentNo: '1088776655', issueDate: '2020-01-01', expiryDate: '2030-01-01', isVerified: true },
-        { id: 'doc-02', docType: 'PASSPORT', documentNo: 'P0199282', issueDate: '2022-05-10', expiryDate: '2027-05-10', isVerified: true },
-        { id: 'doc-03', docType: 'CONTRACT', documentNo: 'CNT-2024-001', issueDate: '2024-01-15', expiryDate: '2026-01-14', isVerified: true },
-      ]);
+      return makeList(getEntityList<any>('employee_documents', []));
     }
 
-    const singleEmp = emps.find((e) => path.endsWith(`/${e.id}`) || path.endsWith(`/${e.code}`));
+    const singleEmp: any = emps.find((e: any) => path.endsWith(`/${e.id}`) || path.endsWith(`/${e.code}`));
     if (singleEmp) {
       return {
         ...singleEmp,
@@ -585,10 +210,10 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           managerEmployeeId: null,
         },
         salary: {
-          basicSalary: singleEmp.basicSalary,
-          salaryCurrency: singleEmp.currency,
-          insuranceSalary: '4000.00',
-          insuranceCurrency: singleEmp.currency,
+          basicSalary: singleEmp.basicSalary || '0.00',
+          salaryCurrency: singleEmp.currency || 'SAR',
+          insuranceSalary: '0.00',
+          insuranceCurrency: singleEmp.currency || 'SAR',
         },
       };
     }
@@ -597,86 +222,25 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 6. Projects (المشاريع والعقود)
   if (path.includes('/projects')) {
-    const projects = [
-      {
-        id: 'prj-01',
-        code: 'PRJ-2026-001',
-        nameAr: 'مشروع التحول الرقمي والفوترة الإلكترونية (ZATCA)',
-        nameEn: 'ZATCA Digital Transformation',
-        clientId: 'cli-01',
-        clientName: 'شركة التقنية المتقدمة',
-        status: 'ACTIVE',
-        billingType: 'TIME_AND_MATERIALS',
-        currencyCode: 'SAR',
-        totalRevenue: '350000.00',
-        totalCost: '185000.00',
-        marginPct: '47.14',
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-        progressPct: 75,
-      },
-      {
-        id: 'prj-02',
-        code: 'PRJ-2026-002',
-        nameAr: 'تطوير منصة التجارة والتوزيع السحابية',
-        nameEn: 'E-Commerce Cloud Platform',
-        clientId: 'cli-02',
-        clientName: 'مؤسسة الحلول الرقمية الكبرى',
-        status: 'ACTIVE',
-        billingType: 'FIXED_PRICE',
-        currencyCode: 'SAR',
-        totalRevenue: '220000.00',
-        totalCost: '110000.00',
-        marginPct: '50.00',
-        startDate: '2026-02-01',
-        endDate: '2026-10-31',
-        progressPct: 90,
-      },
-      {
-        id: 'prj-03',
-        code: 'PRJ-2026-003',
-        nameAr: 'تطبيقات الذكاء الاصطناعي للموارد البشرية',
-        nameEn: 'AI HR Intelligence Suite',
-        clientId: 'cli-01',
-        clientName: 'شركة التقنية المتقدمة',
-        status: 'PENDING',
-        billingType: 'RETAINER',
-        currencyCode: 'SAR',
-        totalRevenue: '180000.00',
-        totalCost: '95000.00',
-        marginPct: '47.22',
-        startDate: '2026-03-01',
-        endDate: '2026-12-31',
-        progressPct: 20,
-      },
-    ];
-
-    const singleProj = projects.find((p) => path.endsWith(`/${p.id}`) || path.endsWith(`/${p.code}`));
+    const projects = getEntityList('projects', []);
+    const singleProj = projects.find((p: any) => path.endsWith(`/${p.id}`) || path.endsWith(`/${p.code}`));
     if (singleProj) return singleProj;
     return makeList(projects);
   }
 
   // 7. Clients (العملاء)
   if (path.includes('/clients')) {
-    const clients = [
-      { id: 'cli-01', code: 'CLI-001', nameAr: 'شركة التقنية المتقدمة المحدودة', nameEn: 'Advanced Tech Co.', vatNumber: '300012345600003', crNumber: '1010999991', phone: '+966501234567', email: 'info@advtech.sa', city: 'الرياض', isActive: true },
-      { id: 'cli-02', code: 'CLI-002', nameAr: 'مؤسسة الحلول الرقمية الكبرى', nameEn: 'Mega Digital Solutions', vatNumber: '300098765400003', crNumber: '1010888882', phone: '+966509876543', email: 'contact@megadigital.sa', city: 'جدة', isActive: true },
-      { id: 'cli-03', code: 'CLI-003', nameAr: 'مجموعة الأفق للاستشارات', nameEn: 'Horizon Consulting Group', vatNumber: '300055555500003', crNumber: '1010777773', phone: '+966551122334', email: 'sales@horizon.sa', city: 'الرياض', isActive: true },
-    ];
-    const singleCli = clients.find((c) => path.endsWith(`/${c.id}`));
+    const clients = getEntityList('clients', []);
+    const singleCli = clients.find((c: any) => path.endsWith(`/${c.id}`) || path.endsWith(`/${c.code}`));
     if (singleCli) return singleCli;
     return makeList(clients);
   }
 
   // 8. Assignments & Workload (توزيع المطورين على المشاريع)
   if (path.includes('/assignments')) {
-    const rows = [
-      { id: 'as-1', employeeName: 'م. أحمد عبد الرحمن الفايد', employeeId: 'emp-01', projectName: 'مشروع التحول الرقمي ZATCA', projectId: 'prj-01', days: 22, billableAmount: 85000, costAmount: 22500, utilizationPct: 100, roleName: 'Lead Architect', billingRate: 350 },
-      { id: 'as-2', employeeName: 'م. إسلام حسن عبد العليم', employeeId: 'emp-02', projectName: 'تطوير منصة التجارة والتوزيع', projectId: 'prj-02', days: 22, billableAmount: 67000, costAmount: 18000, utilizationPct: 100, roleName: 'Full Stack Dev', billingRate: 180 },
-      { id: 'as-3', employeeName: 'سارة محمد المنصور', employeeId: 'emp-03', projectName: 'مشروع التحول الرقمي ZATCA', projectId: 'prj-01', days: 20, billableAmount: 60000, costAmount: 20000, utilizationPct: 91, roleName: 'Project Manager', billingRate: 300 },
-    ];
+    const rows = getEntityList('assignments', []);
     return {
-      summary: { totalDays: 64, totalRevenue: 212000, totalCost: 60500, margin: 151500 },
+      summary: { totalDays: 0, totalRevenue: 0, totalCost: 0, margin: 0 },
       rows,
       data: rows,
       meta: { page: 1, pageSize: 50, total: rows.length },
@@ -759,122 +323,55 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/accounts')) {
     return makeList([
-      { id: 'acc-101', code: '10101', nameAr: 'الصندوق والعهد النقدية', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '150000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-102', code: '10201', nameAr: 'مصرف الراجحي - الحساب الجاري التجاري', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '4850000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-103', code: '10202', nameAr: 'البنك الأهلي السعودي (SNB) - حساب الرواتب', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '1200000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-104', code: '10301', nameAr: 'العملاء وحسابات القبض التجارية (A/R)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '750000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-105', code: '10401', nameAr: 'العهد المؤقتة للموظفين', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '25000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-201', code: '20101', nameAr: 'الموردون وحسابات الدفع (A/P)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '320000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-202', code: '20201', nameAr: 'ضريبة القيمة المضافة المستحقة (ZATCA VAT)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '95000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-203', code: '20301', nameAr: 'مستحقات التأمينات الاجتماعية (GOSI)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '28000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-301', code: '30101', nameAr: 'رأس المال المدفوع', accountClass: 'EQUITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '5000000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-302', code: '30201', nameAr: 'الأرباح المبقاة', accountClass: 'EQUITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '1250000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-401', code: '40101', nameAr: 'إيرادات عقود وتطوير البرمجيات والمشاريع', accountClass: 'REVENUE', normalBalance: 'CREDIT', isPosting: true, currentBalance: '2450000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-501', code: '50101', nameAr: 'تكلفة المطورين والرواتب المباشرة للمشاريع', accountClass: 'EXPENSE', normalBalance: 'DEBIT', isPosting: true, currentBalance: '820000.00', currency: 'SAR', isActive: true },
-      { id: 'acc-502', code: '50201', nameAr: 'تكاليف السحابة والبنية التحتية (AWS/GCP)', accountClass: 'EXPENSE', normalBalance: 'DEBIT', isPosting: true, currentBalance: '145000.00', currency: 'SAR', isActive: true },
+      { id: 'acc-101', code: '10101', nameAr: 'الصندوق والعهد النقدية', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-102', code: '10201', nameAr: 'مصرف الراجحي - الحساب الجاري التجاري', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-103', code: '10202', nameAr: 'البنك الأهلي السعودي (SNB) - حساب الرواتب', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-104', code: '10301', nameAr: 'العملاء وحسابات القبض التجارية (A/R)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-105', code: '10401', nameAr: 'العهد المؤقتة للموظفين', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-201', code: '20101', nameAr: 'الموردون وحسابات الدفع (A/P)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-202', code: '20201', nameAr: 'ضريبة القيمة المضافة المستحقة (ZATCA VAT)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-203', code: '20301', nameAr: 'مستحقات التأمينات الاجتماعية (GOSI)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-301', code: '30101', nameAr: 'رأس المال المدفوع', accountClass: 'EQUITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-302', code: '30201', nameAr: 'الأرباح المبقاة', accountClass: 'EQUITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-401', code: '40101', nameAr: 'إيرادات عقود وتطوير البرمجيات والمشاريع', accountClass: 'REVENUE', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-501', code: '50101', nameAr: 'تكلفة المطورين والرواتب المباشرة للمشاريع', accountClass: 'EXPENSE', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
+      { id: 'acc-502', code: '50201', nameAr: 'تكاليف السحابة والبنية التحتية (AWS/GCP)', accountClass: 'EXPENSE', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
     ]);
   }
 
   if (path.includes('/bank-accounts')) {
     return makeList([
-      { id: 'ba-01', bankNameAr: 'مصرف الراجحي', bankNameEn: 'Al Rajhi Bank', accountNumber: '20401827491001', iban: 'SA038000020401827491001', currency: 'SAR', currentBalance: '4850000.00', glAccountId: 'acc-102', isActive: true },
-      { id: 'ba-02', bankNameAr: 'البنك الأهلي السعودي (SNB)', bankNameEn: 'Saudi National Bank', accountNumber: '10029384756002', iban: 'SA4410000010029384756002', currency: 'SAR', currentBalance: '1200000.00', glAccountId: 'acc-103', isActive: true },
-      { id: 'ba-03', bankNameAr: 'البنك التجاري الدولي (CIB مصر)', bankNameEn: 'Commercial International Bank', accountNumber: '100029384711', iban: 'EG3800100000000100029384711', currency: 'EGP', currentBalance: '3500000.00', glAccountId: 'acc-101', isActive: true },
+      { id: 'ba-01', bankNameAr: 'مصرف الراجحي', bankNameEn: 'Al Rajhi Bank', accountNumber: '20401827491001', iban: 'SA038000020401827491001', currency: 'SAR', currentBalance: '0.00', glAccountId: 'acc-102', isActive: true },
+      { id: 'ba-02', bankNameAr: 'البنك الأهلي السعودي (SNB)', bankNameEn: 'Saudi National Bank', accountNumber: '10029384756002', iban: 'SA4410000010029384756002', currency: 'SAR', currentBalance: '0.00', glAccountId: 'acc-103', isActive: true },
+      { id: 'ba-03', bankNameAr: 'البنك التجاري الدولي (CIB مصر)', bankNameEn: 'Commercial International Bank', accountNumber: '100029384711', iban: 'EG3800100000000100029384711', currency: 'EGP', currentBalance: '0.00', glAccountId: 'acc-101', isActive: true },
     ]);
   }
 
   if (path.includes('/journal-entries') || path.includes('/journals')) {
-    return makeList([
-      {
-        id: 'je-2026-001',
-        entryNumber: 'JV-2026-0001',
-        entryDate: '2026-10-01',
-        descriptionAr: 'قيد إثبات رأس المال التأسيسي في الحساب البنكي',
-        status: 'POSTED',
-        totalDebit: '5000000.00',
-        totalCredit: '5000000.00',
-        lines: [
-          { accountCode: '10201', accountName: 'مصرف الراجحي - الحساب الجاري', debit: '5000000.00', credit: '0.00' },
-          { accountCode: '30101', accountName: 'رأس المال المدفوع', debit: '0.00', credit: '5000000.00' },
-        ],
-      },
-      {
-        id: 'je-2026-002',
-        entryNumber: 'JV-2026-0002',
-        entryDate: '2026-10-15',
-        descriptionAr: 'قيد استحقاق إيرادات المرحلة الأولى - مشروع التحول الرقمي ZATCA',
-        status: 'POSTED',
-        totalDebit: '172500.00',
-        totalCredit: '172500.00',
-        lines: [
-          { accountCode: '10301', accountName: 'العملاء (شركة التقنية المتقدمة)', debit: '172500.00', credit: '0.00' },
-          { accountCode: '40101', accountName: 'إيرادات عقود وتطوير البرمجيات', debit: '0.00', credit: '150000.00' },
-          { accountCode: '20201', accountName: 'ضريبة القيمة المضافة المستحقة (15%)', debit: '0.00', credit: '22500.00' },
-        ],
-      },
-      {
-        id: 'je-2026-003',
-        entryNumber: 'JV-2026-0003',
-        entryDate: '2026-10-25',
-        descriptionAr: 'قيد ترحيل مسير رواتب المطورين والمهندسين لشهر أكتوبر',
-        status: 'POSTED',
-        totalDebit: '60500.00',
-        totalCredit: '60500.00',
-        lines: [
-          { accountCode: '50101', accountName: 'تكلفة المطورين والرواتب المباشرة للمشاريع', debit: '60500.00', credit: '0.00' },
-          { accountCode: '10202', accountName: 'البنك الأهلي السعودي - حساب الرواتب', debit: '0.00', credit: '60500.00' },
-        ],
-      },
-    ]);
+    return makeList(getEntityList('journal_entries', []));
   }
 
-  // 11. Financial Reports & Statements
+  // 11. Financial Reports & Statements (Zero Baseline for Production Readiness)
   if (path.includes('/ledger/trial')) {
     return {
       period: 'أكتوبر 2026',
-      totalDebit: '8243000.00',
-      totalCredit: '8243000.00',
+      totalDebit: '0.00',
+      totalCredit: '0.00',
       isBalanced: true,
-      rows: [
-        { code: '10101', nameAr: 'الصندوق والعهد النقدية', openingDebit: 10000, openingCredit: 0, periodDebit: 140000, periodCredit: 0, closingDebit: 150000, closingCredit: 0, isPosting: true },
-        { code: '10201', nameAr: 'مصرف الراجحي - الحساب الجاري', openingDebit: 0, openingCredit: 0, periodDebit: 5000000, periodCredit: 150000, closingDebit: 4850000, closingCredit: 0, isPosting: true },
-        { code: '10202', nameAr: 'البنك الأهلي السعودي - حساب الرواتب', openingDebit: 1260500, openingCredit: 0, periodDebit: 0, periodCredit: 60500, closingDebit: 1200000, closingCredit: 0, isPosting: true },
-        { code: '10301', nameAr: 'العملاء وحسابات القبض (A/R)', openingDebit: 577500, openingCredit: 0, periodDebit: 172500, periodCredit: 0, closingDebit: 750000, closingCredit: 0, isPosting: true },
-        { code: '20101', nameAr: 'الموردون وحسابات الدفع (A/P)', openingDebit: 0, openingCredit: 320000, periodDebit: 0, periodCredit: 0, closingDebit: 0, closingCredit: 320000, isPosting: true },
-        { code: '20201', nameAr: 'ضريبة القيمة المضافة المستحقة (ZATCA)', openingDebit: 0, openingCredit: 72500, periodDebit: 0, periodCredit: 22500, closingDebit: 0, closingCredit: 95000, isPosting: true },
-        { code: '30101', nameAr: 'رأس المال المدفوع', openingDebit: 0, openingCredit: 5000000, periodDebit: 0, periodCredit: 0, closingDebit: 0, closingCredit: 5000000, isPosting: true },
-        { code: '40101', nameAr: 'إيرادات عقود وتطوير البرمجيات', openingDebit: 0, openingCredit: 2300000, periodDebit: 0, periodCredit: 150000, closingDebit: 0, closingCredit: 2450000, isPosting: true },
-        { code: '50101', nameAr: 'تكلفة المطورين والرواتب المباشرة', openingDebit: 759500, openingCredit: 0, periodDebit: 60500, periodCredit: 0, closingDebit: 820000, closingCredit: 0, isPosting: true },
-        { code: '50201', nameAr: 'تكاليف السحابة والبنية التحتية', openingDebit: 145000, openingCredit: 0, periodDebit: 0, periodCredit: 0, closingDebit: 145000, closingCredit: 0, isPosting: true },
-      ],
-      lines: [
-        { code: '10101', nameAr: 'الصندوق والعهد النقدية', openingDebit: '10000.00', openingCredit: '0.00', periodDebit: '140000.00', periodCredit: '0.00', closingDebit: '150000.00', closingCredit: '0.00', isPosting: true },
-        { code: '10201', nameAr: 'مصرف الراجحي - الحساب الجاري', openingDebit: '0.00', openingCredit: '0.00', periodDebit: '5000000.00', periodCredit: '150000.00', closingDebit: '4850000.00', closingCredit: '0.00', isPosting: true },
-        { code: '10202', nameAr: 'البنك الأهلي السعودي - حساب الرواتب', openingDebit: '1260500.00', openingCredit: '0.00', periodDebit: '0.00', periodCredit: '60500.00', closingDebit: '1200000.00', closingCredit: '0.00', isPosting: true },
-        { code: '10301', nameAr: 'العملاء وحسابات القبض (A/R)', openingDebit: '577500.00', openingCredit: '0.00', periodDebit: '172500.00', periodCredit: '0.00', closingDebit: '750000.00', closingCredit: '0.00', isPosting: true },
-        { code: '20101', nameAr: 'الموردون وحسابات الدفع (A/P)', openingDebit: '0.00', openingCredit: '320000.00', periodDebit: '0.00', periodCredit: '0.00', closingDebit: '0.00', closingCredit: '320000.00', isPosting: true },
-        { code: '20201', nameAr: 'ضريبة القيمة المضافة المستحقة (ZATCA)', openingDebit: '0.00', openingCredit: '72500.00', periodDebit: '0.00', periodCredit: '22500.00', closingDebit: '0.00', closingCredit: '95000.00', isPosting: true },
-        { code: '30101', nameAr: 'رأس المال المدفوع', openingDebit: '0.00', openingCredit: '5000000.00', periodDebit: '0.00', periodCredit: '0.00', closingDebit: '0.00', closingCredit: '5000000.00', isPosting: true },
-        { code: '40101', nameAr: 'إيرادات عقود وتطوير البرمجيات', openingDebit: '0.00', openingCredit: '2300000.00', periodDebit: '0.00', periodCredit: '150000.00', closingDebit: '0.00', closingCredit: '2450000.00', isPosting: true },
-        { code: '50101', nameAr: 'تكلفة المطورين والرواتب المباشرة', openingDebit: '759500.00', openingCredit: '0.00', periodDebit: '60500.00', periodCredit: '0.00', closingDebit: '820000.00', closingCredit: '0.00', isPosting: true },
-        { code: '50201', nameAr: 'تكاليف السحابة والبنية التحتية', openingDebit: '145000.00', openingCredit: '0.00', periodDebit: '0.00', periodCredit: '0.00', closingDebit: '145000.00', closingCredit: '0.00', isPosting: true },
-      ],
+      rows: [],
+      lines: [],
     };
   }
 
   if (path.includes('/ledger/income')) {
     return {
-      revenue: '2450000.00',
-      directCost: '820000.00',
-      grossProfit: '1630000.00',
-      operatingExpenses: '145000.00',
-      netProfit: '1485000.00',
-      marginPct: '60.61',
-      lines: [
-        { accountCode: '40101', accountName: 'إيرادات عقود وتطوير البرمجيات والمشاريع', accountClass: 'REVENUE', amount: '2450000.00' },
-        { accountCode: '50101', accountName: 'تكلفة المطورين والرواتب المباشرة للمشاريع', accountClass: 'EXPENSE', amount: '820000.00' },
-        { accountCode: '50201', accountName: 'تكاليف السحابة والبنية التحتية والمصروفات التشغيلية', accountClass: 'EXPENSE', amount: '145000.00' },
-      ],
+      revenue: '0.00',
+      directCost: '0.00',
+      grossProfit: '0.00',
+      operatingExpenses: '0.00',
+      netProfit: '0.00',
+      marginPct: '0.00',
+      lines: [],
     };
   }
 
@@ -882,30 +379,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return {
       asOfDate: '2026-10-31',
       assets: {
-        total: '6950000.00',
-        current: '6950000.00',
+        total: '0.00',
+        current: '0.00',
         nonCurrent: '0.00',
-        lines: [
-          { code: '10101', name: 'الصندوق والعهد النقدية', amount: '150000.00' },
-          { code: '10201', name: 'مصرف الراجحي - الحساب الجاري التجاري', amount: '4850000.00' },
-          { code: '10202', name: 'البنك الأهلي السعودي - حساب الرواتب', amount: '1200000.00' },
-          { code: '10301', name: 'العملاء وحسابات القبض التجارية (A/R)', amount: '750000.00' },
-        ],
+        lines: [],
       },
       liabilities: {
-        total: '443000.00',
-        lines: [
-          { code: '20101', name: 'الموردون وحسابات الدفع (A/P)', amount: '320000.00' },
-          { code: '20201', name: 'ضريبة القيمة المضافة المستحقة (ZATCA)', amount: '95000.00' },
-          { code: '20301', name: 'مستحقات التأمينات الاجتماعية (GOSI)', amount: '28000.00' },
-        ],
+        total: '0.00',
+        lines: [],
       },
       equity: {
-        total: '6507000.00',
-        lines: [
-          { code: '30101', name: 'رأس المال المدفوع', amount: '5000000.00' },
-          { code: '30201', name: 'أرباح الفترة الحالية والأرباح المبقاة', amount: '1507000.00' },
-        ],
+        total: '0.00',
+        lines: [],
       },
       isBalanced: true,
     };
@@ -915,13 +400,10 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return {
       account: { code: '10201', nameAr: 'مصرف الراجحي - الحساب الجاري التجاري', currency: 'SAR' },
       openingBalance: '0.00',
-      closingBalance: '4850000.00',
-      totalDebit: '5000000.00',
-      totalCredit: '150000.00',
-      lines: [
-        { id: 'l-1', entryDate: '2026-10-01', entryNumber: 'JV-2026-0001', description: 'إيداع رأس المال التأسيسي', debit: '5000000.00', credit: '0.00', balance: '5000000.00' },
-        { id: 'l-2', entryDate: '2026-10-15', entryNumber: 'JV-2026-0004', description: 'سداد دفعة للموردين والبنية التحتية', debit: '0.00', credit: '150000.00', balance: '4850000.00' },
-      ],
+      closingBalance: '0.00',
+      totalDebit: '0.00',
+      totalCredit: '0.00',
+      lines: [],
     };
   }
 
@@ -941,59 +423,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/invoices') || path.includes('/sal/invoices') || path.includes('/zatca/invoices')) {
-    const invs = [
-      {
-        id: 'inv-01',
-        invoiceNumber: 'INV-2026-0001',
-        issueDate: '2026-10-20',
-        dueDate: '2026-11-20',
-        clientName: 'شركة التقنية المتقدمة المحدودة',
-        clientVatNumber: '300012345600003',
-        clientAddress: 'طريق الملك فهد، الرياض، المملكة العربية السعودية',
-        projectName: 'مشروع التحول الرقمي والفوترة الإلكترونية (ZATCA)',
-        status: 'CLEARED',
-        zatcaStatus: 'CLEARED',
-        paymentStatus: 'PAID',
-        currencyCode: 'SAR',
-        exchangeRate: '1.0000',
-        subtotal: '76000.00',
-        vatAmount: '11400.00',
-        totalWithVat: '87400.00',
-        type: 'STANDARD',
-        qrCodeBase64: 'AQ9DYWlybyBDb25zdWx0aW5nAg8zMTAxMjM0NTY3MDAwMDMDFTIwMjYtMTAtMjBUMTE6MTU6MDBaBAY4NzQwLjAwBQUxMTQwLjAw',
-        ublXmlHash: '95f57f9b242e1c98492048590382901a5e12f6b8',
-        lines: [
-          { id: 'l1', description: 'خدمات استشارية معمارية وهندسة برمجيات (م. أحمد الفايد - 22 يوم عمل)', quantity: 22, unitPrice: '2500.00', vatPct: 15, vatAmount: '8250.00', lineTotal: '63250.00' },
-          { id: 'l2', description: 'إدارة وتوجيه مشاريع تقنية سحابية (سارة المنصور - 10 أيام عمل)', quantity: 10, unitPrice: '2100.00', vatPct: 15, vatAmount: '3150.00', lineTotal: '24150.00' },
-        ],
-      },
-      {
-        id: 'inv-02',
-        invoiceNumber: 'INV-2026-0002',
-        issueDate: '2026-10-22',
-        dueDate: '2026-11-22',
-        clientName: 'مؤسسة الحلول الرقمية الكبرى',
-        clientVatNumber: '300098765400003',
-        clientAddress: 'طريق الأندلس، جدة، المملكة العربية السعودية',
-        projectName: 'تطوير منصة التجارة والتوزيع السحابية',
-        status: 'CLEARED',
-        zatcaStatus: 'CLEARED',
-        paymentStatus: 'UNPAID',
-        currencyCode: 'SAR',
-        exchangeRate: '1.0000',
-        subtotal: '76000.00',
-        vatAmount: '11400.00',
-        totalWithVat: '87400.00',
-        type: 'STANDARD',
-        qrCodeBase64: 'AQ9DYWlybyBDb25zdWx0aW5nAg8zMTAxMjM0NTY3MDAwMDMDFTIwMjYtMTAtMjJUMTQ6MzA6MDBaBAY4NzQwLjAwBQUxMTQwLjAw',
-        ublXmlHash: '34393532393931386439343930356439',
-        lines: [
-          { id: 'l3', description: 'تطوير واجهات وبرمجة خلفية سحابية (م. إسلام حسن - 22 يوم عمل)', quantity: 22, unitPrice: '3000.00', vatPct: 15, vatAmount: '9900.00', lineTotal: '75900.00' },
-          { id: 'l4', description: 'تصميم تجربة وواجهة المستخدم للوحات التحكم (مريم العتيبي - 5 أيام)', quantity: 5, unitPrice: '2000.00', vatPct: 15, vatAmount: '1500.00', lineTotal: '11500.00' },
-        ],
-      },
-    ];
-
+    const invs = getEntityList('invoices', []);
     if (path.includes('/ubl-xml')) {
       return {
         ublXml: `<?xml version="1.0" encoding="UTF-8"?>
@@ -1010,8 +440,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         hash: '95f57f9b242e1c98492048590382901a5e12f6b8',
       };
     }
-
-    const singleInv = invs.find((i) => path.endsWith(`/${i.id}`) || path.endsWith(`/${i.invoiceNumber}`));
+    const singleInv = invs.find((i: any) => path.endsWith(`/${i.id}`) || path.endsWith(`/${i.invoiceNumber}`));
     if (singleInv) return singleInv;
     return makeList(invs);
   }
@@ -1098,49 +527,46 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/purchase-invoices') || path.includes('/pur/invoices')) {
-    const pinvs = [
-      { id: 'pinv-01', invoiceNumber: 'PINV-2026-001', vendorName: 'أمازون ويب سيرفيسز (AWS EMEA)', issueDate: '2026-10-05', totalWithVat: '14500.00', vatAmount: '0.00', currencyCode: 'USD', status: 'POSTED' },
-      { id: 'pinv-02', invoiceNumber: 'PINV-2026-002', vendorName: 'شركة الاتصالات السعودية (STC)', issueDate: '2026-10-10', totalWithVat: '3450.00', vatAmount: '450.00', currencyCode: 'SAR', status: 'POSTED' },
-    ];
-    const singlePinv = pinvs.find((p) => path.endsWith(`/${p.id}`));
+    const pinvs = getEntityList('purchase_invoices', []);
+    const singlePinv = pinvs.find((p: any) => path.endsWith(`/${p.id}`));
     if (singlePinv) return singlePinv;
     return makeList(pinvs);
   }
 
-  if (path.includes('/debit-notes')) {
-    return makeList([
-      { id: 'dn-01', noteNumber: 'DN-2026-0001', invoiceNumber: 'PINV-2026-001', vendorName: 'أمازون ويب سيرفيسز (AWS EMEA)', amount: '1200.00', reason: 'خصم رصيد استهلاك مجاني', status: 'POSTED' },
-    ]);
+  if (path.includes('/vendors')) {
+    return makeList(getEntityList('vendors', []));
   }
 
-  // 15. Payroll, Variables, Loans
+  if (path.includes('/debit-notes')) {
+    return makeList(getEntityList('debit_notes', []));
+  }
+
+  if (path.includes('/services/catalog') || path.includes('/services')) {
+    return makeList(getEntityList('services_catalog', []));
+  }
+
+  // 15. Payroll, Variables, Loans (Production Zero Baseline)
   if (path.includes('/payroll-runs')) {
     if (path.includes('/preview')) {
       return {
         runCode: 'PAY-2026-10-PREV',
         periodName: 'أكتوبر 2026',
-        employeeCount: 4,
-        totalBasic: '50500.00',
-        totalAllowances: '12000.00',
-        totalDeductions: '2000.00',
-        netPayableBase: '60500.00',
+        employeeCount: 0,
+        totalBasic: '0.00',
+        totalAllowances: '0.00',
+        totalDeductions: '0.00',
+        netPayableBase: '0.00',
         currencyCode: 'SAR',
       };
     }
-    const runs = [
-      { id: 'pr-2026-10', runCode: 'PAY-2026-10', periodId: 'fp-2026-10', periodName: 'أكتوبر 2026', employeeCount: 4, totalGross: '62500.00', totalDeductions: '2000.00', netPayableBase: '60500.00', status: 'POSTED', runDate: '2026-10-25' },
-      { id: 'pr-2026-09', runCode: 'PAY-2026-09', periodId: 'fp-2026-09', periodName: 'سبتمبر 2026', employeeCount: 4, totalGross: '62500.00', totalDeductions: '2000.00', netPayableBase: '60500.00', status: 'POSTED', runDate: '2026-09-25' },
-    ];
-    const singleRun = runs.find((r) => path.endsWith(`/${r.id}`));
+    const runs = getEntityList('payroll_runs', []);
+    const singleRun = runs.find((r: any) => path.endsWith(`/${r.id}`));
     if (singleRun) return singleRun;
     return makeList(runs);
   }
 
   if (path.includes('/monthly-variables')) {
-    return makeList([
-      { id: 'mv-01', employeeCode: 'EMP-001', employeeName: 'م. أحمد عبد الرحمن الفايد', typeName: 'مكافأة أداء استثنائي', amount: '3500.00', currency: 'SAR', action: 'EARNING', periodName: 'أكتوبر 2026' },
-      { id: 'mv-02', employeeCode: 'EMP-002', employeeName: 'م. إسلام حسن عبد العليم', typeName: 'بدل عمل إقليمي وتطوير', amount: '2500.00', currency: 'SAR', action: 'EARNING', periodName: 'أكتوبر 2026' },
-    ]);
+    return makeList(getEntityList('monthly_variables', []));
   }
 
   if (path.includes('/variable-types')) {
@@ -1152,16 +578,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/loans')) {
-    const loans = [
-      { id: 'ln-01', employeeCode: 'EMP-001', employeeName: 'م. أحمد عبد الرحمن الفايد', principalAmount: '20000.00', monthlyInstallment: '2000.00', remainingAmount: '12000.00', status: 'ACTIVE', startDate: '2026-01-01', currency: 'SAR' },
-      { id: 'ln-02', employeeCode: 'EMP-002', employeeName: 'م. إسلام حسن عبد العليم', principalAmount: '15000.00', monthlyInstallment: '1500.00', remainingAmount: '6000.00', status: 'ACTIVE', startDate: '2026-02-01', currency: 'SAR' },
-    ];
-    const singleLoan = loans.find((l) => path.endsWith(`/${l.id}`));
+    const loans = getEntityList('loans', []);
+    const singleLoan = loans.find((l: any) => path.endsWith(`/${l.id}`));
     if (singleLoan) return singleLoan;
     return makeList(loans);
   }
 
-  // 16. Fixed Assets & Custodies
+  // 16. Fixed Assets & Custodies (Production Zero Baseline)
   if (path.includes('/asset-categories')) {
     return makeList([
       { id: 'ac-01', code: 'AC-SERVERS', nameAr: 'أجهزة الخوادم والشبكات', depreciationMethod: 'STRAIGHT_LINE', usefulLifeMonths: 36, annualDepreciationPct: '33.33', isActive: true },
@@ -1170,11 +593,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/assets')) {
-    const assets = [
-      { id: 'ast-01', code: 'AST-2026-001', nameAr: 'مجموعة أجهزة MacBook Pro M3 للمطورين', categoryName: 'أجهزة الحواسيب المحمولة للمطورين', purchaseDate: '2026-01-10', purchaseCost: '48000.00', currentBookValue: '36000.00', accumulatedDepreciation: '12000.00', status: 'ACTIVE' },
-      { id: 'ast-02', code: 'AST-2026-002', nameAr: 'خوادم اختبار وبنية داخلية Dell PowerEdge', categoryName: 'أجهزة الخوادم والشبكات', purchaseDate: '2026-02-15', purchaseCost: '65000.00', currentBookValue: '51500.00', accumulatedDepreciation: '13500.00', status: 'ACTIVE' },
-    ];
-    const singleAst = assets.find((a) => path.endsWith(`/${a.id}`));
+    const assets = getEntityList('assets', []);
+    const singleAst = assets.find((a: any) => path.endsWith(`/${a.id}`));
     if (singleAst) return singleAst;
     return makeList(assets);
   }
@@ -1184,129 +604,28 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       return {
         runCode: 'DEP-2026-10-PREV',
         periodName: 'أكتوبر 2026',
-        assetCount: 2,
-        totalDepreciation: '3250.00',
+        assetCount: 0,
+        totalDepreciation: '0.00',
         currency: 'SAR',
       };
     }
-    return makeList([
-      { id: 'dr-2026-10', runCode: 'DEP-2026-10', period: '2026-10', totalDepreciation: '3250.00', assetCount: 2, status: 'POSTED', runDate: '2026-10-25' },
-    ]);
+    return makeList(getEntityList('depreciation_runs', []));
   }
 
   if (path.includes('/custodies')) {
-    const custodies = [
-      {
-        id: 'cst-01',
-        company_id: DEMO_COMPANY_ID,
-        custody_no: 'CST-2026-0001',
-        employee_id: 'emp-01',
-        employeeCode: 'EMP-001',
-        employeeNameAr: 'م. أحمد عبد الرحمن الفايد',
-        title_ar: 'عهدة المصروفات التشغيلية لفرع القاهرة - يناير 2026',
-        purpose: 'تغطية إيجار مقر التجمع الخامس، فواتير الاتصالات، وضيافة العملاء',
-        source_currency: 'SAR',
-        requested_amount: '10000.00',
-        disbursed_amount: '10000.00',
-        disbursed_amount_base: '10000.00',
-        disbursed_at: '2026-10-01',
-        disbursementEntryNo: 'JE-2026-000002',
-        target_currency: 'EGP',
-        conversion_rate: '13.00',
-        converted_amount_source: '10000.00',
-        converted_amount_target: '130000.00',
-        converted_at: '2026-10-02',
-        total_settled_amount_target: '115000.00',
-        remaining_balance_target: '15000.00',
-        status: 'PARTIALLY_SETTLED',
-        isLowBalance: true,
-        balanceRatio: 0.115,
-        lowBalanceMessage: 'تنبيه سيولة: الرصيد المتبقي (15000.00 EGP) يمثل 11.5% فقط من إجمالي العهدة (أقل من حد الأمان 20%). يرجى تعزيز العهدة أو إقفالها.',
-        created_at: '2026-10-01',
-        lines: [
-          {
-            id: 'line-01',
-            line_no: 1,
-            expense_date: '2026-10-05',
-            receipt_no: 'REC-EG-101',
-            expense_account_id: 'acc-rent',
-            expenseAccountCode: '6100',
-            expenseAccountNameAr: 'إيجار المقرات والفروع',
-            projectNameAr: 'تشغيل فرع مصر',
-            vendor_name: 'شركة ميفيدا العقارية',
-            description: 'إيجار مقر فرع التجمع الخامس',
-            currency_code: 'EGP',
-            subtotal: '70000.00',
-            vat_rate: '14.00',
-            vat_amount: '9800.00',
-            total_amount: '79800.00',
-            journalEntryNo: 'JE-2026-000004',
-            status: 'APPROVED',
-          },
-          {
-            id: 'line-02',
-            line_no: 2,
-            expense_date: '2026-10-10',
-            receipt_no: 'REC-EG-102',
-            expense_account_id: 'acc-telecom',
-            expenseAccountCode: '6300',
-            expenseAccountNameAr: 'مصروفات الاتصالات والإنترنت',
-            projectNameAr: 'البنية التحتية',
-            vendor_name: 'الشركة المصرية للاتصالات WE',
-            description: 'فاتورة فايبر الأعمال والخطوط الصوتية',
-            currency_code: 'EGP',
-            subtotal: '30877.19',
-            vat_rate: '14.00',
-            vat_amount: '4322.81',
-            total_amount: '35200.00',
-            journalEntryNo: 'JE-2026-000004',
-            status: 'APPROVED',
-          },
-        ],
-        transfers: [
-          {
-            id: 'trf-01',
-            transfer_no: 'TRF-2026-0001',
-            transfer_date: '2026-10-02',
-            amount_sar: '10000.00',
-            exchange_rate: '13.000000',
-            amount_target: '130000.00',
-            bank_fee_sar: '25.00',
-            bank_reference: 'SWIFT-RUH-CAI-001',
-            saJournalEntryNo: 'JE-2026-000002',
-            egJournalEntryNo: 'JE-2026-000003',
-            status: 'RECEIVED',
-            notes: 'تحويل عهدة التأسيس والمصاريف التشغيلية من مصرف الراجحي',
-          },
-        ],
-        settlements: [
-          {
-            id: 'stl-01',
-            settlement_no: 'STL-2026-0001',
-            settlement_date: '2026-10-25',
-            total_amount_egp: '115000.00',
-            total_amount_sar_base: '8846.15',
-            returned_cash_egp: '0.00',
-            realized_fx_gain_loss: '153.85',
-            journalEntryNo: 'JE-2026-000004',
-            status: 'POSTED',
-            notes: 'تسوية دورية معتمدة لمصروفات النصف الأول من شهر أكتوبر',
-          },
-        ],
-      },
-    ];
+    const custodies = getEntityList('custodies', []);
     if (path.includes('/report')) {
       return {
         kpis: {
-          totalDisbursedSar: '10000.00',
-          totalConvertedToEgp: '130000.00',
-          totalSettledEgp: '115000.00',
-          totalRemainingBalanceEgp: '15000.00',
+          totalDisbursedSar: '0.00',
+          totalConvertedToEgp: '0.00',
+          totalSettledEgp: '0.00',
+          totalRemainingBalanceEgp: '0.00',
         },
         rows: custodies,
       };
     }
-    const singleCst = custodies.find((c) => path.endsWith(`/${c.id}`));
+    const singleCst = custodies.find((c: any) => path.endsWith(`/${c.id}`));
     if (singleCst) return singleCst;
     return makeList(custodies);
   }
@@ -1531,50 +850,47 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     ]);
   }
 
-  // 20. Reports & Financial Intelligence (الذكاء المالي والتقارير)
+  // 20. Reports & Financial Intelligence (Clean Production Baseline)
   if (path.includes('/reports/executive-intelligence')) {
     return {
       kpis: {
-        ytdRevenue: '2450000.00',
-        ytdNetProfit: '1120000.00',
-        netMarginPct: '45.71',
-        utilizationRate: '94.20',
-        activeProjects: 3,
-        totalDevelopers: 4,
+        ytdRevenue: '0.00',
+        ytdNetProfit: '0.00',
+        netMarginPct: '0.00',
+        utilizationRate: '0.00',
+        activeProjects: 0,
+        totalDevelopers: 0,
       },
-      topClients: [
-        { clientName: 'شركة التقنية المتقدمة المحدودة', revenue: '1450000.00', sharePct: '59.18' },
-        { clientName: 'مؤسسة الحلول الرقمية الكبرى', revenue: '1000000.00', sharePct: '40.82' },
-      ],
+      topClients: [],
     };
   }
 
   if (path.includes('/reports/cash-flow')) {
     return {
-      operatingInflow: '650000.00',
-      operatingOutflow: '215000.00',
-      netOperating: '435000.00',
+      operatingInflow: '0.00',
+      operatingOutflow: '0.00',
+      netOperating: '0.00',
       investingInflow: '0.00',
-      investingOutflow: '45000.00',
-      netInvesting: '-45000.00',
-      financingInflow: '5000000.00',
+      investingOutflow: '0.00',
+      netInvesting: '0.00',
+      financingInflow: '0.00',
       financingOutflow: '0.00',
-      netFinancing: '5000000.00',
-      netChangeInCash: '5390000.00',
-      beginningCash: '660000.00',
-      endingCash: '6050000.00',
+      netFinancing: '0.00',
+      netChangeInCash: '0.00',
+      beginningCash: '0.00',
+      endingCash: '0.00',
     };
   }
 
   if (path.includes('/reports/vat-return') || path.includes('/vat-report')) {
     return {
       period: 'Q3-2026',
-      standardRatedSales: '570000.00',
-      outputVat: '85500.00',
-      standardRatedPurchases: '120000.00',
-      inputVat: '18000.00',
-      netVatDue: '67500.00',
-      status: 'SUBMITTED_AND_PAID',
+      standardRatedSales: '0.00',
+      outputVat: '0.00',
+      standardRatedPurchases: '0.00',
+      inputVat: '0.00',
+      netVatDue: '0.00',
+      status: 'OPEN',
     };
   }
 

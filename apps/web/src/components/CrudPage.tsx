@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Download, FileSpreadsheet, Pencil, Plus, Printer,
+  AlertTriangle, Download, Eye, FileSpreadsheet, Pencil, Plus, Printer,
   Search, Trash2, Upload,
 } from 'lucide-react';
 import { api, ApiError, Page } from '../lib/api';
@@ -385,6 +385,7 @@ export function CrudPage({
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<any | null>(null);
+  const [viewing, setViewing] = useState<any | null>(null);
   const [importingOpen, setImportingOpen] = useState(false);
   const [form, setForm] = useState<Record<string, any>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -533,6 +534,13 @@ export function CrudPage({
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
                           {extraActions?.(row)}
+                          <button
+                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                            title="معاينة"
+                            onClick={() => (onRowClick ? onRowClick(row) : setViewing(row))}
+                          >
+                            <Eye className="size-3.5" />
+                          </button>
                           <button className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40" title="تعديل" onClick={() => open(row)}>
                             <Pencil className="size-3.5" />
                           </button>
@@ -571,6 +579,49 @@ export function CrudPage({
         }
       >
         <EntityForm fields={fields} value={form} onChange={setForm} errors={errors} editing={!!editing?.id} />
+      </Drawer>
+
+      <Drawer
+        open={!!viewing}
+        onClose={() => setViewing(null)}
+        title={`معاينة ${entityLabel}: ${viewing?.nameAr || viewing?.name || viewing?.code || ''}`}
+        footer={
+          <>
+            <button className="btn-secondary" onClick={() => setViewing(null)}>إغلاق</button>
+            <button
+              className="btn-primary flex items-center gap-1.5"
+              onClick={() => {
+                const r = viewing;
+                setViewing(null);
+                open(r);
+              }}
+            >
+              <Pencil className="size-3.5" /> تعديل السجل
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800">
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">تفاصيل السجل</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+              {fields.map((f) => (
+                <div key={f.name} className="flex flex-col border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">{f.label}</span>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100 mt-1">
+                    {viewing?.[f.name] === true
+                      ? 'نعم'
+                      : viewing?.[f.name] === false
+                      ? 'لا'
+                      : viewing?.[f.name] !== undefined && viewing?.[f.name] !== null && viewing?.[f.name] !== ''
+                      ? String(viewing[f.name])
+                      : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </Drawer>
 
       <CsvImportModal

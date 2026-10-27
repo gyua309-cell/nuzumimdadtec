@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, History, Percent, Plus, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { saveStoredCompany } from '../lib/storage-company';
 import { date, dateTime } from '../lib/format';
 import { ActiveBadge, cleanPayload, CrudPage, EntityForm, FieldDef, fieldErrors } from '../components/CrudPage';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
@@ -28,9 +29,13 @@ export function CompanyPage() {
   const q = useQuery({ queryKey: ['company'], queryFn: () => api.get<any>('/companies/current') });
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const save = useMutation({
-    mutationFn: () => api.patch('/companies/current', { ...cleanPayload(companyFields, form!, true), rowVersion: q.data.rowVersion }),
+    mutationFn: async () => {
+      const payload = { ...cleanPayload(companyFields, form!, true), rowVersion: q.data?.rowVersion ?? 1 };
+      saveStoredCompany(payload);
+      return api.patch('/companies/current', payload);
+    },
     onSuccess: async () => {
-      toast.success('تم حفظ بيانات الشركة');
+      toast.success('تم حفظ بيانات الشركة بنجاح');
       setForm(null);
       qc.invalidateQueries({ queryKey: ['company'] });
       await reload();

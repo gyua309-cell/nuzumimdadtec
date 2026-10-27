@@ -160,6 +160,7 @@ export const NAV_GROUPS: NavGroup[] = [
         items: [
           { to: '/prj/projects', label: 'سجل المشاريع' },
           { to: '/prj/clients', label: 'دليل العملاء' },
+          { to: '/services/catalog', label: 'المخزون الخدمي (دليل الخدمات)' },
           { to: '/prj/employee-tracking', label: 'كروت تتبع الموظفين' },
           { to: '/prj/assignments', label: 'تخصيص الموظفين' },
           { to: '/prj/allocation-days', label: 'توزيع الأيام والنسب' },

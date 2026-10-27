@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, FileUp, Plus, Printer, Search, Square, Trash2, UserPlus } from 'lucide-react';
+import { ArrowRight, Download, Eye, FileUp, Pencil, Plus, Printer, Search, Square, Trash2, UserPlus } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, downloadCsv, money, today } from '../lib/format';
@@ -180,7 +180,17 @@ export function EmployeesPage() {
             <div className="overflow-x-auto">
               <table className="table">
                 <thead>
-                  <tr><th>الرقم</th><th>الموظف</th><th>القسم</th><th>المسمى الوظيفي</th><th>تاريخ التعيين</th><th>الراتب الأساسي</th><th>ملف التكلفة</th><th>الحالة</th></tr>
+                  <tr>
+                    <th>الرقم</th>
+                    <th>الموظف</th>
+                    <th>القسم</th>
+                    <th>المسمى الوظيفي</th>
+                    <th>تاريخ التعيين</th>
+                    <th>الراتب الأساسي</th>
+                    <th>ملف التكلفة</th>
+                    <th>الحالة</th>
+                    <th className="w-24 text-end">الإجراءات</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {list.data!.data.map((e) => (
@@ -203,6 +213,40 @@ export function EmployeesPage() {
                       <td className="num font-bold text-slate-900 dark:text-white">{e.basicSalary !== undefined ? (e.basicSalary ? `${money(e.basicSalary)} ${e.salaryCurrency}` : '—') : '•••'}</td>
                       <td>{e.costProfileName ? <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 text-xs font-semibold">{e.costProfileName}</span> : <span className="text-amber-600 text-xs font-bold">غير محدد</span>}</td>
                       <td><StatusBadge s={e.status} /></td>
+                      <td onClick={(evt) => evt.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          <button
+                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                            title="معاينة الملف"
+                            onClick={() => nav(`/hr/employees/${e.id}`)}
+                          >
+                            <Eye className="size-3.5" />
+                          </button>
+                          <button
+                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                            title="تعديل"
+                            onClick={() => nav(`/hr/employees/${e.id}`)}
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                            title="حذف"
+                            onClick={() => {
+                              if (confirm(`هل أنت متأكد من حذف سجل الموظف ${e.fullNameAr}؟`)) {
+                                api.del(`/employees/${e.id}`)
+                                  .then(() => {
+                                    toast.success('تم حذف الموظف');
+                                    qc.invalidateQueries({ queryKey: ['/employees'] });
+                                  })
+                                  .catch((err) => toast.error(err));
+                              }
+                            }}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

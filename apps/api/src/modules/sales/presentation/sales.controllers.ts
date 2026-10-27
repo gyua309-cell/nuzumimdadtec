@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { listQuery, uuid } from '../../../shared/http/common';
 import { activeCompanyId } from '../../../shared/http/request';
@@ -7,6 +7,7 @@ import { RequirePermission } from '../../iam/presentation/decorators';
 import {
   AutoInvoiceFromRevenue, CreditNoteCreate, InvoiceCreate, InvoicesService,
 } from '../application/invoices.service';
+import { ServicesCatalogService } from '../application/services-catalog.service';
 
 const idPipe = new ZodPipe(uuid);
 const listPipe = new ZodPipe(listQuery.passthrough());
@@ -76,5 +77,70 @@ export class CreditNotesController {
   @RequirePermission('sal.invoice.create')
   create(@Body(new ZodPipe(CreditNoteCreate)) body: z.infer<typeof CreditNoteCreate>) {
     return this.svc.createCreditNote(activeCompanyId(), body);
+  }
+}
+
+@Controller('services/catalog')
+export class ServicesCatalogController {
+  constructor(private readonly svc: ServicesCatalogService) {}
+
+  @Get()
+  list() {
+    return this.svc.list(activeCompanyId());
+  }
+
+  @Get(':id')
+  get(@Param('id', idPipe) id: string) {
+    return this.svc.get(activeCompanyId(), id);
+  }
+
+  @Post()
+  create(@Body() body: any) {
+    return this.svc.create(activeCompanyId(), body);
+  }
+
+  @Patch(':id')
+  update(@Param('id', idPipe) id: string, @Body() body: any) {
+    return this.svc.update(activeCompanyId(), id, body);
+  }
+
+  @Put(':id')
+  putUpdate(@Param('id', idPipe) id: string, @Body() body: any) {
+    return this.svc.update(activeCompanyId(), id, body);
+  }
+
+  @Delete(':id')
+  delete(@Param('id', idPipe) id: string) {
+    return this.svc.delete(activeCompanyId(), id);
+  }
+}
+
+@Controller('sal/services')
+export class SalServicesAliasController {
+  constructor(private readonly svc: ServicesCatalogService) {}
+
+  @Get()
+  list() {
+    return this.svc.list(activeCompanyId());
+  }
+
+  @Get(':id')
+  get(@Param('id', idPipe) id: string) {
+    return this.svc.get(activeCompanyId(), id);
+  }
+
+  @Post()
+  create(@Body() body: any) {
+    return this.svc.create(activeCompanyId(), body);
+  }
+
+  @Patch(':id')
+  update(@Param('id', idPipe) id: string, @Body() body: any) {
+    return this.svc.update(activeCompanyId(), id, body);
+  }
+
+  @Delete(':id')
+  delete(@Param('id', idPipe) id: string) {
+    return this.svc.delete(activeCompanyId(), id);
   }
 }

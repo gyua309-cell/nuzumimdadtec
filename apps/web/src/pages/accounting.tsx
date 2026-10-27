@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Decimal from 'decimal.js';
 import {
-  CheckCircle2, ChevronDown, ChevronLeft, Download, FileCode, FlaskConical,
+  CheckCircle2, ChevronDown, ChevronLeft, Download, Eye, FileCode, FlaskConical,
   Folder, FolderOpen, List, Network, Pencil, Plus, Printer, Send, Trash2, Undo2, XCircle,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
@@ -520,7 +520,12 @@ export function JournalsPage() {
           <>
             <div className="overflow-x-auto">
               <table className="table">
-                <thead><tr><th>رقم القيد</th><th>التاريخ</th><th>الفترة</th><th>النوع</th><th>الدفتر</th><th>الوصف</th><th>المصدر</th><th>مدين ({base})</th><th>دائن ({base})</th><th>الحالة</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>رقم القيد</th><th>التاريخ</th><th>الفترة</th><th>النوع</th><th>الدفتر</th><th>الوصف</th><th>المصدر</th><th>مدين ({base})</th><th>دائن ({base})</th><th>الحالة</th>
+                    <th className="w-20 text-end">الإجراءات</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {q.data!.data.map((e) => (
                     <tr key={e.id} className="cursor-pointer" onClick={() => nav(`/acc/journals/${e.id}`)}>
@@ -529,6 +534,17 @@ export function JournalsPage() {
                       <td className="max-w-xs truncate">{e.description}</td><td className="text-xs">{e.sourceModule}/{e.sourceType}</td>
                       <td className="num">{money(e.totalDebitBase)}</td><td className="num">{money(e.totalCreditBase)}</td>
                       <td><Badge color={JE_STATUS[e.status].color}>{JE_STATUS[e.status].label}</Badge> {e.reversedById && <Badge color="slate">معكوس</Badge>}</td>
+                      <td onClick={(evt) => evt.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          <button
+                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                            title="عرض تفاصيل القيد"
+                            onClick={() => nav(`/acc/journals/${e.id}`)}
+                          >
+                            <Eye className="size-3.5" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

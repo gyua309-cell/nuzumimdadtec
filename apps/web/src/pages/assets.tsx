@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Laptop, Play, Plus, Printer, Search, Trash2 } from 'lucide-react';
+import { ArrowRight, Download, Eye, Laptop, Pencil, Play, Plus, Printer, Search, Trash2 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
@@ -147,13 +147,54 @@ export function AssetsPage() {
           <>
             <div className="overflow-x-auto">
               <table className="table">
-                <thead><tr><th>الرقم</th><th>الأصل</th><th>الفئة</th><th>الشراء</th><th>التكلفة (أساسية)</th><th>مجمع الإهلاك</th><th>القيمة الدفترية</th><th>العهدة</th><th>الحالة</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>الرقم</th><th>الأصل</th><th>الفئة</th><th>الشراء</th><th>التكلفة (أساسية)</th><th>مجمع الإهلاك</th><th>القيمة الدفترية</th><th>العهدة</th><th>الحالة</th>
+                    <th className="w-24 text-end">الإجراءات</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {list.data!.data.map((a) => (
                     <tr key={a.id} className="cursor-pointer" onClick={() => nav(`/assets/list/${a.id}`)}>
                       <td className="num text-start">{a.assetNo}</td><td className="font-medium">{a.name}</td><td>{a.categoryName}</td><td>{date(a.purchaseDate)}</td>
                       <td className="num">{money(a.costBase)}</td><td className="num">{money(a.accumulatedBase)}</td><td className="num">{money(a.netBookValueBase)}</td>
                       <td>{a.custodianName ?? '—'}</td><td><AssetStatus s={a.status} /></td>
+                      <td onClick={(evt) => evt.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          <button
+                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                            title="معاينة الأصل"
+                            onClick={() => nav(`/assets/list/${a.id}`)}
+                          >
+                            <Eye className="size-3.5" />
+                          </button>
+                          <button
+                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                            title="تعديل الأصل"
+                            onClick={() => nav(`/assets/list/${a.id}`)}
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          {a.status === 'DRAFT' && (
+                            <button
+                              className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                              title="حذف"
+                              onClick={() => {
+                                if (confirm(`هل أنت متأكد من حذف الأصل ${a.name}؟`)) {
+                                  api.del(`/assets/${a.id}`)
+                                    .then(() => {
+                                      toast.success('تم حذف الأصل بنجاح');
+                                      qc.invalidateQueries({ queryKey: ['/assets'] });
+                                    })
+                                    .catch((err) => toast.error(err));
+                                }
+                              }}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

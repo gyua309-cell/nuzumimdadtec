@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import { api, refreshToken, session } from './api';
+import { getStoredCompany } from './storage-company';
 
 export interface Me {
   user: { id: string; username: string; email: string | null; fullName: string; isSystemAdmin: boolean; preferredLocale: string; mustChangePassword: boolean };
@@ -22,26 +23,29 @@ interface AuthState {
 
 const Ctx = createContext<AuthState | null>(null);
 
-const DEMO_USER: Me = {
-  user: {
-    id: '01a105ec-6a9a-74cd-b663-0ef527c4cfde',
-    username: 'admin',
-    email: 'admin@idham.net',
-    fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا)',
-    isSystemAdmin: true,
-    preferredLocale: 'ar',
-    mustChangePassword: false,
-  },
-  companies: [
-    {
-      id: '01a105ec-6a9a-74cd-b663-0ef527c4cfde',
-      code: 'AZM',
-      nameAr: 'شركة عزم للتكنولوجيا والحلول الرقمية',
-      nameEn: 'Azm Tech Co.',
-      baseCurrency: 'SAR',
+function getDemoUser(): Me {
+  const c = getStoredCompany();
+  return {
+    user: {
+      id: '01a17cb2-9afa-7ef5-91f6-b47561899afb',
+      username: 'admin',
+      email: 'admin@idham.net',
+      fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا والحلول الرقمية)',
+      isSystemAdmin: true,
+      preferredLocale: 'ar',
+      mustChangePassword: false,
     },
-  ],
-};
+    companies: [
+      {
+        id: c.id,
+        code: c.code,
+        nameAr: c.nameAr,
+        nameEn: c.nameEn,
+        baseCurrency: c.baseCurrency || 'SAR',
+      },
+    ],
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>('loading');
@@ -61,13 +65,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
     } catch {
-      // Fall through to DEMO_USER
+      // Fall through to getDemoUser()
     }
-    setMe(DEMO_USER);
-    session.setCompany(DEMO_USER.companies[0].id);
-    setCompanyId(DEMO_USER.companies[0].id);
+    const demo = getDemoUser();
+    setMe(demo);
+    session.setCompany(demo.companies[0].id);
+    setCompanyId(demo.companies[0].id);
     setStatus('authenticated');
   }, []);
+
+  useEffect(() => {
+    const handleCompanyUpdate = () => {
+      loadMe();
+    };
+    window.addEventListener('azm_company_updated', handleCompanyUpdate);
+    return () => window.removeEventListener('azm_company_updated', handleCompanyUpdate);
+  }, [loadMe]);
 
   useEffect(() => {
     session.onUnauthenticated(() => {
@@ -94,9 +107,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     company: me?.companies.find((c) => c.id === companyId) ?? null,
     login: async (username, password) => {
       if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
-        setMe(DEMO_USER);
-        session.setCompany(DEMO_USER.companies[0].id);
-        setCompanyId(DEMO_USER.companies[0].id);
+        const demo = getDemoUser();
+        setMe(demo);
+        session.setCompany(demo.companies[0].id);
+        setCompanyId(demo.companies[0].id);
         setStatus('authenticated');
         return;
       }
@@ -108,12 +122,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
       } catch {
-        // Fall through to DEMO_USER
+        // Fall through to getDemoUser()
       }
 
-      setMe(DEMO_USER);
-      session.setCompany(DEMO_USER.companies[0].id);
-      setCompanyId(DEMO_USER.companies[0].id);
+      const demo = getDemoUser();
+      setMe(demo);
+      session.setCompany(demo.companies[0].id);
+      setCompanyId(demo.companies[0].id);
       setStatus('authenticated');
     },
     logout: async () => {

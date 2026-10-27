@@ -1,15 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, ArrowRight, Building2, CheckCircle2, Download, FileText,
-  Filter, Plus, Printer, RotateCcw, Search, Send, ShieldCheck,
+  AlertCircle, ArrowRight, Building2, CheckCircle2, Download, Eye, FileText,
+  Filter, Pencil, Plus, Printer, RotateCcw, Search, Send, ShieldCheck,
   ShoppingCart, Sparkles, Trash2, Truck, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { downloadCsv, money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
 import {
-  Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader,
+  Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader,
   ReasonDialog, Stat, useToast,
 } from '../components/ui';
 
@@ -21,6 +21,8 @@ export function VendorsPage() {
   const toast = useToast();
   const [q, setQ] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingVendor, setEditingVendor] = useState<any | null>(null);
+  const [viewingVendor, setViewingVendor] = useState<any | null>(null);
 
   const vendors = useQuery({
     queryKey: ['/vendors', q],
@@ -116,6 +118,7 @@ export function VendorsPage() {
                   <th>الهاتف / البريد</th>
                   <th>شروط السداد</th>
                   <th>الحالة</th>
+                  <th className="text-end">الإجراءات</th>
                 </tr>
               </thead>
               <tbody>
@@ -151,6 +154,43 @@ export function VendorsPage() {
                         {v.isActive ? 'نشط' : 'معطل'}
                       </Badge>
                     </td>
+                    <td onClick={(evt) => evt.stopPropagation()}>
+                      <div className="flex justify-end gap-1">
+                        <button
+                          className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                          title="معاينة"
+                          onClick={() => setViewingVendor(v)}
+                        >
+                          <Eye className="size-3.5" />
+                        </button>
+                        <button
+                          className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                          title="تعديل"
+                          onClick={() => {
+                            setEditingVendor(v);
+                            setShowAddModal(true);
+                          }}
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                          title="حذف"
+                          onClick={() => {
+                            if (confirm(`هل أنت متأكد من حذف المورد ${v.nameAr}؟`)) {
+                              api.del(`/vendors/${v.id}`)
+                                .then(() => {
+                                  toast.success('تم حذف المورد بنجاح');
+                                  qc.invalidateQueries({ queryKey: ['/vendors'] });
+                                })
+                                .catch((err) => toast.error(err));
+                            }
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -161,17 +201,84 @@ export function VendorsPage() {
 
       <CreateVendorModal
         open={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        vendor={editingVendor}
+        onClose={() => {
+          setShowAddModal(false);
+          setEditingVendor(null);
+        }}
         onSuccess={() => {
           qc.invalidateQueries({ queryKey: ['/vendors'] });
           setShowAddModal(false);
+          setEditingVendor(null);
         }}
       />
+
+      <Drawer
+        open={!!viewingVendor}
+        onClose={() => setViewingVendor(null)}
+        title={`معاينة المورد: ${viewingVendor?.nameAr || ''}`}
+        footer={
+          <>
+            <button className="btn-secondary" onClick={() => setViewingVendor(null)}>إغلاق</button>
+            <button
+              className="btn-primary flex items-center gap-1.5"
+              onClick={() => {
+                const cur = viewingVendor;
+                setViewingVendor(null);
+                setEditingVendor(cur);
+                setShowAddModal(true);
+              }}
+            >
+              <Pencil className="size-3.5" /> تعديل بيانات المورد
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800">
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">بيانات المورد الرسمية</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="flex flex-col border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">كود المورد</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-slate-100 mt-1">{viewingVendor?.code}</span>
+              </div>
+              <div className="flex flex-col border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">الاسم بالعربية</span>
+                <span className="font-bold text-slate-900 dark:text-slate-100 mt-1">{viewingVendor?.nameAr}</span>
+              </div>
+              <div className="flex flex-col border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">الاسم بالإنجليزية</span>
+                <span className="font-mono text-slate-700 dark:text-slate-300 mt-1">{viewingVendor?.nameEn || '—'}</span>
+              </div>
+              <div className="flex flex-col border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">الرقم الضريبي</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-slate-100 mt-1">{viewingVendor?.taxRegistrationNo || '—'}</span>
+              </div>
+              <div className="flex flex-col border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">السجل التجاري</span>
+                <span className="font-mono text-slate-700 dark:text-slate-300 mt-1">{viewingVendor?.crNumber || '—'}</span>
+              </div>
+              <div className="flex flex-col border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">مسؤول الاتصال</span>
+                <span className="text-slate-900 dark:text-slate-100 mt-1">{viewingVendor?.contactPerson || '—'}</span>
+              </div>
+              <div className="flex flex-col border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">الهاتف</span>
+                <span className="font-mono text-slate-900 dark:text-slate-100 mt-1">{viewingVendor?.phone || '—'}</span>
+              </div>
+              <div className="flex flex-col border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">شروط السداد</span>
+                <span className="font-medium text-slate-900 dark:text-slate-100 mt-1">{viewingVendor?.paymentTermsDays} يوم</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Drawer>
     </div>
   );
 }
 
-function CreateVendorModal({ open, onClose, onSuccess }: { open: boolean; onClose: () => void; onSuccess: () => void }) {
+function CreateVendorModal({ open, vendor, onClose, onSuccess }: { open: boolean; vendor?: any; onClose: () => void; onSuccess: () => void }) {
   const toast = useToast();
   const [code, setCode] = useState(`VEN-${Math.floor(1000 + Math.random() * 9000)}`);
   const [nameAr, setNameAr] = useState('');
@@ -184,6 +291,30 @@ function CreateVendorModal({ open, onClose, onSuccess }: { open: boolean; onClos
   const [paymentTermsDays, setPaymentTermsDays] = useState(30);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (vendor) {
+      setCode(vendor.code || '');
+      setNameAr(vendor.nameAr || '');
+      setNameEn(vendor.nameEn || '');
+      setTaxRegistrationNo(vendor.taxRegistrationNo || '');
+      setCrNumber(vendor.crNumber || '');
+      setContactPerson(vendor.contactPerson || '');
+      setPhone(vendor.phone || '');
+      setEmail(vendor.email || '');
+      setPaymentTermsDays(vendor.paymentTermsDays || 30);
+    } else {
+      setCode(`VEN-${Math.floor(1000 + Math.random() * 9000)}`);
+      setNameAr('');
+      setNameEn('');
+      setTaxRegistrationNo('');
+      setCrNumber('');
+      setContactPerson('');
+      setPhone('');
+      setEmail('');
+      setPaymentTermsDays(30);
+    }
+  }, [vendor, open]);
+
   const handleSubmit = async () => {
     if (!nameAr.trim()) {
       toast.error(new Error('يرجى إدخال اسم المورد بالعربية'));
@@ -195,7 +326,7 @@ function CreateVendorModal({ open, onClose, onSuccess }: { open: boolean; onClos
     }
     setBusy(true);
     try {
-      await api.post('/vendors', {
+      const payload = {
         code,
         nameAr,
         nameEn: nameEn || undefined,
@@ -207,8 +338,15 @@ function CreateVendorModal({ open, onClose, onSuccess }: { open: boolean; onClos
         paymentTermsDays: Number(paymentTermsDays) || 30,
         currencyCode: 'SAR',
         isActive: true,
-      });
-      toast.success('تمت إضافة المورد بنجاح');
+      };
+
+      if (vendor && vendor.id) {
+        await api.patch(`/vendors/${vendor.id}`, payload);
+        toast.success('تم تحديث بيانات المورد بنجاح');
+      } else {
+        await api.post('/vendors', payload);
+        toast.success('تمت إضافة المورد بنجاح');
+      }
       onSuccess();
     } catch (e) {
       toast.error(e);
