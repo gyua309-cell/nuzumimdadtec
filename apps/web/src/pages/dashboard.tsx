@@ -10,12 +10,17 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { money, today, yearStart, monthStart } from '../lib/format';
-import { useBaseCurrency } from '../lib/auth';
+import { useAuth, useBaseCurrency } from '../lib/auth';
 import { Badge, Loading, Stat } from '../components/ui';
 
 export function DashboardPage() {
+  const { me, company } = useAuth();
   const base = useBaseCurrency();
   const [chartViewMode, setChartViewMode] = useState<'MONTHLY' | 'YTD' | 'BUDGET'>('MONTHLY');
+  const [welcomeBannerDismissed, setWelcomeBannerDismissed] = useState(false);
+
+  const currentHour = new Date().getHours();
+  const greeting = currentHour < 12 ? 'صباح الخير' : currentHour < 17 ? 'مساء الخير' : 'مساء الخير والبركة';
 
   // Queries
   const periods = useQuery({ queryKey: ['periods'], queryFn: () => api.get<any[]>('/fiscal-periods') });
@@ -336,6 +341,89 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* ── Executive Welcome & Onboarding Hero Banner ───────────────────── */}
+      {!welcomeBannerDismissed && (
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-brand-950 to-indigo-950 p-6 md:p-8 text-white shadow-xl border border-brand-800/40">
+          {/* Ambient Lighting Background */}
+          <div className="absolute -top-24 -start-24 size-80 rounded-full bg-brand-500/20 blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -end-24 size-80 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2.5 max-w-2xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-white/10 backdrop-blur-md text-brand-300 border border-white/10">
+                <Sparkles className="size-3.5 text-brand-400" />
+                <span>لوحة القيادة التنفيذية الذكية</span>
+                <span className="text-white/30">•</span>
+                <span className="text-emerald-400 font-mono text-[11px]">قاعدة Supabase متصلة</span>
+              </div>
+
+              <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-2">
+                <span>{greeting}، {me?.user.fullName || 'المدير التنفيذي'}</span>
+                <span className="text-xl">👋</span>
+              </h2>
+
+              <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
+                مرحباً بك في منظومة <strong className="text-white">{company?.nameAr || 'شركة عزم للتكنولوجيا والحلول الرقمية'}</strong>.
+                جميع القيود المحاسبية، ومسيرات رواتب المطورين، ومطابقة هيئة الزكاة والضريبة والجمارك (ZATCA Phase 2) متزامنة ومطابقة لحظياً.
+              </p>
+
+              {/* Status Chips */}
+              <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-medium">
+                  <CheckCircle2 className="size-3.5 text-emerald-400" />
+                  <span>ZATCA Phase 2: معتمد ومطابق</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-500/15 text-brand-300 border border-brand-500/30 font-medium">
+                  <Layers className="size-3.5 text-brand-400" />
+                  <span>العملة الأساسية: {base}</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-medium">
+                  <Briefcase className="size-3.5 text-cyan-400" />
+                  <span>توزيع المطورين بالأيام: فعال</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Action Shortcuts inside Banner */}
+            <div className="flex flex-col gap-2 shrink-0 md:min-w-[210px]">
+              <Link
+                to="/reports/executive-intelligence"
+                className="btn bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs h-10 px-4 gap-2 shadow-lg shadow-brand-600/30 border border-brand-400/30 justify-center"
+              >
+                <TrendingUp className="size-4" />
+                <span>لوحة الرقابة التنفيذية</span>
+                <ArrowUpRight className="size-3.5 ms-auto opacity-70" />
+              </Link>
+              <Link
+                to="/prj/allocation-days"
+                className="btn bg-white/10 hover:bg-white/20 text-white font-bold text-xs h-10 px-4 gap-2 border border-white/10 justify-center"
+              >
+                <Layers className="size-4 text-cyan-400" />
+                <span>توزيع الموظفين بالأيام</span>
+                <ArrowUpRight className="size-3.5 ms-auto opacity-70" />
+              </Link>
+              <Link
+                to="/zatca/hub"
+                className="btn bg-white/10 hover:bg-white/20 text-white font-bold text-xs h-10 px-4 gap-2 border border-white/10 justify-center"
+              >
+                <ShieldCheck className="size-4 text-emerald-400" />
+                <span>الربط مع هيئة الزكاة</span>
+                <ArrowUpRight className="size-3.5 ms-auto opacity-70" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Dismiss button */}
+          <button
+            onClick={() => setWelcomeBannerDismissed(true)}
+            className="absolute top-4 end-4 text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+            title="إخفاء لوحة الترحيب"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* ── Top Executive Welcome & Quick Action Command Bar ───────────────── */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
