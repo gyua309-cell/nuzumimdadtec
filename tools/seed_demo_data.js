@@ -6,7 +6,7 @@
  * Assignments, Service Prices, Variable Types, Monthly Variables, Loans, and Assets.
  */
 const BASE_URL = 'http://localhost:3000/api/v1';
-const COMPANY_ID = '01a105ec-6a9a-74cd-b663-0ef527c4cfde';
+const COMPANY_ID = process.env.COMPANY_ID || '01a17cb2-9afa-7ef5-91f6-b47561899afb';
 
 async function req(path, method = 'GET', body = null, token = null) {
   const headers = { 'Content-Type': 'application/json' };
@@ -26,7 +26,7 @@ async function req(path, method = 'GET', body = null, token = null) {
 
 async function main() {
   console.log('Logging in as admin...');
-  const loginRes = await req('/auth/login', 'POST', { username: 'admin', password: 'AdminPass12345' });
+  const loginRes = await req('/auth/login', 'POST', { username: 'admin', password: 'AdminPass12345!' });
   const token = loginRes.accessToken;
   console.log('Logged in successfully!');
 
