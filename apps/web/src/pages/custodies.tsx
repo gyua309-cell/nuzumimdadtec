@@ -9,6 +9,37 @@ import { api, Page } from '../lib/api';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
+export interface CustodyTransfer {
+  id: string;
+  transfer_no: string;
+  transfer_date: string;
+  amount_sar: string;
+  exchange_rate: string;
+  amount_target: string;
+  bank_fee_sar: string;
+  bank_reference: string | null;
+  sa_journal_entry_id?: string | null;
+  eg_journal_entry_id?: string | null;
+  saJournalEntryNo?: string | null;
+  egJournalEntryNo?: string | null;
+  status: string;
+  notes: string | null;
+}
+
+export interface CustodySettlement {
+  id: string;
+  settlement_no: string;
+  settlement_date: string;
+  total_amount_egp: string;
+  total_amount_sar_base: string;
+  returned_cash_egp: string;
+  realized_fx_gain_loss: string;
+  journal_entry_id?: string | null;
+  journalEntryNo?: string | null;
+  status: string;
+  notes: string | null;
+}
+
 export interface Custody {
   id: string;
   company_id: string;
@@ -45,7 +76,12 @@ export interface Custody {
   closureEntryNo: string | null;
   notes: string | null;
   created_at: string;
+  isLowBalance?: boolean;
+  balanceRatio?: number;
+  lowBalanceMessage?: string | null;
   lines?: CustodySettlementLine[];
+  transfers?: CustodyTransfer[];
+  settlements?: CustodySettlement[];
 }
 
 export interface CustodySettlementLine {
@@ -106,6 +142,9 @@ export function CustodiesPage() {
   const [postSettleModalCustody, setPostSettleModalCustody] = useState<Custody | null>(null);
   const [closeModalCustody, setCloseModalCustody] = useState<Custody | null>(null);
   const [printModalCustody, setPrintModalCustody] = useState<Custody | null>(null);
+  const [transferModalCustody, setTransferModalCustody] = useState<Custody | null>(null);
+  const [settlementModalCustody, setSettlementModalCustody] = useState<Custody | null>(null);
+  const [drawerTab, setDrawerTab] = useState<'lines' | 'transfers' | 'settlements'>('lines');
 
   // Query: Custodies List
   const { data: custodiesData, isLoading, error } = useQuery({
@@ -242,6 +281,30 @@ export function CustodiesPage() {
     onError: (e: any) => toast.error(e),
   });
 
+  const createTransfer = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: any }) => api.post(`/custodies/${id}/transfers`, body),
+    onSuccess: (data: any) => {
+      toast.success(`تم تحويل وتعزيز العهدة بنجاح برقم ${data?.transferNo || ''} وقيدي اليومية`);
+      setTransferModalCustody(null);
+      qc.invalidateQueries({ queryKey: ['custodies'] });
+      qc.invalidateQueries({ queryKey: ['custodies-report-summary'] });
+      if (selectedCustodyId) qc.invalidateQueries({ queryKey: ['custody-detail', selectedCustodyId] });
+    },
+    onError: (e: any) => toast.error(e),
+  });
+
+  const createSettlement = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: any }) => api.post(`/custodies/${id}/settlements`, body),
+    onSuccess: (data: any) => {
+      toast.success(`تم اعتماد وترحيل التسوية الدورية بنجاح برقم ${data?.settlementNo || ''}`);
+      setSettlementModalCustody(null);
+      qc.invalidateQueries({ queryKey: ['custodies'] });
+      qc.invalidateQueries({ queryKey: ['custodies-report-summary'] });
+      if (selectedCustodyId) qc.invalidateQueries({ queryKey: ['custody-detail', selectedCustodyId] });
+    },
+    onError: (e: any) => toast.error(e),
+  });
+
   const custodies = custodiesData?.data || [];
   const kpis = reportData?.kpis;
 
@@ -359,6 +422,31 @@ export function CustodiesPage() {
           </div>
         </div>
       </div>
+
+      {/* Critical Liquidity Warning for Low-Balance Custodies (<20%) */}
+      {custodies.some((c) => {
+        const pool = Number(c.converted_amount_target || c.disbursed_amount || 0);
+        const rem = Number(c.remaining_balance_target || 0);
+        return (c.isLowBalance || (pool > 0 && rem > 0 && (rem / pool) <= 0.20)) && !['DRAFT', 'CLOSED', 'CANCELLED'].includes(c.status);
+      }) && (
+        <div className="p-4 bg-amber-50/90 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-3 text-amber-950 shadow-sm">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl animate-bounce">⚠️</span>
+            <div>
+              <div className="font-black text-xs text-amber-900">تنبيه سيولة حرجة: توجد عهد تشغيلية شارفت على النفاد (الرصيد أقل من حد الأمان 20%)</div>
+              <div className="text-[11px] text-amber-800 mt-0.5">
+                تأكد من تعزيز العهد بحوالات جديدة من المركز الرئيسي بالرياض أو استعجال التسوية الدورية لضمان استمرار أعمال الفرع.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setStatusFilter('CONVERTED')}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-sm transition"
+          >
+            تصفية العهد المعنية
+          </button>
+        </div>
+      )}
 
       {/* Filters and Actions Bar */}
       <div className="card p-4 bg-white border border-slate-200 shadow-sm rounded-xl flex flex-wrap items-center justify-between gap-4">
@@ -512,6 +600,11 @@ export function CustodiesPage() {
                       {/* Remaining Balance */}
                       <td className="py-3.5 px-4 text-center font-mono font-bold text-amber-600">
                         {money(c.remaining_balance_target)} {c.target_currency}
+                        {(c.isLowBalance || (targetPool > 0 && Number(c.remaining_balance_target) > 0 && (Number(c.remaining_balance_target) / targetPool) <= 0.20)) && !['DRAFT', 'CLOSED', 'CANCELLED'].includes(c.status) && (
+                          <div className="text-[10px] text-amber-800 bg-amber-100/90 border border-amber-300 rounded px-1.5 py-0.5 mt-1 font-bold inline-block">
+                            ⚠️ &lt; 20% حرج
+                          </div>
+                        )}
                       </td>
 
                       {/* Status */}
@@ -552,6 +645,16 @@ export function CustodiesPage() {
 
                           {['DISBURSED', 'CONVERTED', 'PARTIALLY_SETTLED'].includes(c.status) && (
                             <button
+                              onClick={() => setTransferModalCustody(c)}
+                              className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded text-xs font-semibold"
+                              title="تحويل وتعزيز من المركز الرئيسي بالرياض"
+                            >
+                              + حوالة
+                            </button>
+                          )}
+
+                          {['DISBURSED', 'CONVERTED', 'PARTIALLY_SETTLED'].includes(c.status) && (
+                            <button
                               onClick={() => setConversionModalCustody(c)}
                               className="px-2 py-1 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 rounded text-xs font-semibold"
                               title="تسجيل صرافة وتحويل العملة"
@@ -567,6 +670,16 @@ export function CustodiesPage() {
                               title="إضافة إيصال مصروف"
                             >
                               + إيصال
+                            </button>
+                          )}
+
+                          {['DISBURSED', 'CONVERTED', 'PARTIALLY_SETTLED'].includes(c.status) && (
+                            <button
+                              onClick={() => setSettlementModalCustody(c)}
+                              className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 rounded text-xs font-bold"
+                              title="إجراء تسوية دورية معتمدة"
+                            >
+                              تسوية
                             </button>
                           )}
 
@@ -612,6 +725,19 @@ export function CustodiesPage() {
           <div className="p-8 text-center"><Loading /></div>
         ) : custodyDetail ? (
           <div className="space-y-6">
+            {/* Low-Balance Warning Alert in Drawer */}
+            {(custodyDetail.isLowBalance || (Number(custodyDetail.remaining_balance_target) > 0 && Number(custodyDetail.converted_amount_target || custodyDetail.disbursed_amount) > 0 && (Number(custodyDetail.remaining_balance_target) / Number(custodyDetail.converted_amount_target || custodyDetail.disbursed_amount)) <= 0.20)) && !['DRAFT', 'CLOSED', 'CANCELLED'].includes(custodyDetail.status) && (
+              <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-3 text-amber-950">
+                <span className="text-xl">⚠️</span>
+                <div>
+                  <div className="font-bold text-xs text-amber-900">تنبيه سيولة حرجة: الرصيد المتبقي أقل من حد الأمان (20%)</div>
+                  <div className="text-[11px] text-amber-800 mt-0.5">
+                    الرصيد المتبقي ({money(custodyDetail.remaining_balance_target)} {custodyDetail.target_currency}) يمثل نسبة منخفضة من إجمالي العهدة. يرجى تعزيز العهدة بحوالة جديدة من المركز الرئيسي بالرياض أو إجراء تسوية معتمدة.
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Summary Header */}
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
@@ -688,100 +814,325 @@ export function CustodiesPage() {
               </div>
             </div>
 
-            {/* Settlement Vouchers Table */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                  <FileText className="size-4 text-emerald-600" />
-                  إيصالات وفواتير تسوية المصروفات ({custodyDetail.lines?.length || 0})
-                </h4>
+            {/* Drawer Tabs Header */}
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+              <button
+                onClick={() => setDrawerTab('lines')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  drawerTab === 'lines'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <FileText className="size-3.5" />
+                إيصالات وفواتير المصروفات ({custodyDetail.lines?.length || 0})
+              </button>
 
-                {['DISBURSED', 'CONVERTED', 'PARTIALLY_SETTLED'].includes(custodyDetail.status) && (
-                  <button
-                    onClick={() => setSettlementLineModalCustody(custodyDetail)}
-                    className="btn-primary text-xs py-1 px-2.5 flex items-center gap-1"
-                  >
-                    <Plus className="size-3.5" /> إضافة إيصال
-                  </button>
+              <button
+                onClick={() => setDrawerTab('transfers')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  drawerTab === 'transfers'
+                    ? 'bg-purple-700 text-white shadow-sm'
+                    : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+                }`}
+              >
+                <ArrowLeftRight className="size-3.5" />
+                حوالات المركز الرئيسي وتعزيز العهدة ({custodyDetail.transfers?.length || 0})
+              </button>
+
+              <button
+                onClick={() => setDrawerTab('settlements')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  drawerTab === 'settlements'
+                    ? 'bg-emerald-700 text-white shadow-sm'
+                    : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                }`}
+              >
+                <FileCheck className="size-3.5" />
+                سجل التسويات الدورية ({custodyDetail.settlements?.length || 0})
+              </button>
+            </div>
+
+            {/* TAB 1: Settlement Lines (Expense Vouchers) */}
+            {drawerTab === 'lines' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <FileText className="size-4 text-emerald-600" />
+                    إيصالات وفواتير تسوية المصروفات ({custodyDetail.lines?.length || 0})
+                  </h4>
+
+                  {['DISBURSED', 'CONVERTED', 'PARTIALLY_SETTLED'].includes(custodyDetail.status) && (
+                    <button
+                      onClick={() => setSettlementLineModalCustody(custodyDetail)}
+                      className="btn-primary text-xs py-1 px-2.5 flex items-center gap-1"
+                    >
+                      <Plus className="size-3.5" /> إضافة إيصال
+                    </button>
+                  )}
+                </div>
+
+                {!custodyDetail.lines?.length ? (
+                  <div className="p-6 text-center border border-dashed border-slate-200 rounded-lg text-xs text-slate-500">
+                    لم يتم تسجيل أي إيصالات أو فواتير مصروفات لهذه العهدة بعد.
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="table w-full text-xs text-right">
+                      <thead className="bg-slate-50 border-b border-slate-200 font-bold text-slate-700">
+                        <tr>
+                          <th className="py-2 px-3">م</th>
+                          <th className="py-2 px-3">التاريخ ورقم الإيصال</th>
+                          <th className="py-2 px-3">البيان وحساب المصروف</th>
+                          <th className="py-2 px-3">المورد / الجهة</th>
+                          <th className="py-2 px-3 text-center">المبلغ قبل الضريبة</th>
+                          <th className="py-2 px-3 text-center">الضريبة</th>
+                          <th className="py-2 px-3 text-center">الإجمالي</th>
+                          <th className="py-2 px-3 text-center">قيد التسوية</th>
+                          <th className="py-2 px-3 text-center">حذف</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {custodyDetail.lines.map((l, idx) => (
+                          <tr key={l.id} className="hover:bg-slate-50/60">
+                            <td className="py-2 px-3 font-mono">{idx + 1}</td>
+                            <td className="py-2 px-3">
+                              <div className="font-semibold">{date(l.expense_date)}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">{l.receipt_no || 'بدون إيصال'}</div>
+                            </td>
+                            <td className="py-2 px-3">
+                              <div className="font-semibold text-slate-800">{l.description}</div>
+                              <div className="text-[10px] text-blue-600 font-mono">
+                                {l.expenseAccountCode} — {l.expenseAccountNameAr}
+                              </div>
+                              {l.projectNameAr && (
+                                <div className="text-[10px] text-emerald-600">مشروع: {l.projectNameAr}</div>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-slate-600">{l.vendor_name || '—'}</td>
+                            <td className="py-2 px-3 text-center font-mono">{money(l.subtotal)} {l.currency_code}</td>
+                            <td className="py-2 px-3 text-center font-mono">
+                              {Number(l.vat_amount) > 0 ? (
+                                <span className="text-rose-600">+{money(l.vat_amount)} {l.currency_code} ({l.vat_rate}%)</span>
+                              ) : (
+                                '0'
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-center font-mono font-bold text-slate-900">
+                              {money(l.total_amount)} {l.currency_code}
+                            </td>
+                            <td className="py-2 px-3 text-center font-mono text-[11px]">
+                              {l.journalEntryNo ? (
+                                <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">
+                                  {l.journalEntryNo}
+                                </span>
+                              ) : (
+                                <span className="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">معلق</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              {!l.journal_entry_id && (
+                                <button
+                                  onClick={() => removeLine.mutate({ custodyId: custodyDetail.id, lineId: l.id })}
+                                  className="text-rose-500 hover:text-rose-700 p-1"
+                                  title="حذف الإيصال"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
+            )}
 
-              {!custodyDetail.lines?.length ? (
-                <div className="p-6 text-center border border-dashed border-slate-200 rounded-lg text-xs text-slate-500">
-                  لم يتم تسجيل أي إيصالات أو فواتير مصروفات لهذه العهدة بعد.
+            {/* TAB 2: Inter-branch Transfers (Saudi HQ -> Egypt Custody) */}
+            {drawerTab === 'transfers' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                      <ArrowLeftRight className="size-4 text-purple-600" />
+                      حوالات وتعزيزات المركز الرئيسي (SAR &rarr; EGP)
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      قيود متبادلة آلية: بالسعودية (مدين جاري فرع مصر 1390)، وبمصر (مدين العهدة 1310 ودائن جاري المركز 2390)
+                    </p>
+                  </div>
+
+                  {['DISBURSED', 'CONVERTED', 'PARTIALLY_SETTLED'].includes(custodyDetail.status) && (
+                    <button
+                      onClick={() => setTransferModalCustody(custodyDetail)}
+                      className="px-3 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded text-xs font-bold flex items-center gap-1 shadow-sm transition"
+                    >
+                      <Plus className="size-3.5" /> تحويل جديد من المركز الرئيسي
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <table className="table w-full text-xs text-right">
-                    <thead className="bg-slate-50 border-b border-slate-200 font-bold text-slate-700">
-                      <tr>
-                        <th className="py-2 px-3">م</th>
-                        <th className="py-2 px-3">التاريخ ورقم الإيصال</th>
-                        <th className="py-2 px-3">البيان وحساب المصروف</th>
-                        <th className="py-2 px-3">المورد / الجهة</th>
-                        <th className="py-2 px-3 text-center">المبلغ قبل الضريبة</th>
-                        <th className="py-2 px-3 text-center">الضريبة</th>
-                        <th className="py-2 px-3 text-center">الإجمالي</th>
-                        <th className="py-2 px-3 text-center">قيد التسوية</th>
-                        <th className="py-2 px-3 text-center">حذف</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {custodyDetail.lines.map((l, idx) => (
-                        <tr key={l.id} className="hover:bg-slate-50/60">
-                          <td className="py-2 px-3 font-mono">{idx + 1}</td>
-                          <td className="py-2 px-3">
-                            <div className="font-semibold">{date(l.expense_date)}</div>
-                            <div className="text-[10px] text-slate-400 font-mono">{l.receipt_no || 'بدون إيصال'}</div>
-                          </td>
-                          <td className="py-2 px-3">
-                            <div className="font-semibold text-slate-800">{l.description}</div>
-                            <div className="text-[10px] text-blue-600 font-mono">
-                              {l.expenseAccountCode} — {l.expenseAccountNameAr}
-                            </div>
-                            {l.projectNameAr && (
-                              <div className="text-[10px] text-emerald-600">مشروع: {l.projectNameAr}</div>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-slate-600">{l.vendor_name || '—'}</td>
-                          <td className="py-2 px-3 text-center font-mono">{money(l.subtotal)} {l.currency_code}</td>
-                          <td className="py-2 px-3 text-center font-mono">
-                            {Number(l.vat_amount) > 0 ? (
-                              <span className="text-rose-600">+{money(l.vat_amount)} {l.currency_code} ({l.vat_rate}%)</span>
-                            ) : (
-                              '0'
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-center font-mono font-bold text-slate-900">
-                            {money(l.total_amount)} {l.currency_code}
-                          </td>
-                          <td className="py-2 px-3 text-center font-mono text-[11px]">
-                            {l.journalEntryNo ? (
-                              <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">
-                                {l.journalEntryNo}
-                              </span>
-                            ) : (
-                              <span className="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">معلق</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-center">
-                            {!l.journal_entry_id && (
-                              <button
-                                onClick={() => removeLine.mutate({ custodyId: custodyDetail.id, lineId: l.id })}
-                                className="text-rose-500 hover:text-rose-700 p-1"
-                                title="حذف الإيصال"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            )}
-                          </td>
+
+                {!custodyDetail.transfers?.length ? (
+                  <div className="p-8 text-center border border-dashed border-purple-200 bg-purple-50/40 rounded-xl text-xs text-purple-700">
+                    لم تسجل حوالات إضافية لهذه العهدة بعد. يمكنك تعزيز العهدة بمبالغ جديدة عند انخفاض الرصيد.
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+                    <table className="table w-full text-xs text-right">
+                      <thead className="bg-purple-50/70 border-b border-purple-200 font-bold text-purple-900">
+                        <tr>
+                          <th className="py-2.5 px-3">رقم الحوالة</th>
+                          <th className="py-2.5 px-3">التاريخ والمرجع</th>
+                          <th className="py-2.5 px-3 text-center">المبلغ المحول (SAR)</th>
+                          <th className="py-2.5 px-3 text-center">سعر التحويل</th>
+                          <th className="py-2.5 px-3 text-center">المستلم بالجنيه (EGP)</th>
+                          <th className="py-2.5 px-3 text-center">رسوم التحويل</th>
+                          <th className="py-2.5 px-3 text-center">قيد السعودية</th>
+                          <th className="py-2.5 px-3 text-center">قيد مصر</th>
+                          <th className="py-2.5 px-3 text-center">الحالة</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {custodyDetail.transfers.map((t) => (
+                          <tr key={t.id} className="hover:bg-purple-50/30">
+                            <td className="py-2.5 px-3 font-mono font-bold text-purple-900">
+                              {t.transfer_no}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="font-semibold">{date(t.transfer_date)}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">{t.bank_reference || 'تحويل بنكي'}</div>
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900">
+                              {money(t.amount_sar)} SAR
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-mono font-semibold text-cyan-800">
+                              {t.exchange_rate}
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-700">
+                              {money(t.amount_target)} EGP
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-mono text-slate-600">
+                              {money(t.bank_fee_sar)} SAR
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-mono text-[11px]">
+                              {t.saJournalEntryNo ? (
+                                <span className="bg-blue-50 text-blue-800 font-bold px-1.5 py-0.5 rounded border border-blue-200">
+                                  {t.saJournalEntryNo}
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-mono text-[11px]">
+                              {t.egJournalEntryNo ? (
+                                <span className="bg-emerald-50 text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-200">
+                                  {t.egJournalEntryNo}
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <Badge color="green">{t.status === 'RECEIVED' ? 'مستلمة ومعتمدة' : t.status}</Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 3: Periodic Settlements */}
+            {drawerTab === 'settlements' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                      <FileCheck className="size-4 text-emerald-600" />
+                      سجل التسويات الدورية المعتمدة وإقفال المصروفات
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      إقفال المصروفات وتوليد قيد اليومية وحساب فروقات العملة المحققة (Realized FX Gain/Loss) آلياً
+                    </p>
+                  </div>
+
+                  {['DISBURSED', 'CONVERTED', 'PARTIALLY_SETTLED'].includes(custodyDetail.status) && (
+                    <button
+                      onClick={() => setSettlementModalCustody(custodyDetail)}
+                      className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-xs font-bold flex items-center gap-1 shadow-sm transition"
+                    >
+                      <Plus className="size-3.5" /> إجراء تسوية دورية جديدة
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
+
+                {!custodyDetail.settlements?.length ? (
+                  <div className="p-8 text-center border border-dashed border-emerald-200 bg-emerald-50/40 rounded-xl text-xs text-emerald-700">
+                    لم يتم اعتماد تسويات دورية رسمية لهذه العهدة بعد. اضغط "إجراء تسوية دورية جديدة" لترحيل الفواتير المعلقة.
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+                    <table className="table w-full text-xs text-right">
+                      <thead className="bg-emerald-50/70 border-b border-emerald-200 font-bold text-emerald-900">
+                        <tr>
+                          <th className="py-2.5 px-3">رقم التسوية</th>
+                          <th className="py-2.5 px-3">تاريخ التسوية</th>
+                          <th className="py-2.5 px-3 text-center">إجمالي المصروفات (EGP)</th>
+                          <th className="py-2.5 px-3 text-center">المكافئ بأساس الريال (SAR)</th>
+                          <th className="py-2.5 px-3 text-center">فروق العملة المحققة (FX)</th>
+                          <th className="py-2.5 px-3 text-center">نقد مسترد للبنك</th>
+                          <th className="py-2.5 px-3 text-center">قيد التسوية بالأستاذ</th>
+                          <th className="py-2.5 px-3 text-center">الحالة</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {custodyDetail.settlements.map((s) => {
+                          const fxNum = Number(s.realized_fx_gain_loss || 0);
+                          return (
+                            <tr key={s.id} className="hover:bg-emerald-50/30">
+                              <td className="py-2.5 px-3 font-mono font-bold text-emerald-900">
+                                {s.settlement_no}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono">{date(s.settlement_date)}</td>
+                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900">
+                                {money(s.total_amount_egp)} EGP
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-800">
+                                {money(s.total_amount_sar_base)} SAR
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-mono font-bold">
+                                {fxNum >= 0 ? (
+                                  <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                    +{money(s.realized_fx_gain_loss)} SAR (ربح)
+                                  </span>
+                                ) : (
+                                  <span className="text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                                    {money(s.realized_fx_gain_loss)} SAR (خسارة)
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-mono text-slate-700">
+                                {Number(s.returned_cash_egp) > 0 ? `${money(s.returned_cash_egp)} EGP` : '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-mono text-[11px]">
+                                {s.journalEntryNo ? (
+                                  <span className="bg-emerald-50 text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-200">
+                                    {s.journalEntryNo}
+                                  </span>
+                                ) : '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <Badge color="green">{s.status === 'POSTED' ? 'مرحلة ومعتمدة' : s.status}</Badge>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : null}
       </Drawer>
@@ -869,6 +1220,32 @@ export function CustodiesPage() {
         <PrintCustodyModal
           custodyId={printModalCustody.id}
           onClose={() => setPrintModalCustody(null)}
+        />
+      )}
+
+      {/* =========================================================================
+          MODAL 8: Transfer from Saudi HQ to Branch Custody
+      ========================================================================= */}
+      {transferModalCustody && (
+        <TransferCustodyModal
+          custody={transferModalCustody}
+          bankAccounts={bankAccounts}
+          onClose={() => setTransferModalCustody(null)}
+          onSubmit={(body) => createTransfer.mutate({ id: transferModalCustody.id, body })}
+          isPending={createTransfer.isPending}
+        />
+      )}
+
+      {/* =========================================================================
+          MODAL 9: Periodic Custody Settlement
+      ========================================================================= */}
+      {settlementModalCustody && (
+        <CreateSettlementModal
+          custody={settlementModalCustody}
+          bankAccounts={bankAccounts}
+          onClose={() => setSettlementModalCustody(null)}
+          onSubmit={(body) => createSettlement.mutate({ id: settlementModalCustody.id, body })}
+          isPending={createSettlement.isPending}
         />
       )}
     </div>
@@ -1677,6 +2054,334 @@ function PrintCustodyModal({ custodyId, onClose }: { custodyId: string; onClose:
           </div>
         </div>
       </div>
+    </Modal>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Sub-Modal 8: Transfer from Saudi HQ to Branch Custody (SAR -> EGP)
+// -----------------------------------------------------------------------------
+function TransferCustodyModal({
+  custody,
+  bankAccounts,
+  onClose,
+  onSubmit,
+  isPending,
+}: {
+  custody: Custody;
+  bankAccounts: any[];
+  onClose: () => void;
+  onSubmit: (body: any) => void;
+  isPending: boolean;
+}) {
+  const [bankAccountId, setBankAccountId] = useState(
+    bankAccounts.find((b) => b.code === '1110' || b.currency === 'SAR')?.id || bankAccounts[0]?.id || ''
+  );
+  const [amountSar, setAmountSar] = useState('5000');
+  const [exchangeRate, setExchangeRate] = useState(custody.conversion_rate || '13.00');
+  const [bankFeeSar, setBankFeeSar] = useState('0');
+  const [transferDate, setTransferDate] = useState(today());
+  const [bankReference, setBankReference] = useState(`WIRE-${custody.custody_no}-${Date.now().toString().slice(-4)}`);
+  const [notes, setNotes] = useState('تحويل تعزيز سيولة تشغيلية من مصرف الراجحي إلى عهدة فرع مصر');
+
+  const amountTarget = useMemo(() => {
+    const s = parseFloat(amountSar) || 0;
+    const r = parseFloat(exchangeRate) || 0;
+    return (s * r).toFixed(2);
+  }, [amountSar, exchangeRate]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bankAccountId || !amountSar || !exchangeRate) return;
+    onSubmit({
+      bankAccountId,
+      amountSar: parseFloat(amountSar),
+      exchangeRate: parseFloat(exchangeRate),
+      bankFeeSar: parseFloat(bankFeeSar) || 0,
+      transferDate,
+      bankReference,
+      notes,
+    });
+  };
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={`تحويل وتعزيز عهدة فرع مصر: ${custody.custody_no}`}
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
+          <button className="btn-primary text-xs" onClick={handleSubmit} disabled={isPending || !bankAccountId || !amountSar}>
+            {isPending && <Spinner className="size-3.5" />} اعتماد التحويل وتوليد القيدين المتبادلين
+          </button>
+        </div>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-purple-900 leading-relaxed">
+          <div className="font-bold flex items-center gap-1.5 mb-1">
+            <ArrowLeftRight className="size-4 text-purple-700" /> دورة القيود المتبادلة بين الفروع (Inter-Branch Reciprocal):
+          </div>
+          • <strong>دفاتر السعودية:</strong> مدين حـ/ جاري فرع مصر (1390) + مدين مصاريف بنكية (5150) / دائن حـ/ البنك السعودي (1110) بالريال.
+          <br />• <strong>دفاتر مصر:</strong> مدين حـ/ العهدة النقدية (1310) / دائن حـ/ جاري المركز الرئيسي (2390) بالجنيه (المكافئ بالريال).
+        </div>
+
+        <Field label="حساب البنك السعودي المحول منه (SAR) *">
+          <select
+            className="input w-full font-bold"
+            value={bankAccountId}
+            onChange={(e) => setBankAccountId(e.target.value)}
+            required
+          >
+            <option value="">— اختر حساب البنك —</option>
+            {bankAccounts.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.code} — {b.nameAr}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="المبلغ المحول بالريال (SAR) *">
+            <input
+              type="number"
+              step="any"
+              className="input w-full font-mono font-bold"
+              value={amountSar}
+              onChange={(e) => setAmountSar(e.target.value)}
+              required
+            />
+          </Field>
+
+          <Field label="سعر صرف التحويل الفعلي (EGP/SAR) *">
+            <input
+              type="number"
+              step="any"
+              className="input w-full font-mono font-bold text-cyan-800"
+              value={exchangeRate}
+              onChange={(e) => setExchangeRate(e.target.value)}
+              required
+            />
+          </Field>
+        </div>
+
+        {/* Highlighted Result */}
+        <div className="p-3 bg-slate-900 text-white rounded-lg flex items-center justify-between font-mono">
+          <span className="text-xs text-slate-300 font-sans">المبلغ المكافئ المستلم بعهدة مصر:</span>
+          <span className="text-lg font-bold text-emerald-400">{money(amountTarget)} EGP</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="رسوم التحويل البنكي (SAR)">
+            <input
+              type="number"
+              step="any"
+              className="input w-full font-mono"
+              value={bankFeeSar}
+              onChange={(e) => setBankFeeSar(e.target.value)}
+            />
+          </Field>
+
+          <Field label="تاريخ الحوالة">
+            <input
+              type="date"
+              className="input w-full font-mono"
+              value={transferDate}
+              onChange={(e) => setTransferDate(e.target.value)}
+              required
+            />
+          </Field>
+        </div>
+
+        <Field label="رقم المرجع البنكي / رقم السويفت">
+          <input
+            className="input w-full font-mono"
+            placeholder="مثال: SWIFT-RUH-CAI-9921"
+            value={bankReference}
+            onChange={(e) => setBankReference(e.target.value)}
+          />
+        </Field>
+
+        <Field label="ملاحظات الحوالة">
+          <input
+            className="input w-full"
+            placeholder="بيان إضافي للتحويل والجهة المستلمة"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </Field>
+      </form>
+    </Modal>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Sub-Modal 9: Periodic Custody Settlement
+// -----------------------------------------------------------------------------
+function CreateSettlementModal({
+  custody,
+  bankAccounts,
+  onClose,
+  onSubmit,
+  isPending,
+}: {
+  custody: Custody;
+  bankAccounts: any[];
+  onClose: () => void;
+  onSubmit: (body: any) => void;
+  isPending: boolean;
+}) {
+  const unpostedLines = useMemo(() => {
+    return (custody.lines || []).filter((l) => !l.journal_entry_id);
+  }, [custody.lines]);
+
+  const totalUnpostedEgp = useMemo(() => {
+    return unpostedLines.reduce((acc, l) => acc + (parseFloat(l.total_amount) || 0), 0);
+  }, [unpostedLines]);
+
+  const [settlementDate, setSettlementDate] = useState(today());
+  const [exchangeRate, setExchangeRate] = useState(custody.conversion_rate || '13.00');
+  const [returnedCashEgp, setReturnedCashEgp] = useState('0');
+  const [refundBankAccountId, setRefundBankAccountId] = useState(
+    bankAccounts.find((b) => b.code === '1120' || b.currency === 'EGP')?.id || bankAccounts[0]?.id || ''
+  );
+  const [reference, setReference] = useState(`STL-${custody.custody_no}-${Date.now().toString().slice(-4)}`);
+  const [notes, setNotes] = useState('تسوية دورية معتمدة لمصروفات فرع مصر واحتساب فروق العملة المحققة');
+
+  const { estimatedSarBase, realizedFxEstimate } = useMemo(() => {
+    const rate = parseFloat(exchangeRate) || 13;
+    const egp = totalUnpostedEgp + (parseFloat(returnedCashEgp) || 0);
+    const origRate = parseFloat(custody.conversion_rate) || 13;
+    const sarAtOrig = origRate > 0 ? egp / origRate : 0;
+    const sarAtCurrent = rate > 0 ? egp / rate : 0;
+    const fx = sarAtOrig - sarAtCurrent; // positive = gain, negative = loss
+    return {
+      estimatedSarBase: sarAtCurrent.toFixed(2),
+      realizedFxEstimate: fx.toFixed(2),
+    };
+  }, [totalUnpostedEgp, returnedCashEgp, exchangeRate, custody.conversion_rate]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit({
+      settlementDate,
+      exchangeRate: parseFloat(exchangeRate),
+      returnedCashEgp: parseFloat(returnedCashEgp) || 0,
+      refundBankAccountId: parseFloat(returnedCashEgp) > 0 ? refundBankAccountId : undefined,
+      reference,
+      notes,
+    });
+  };
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={`اعتماد تسوية دورية للعهدة: ${custody.custody_no}`}
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
+          <button className="btn-primary text-xs" onClick={handleSubmit} disabled={isPending}>
+            {isPending && <Spinner className="size-3.5" />} اعتماد التسوية وتوليد قيد اليومية
+          </button>
+        </div>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 leading-relaxed">
+          <div className="font-bold flex items-center gap-1.5 mb-1">
+            <FileCheck className="size-4 text-emerald-700" /> التسوية الدورية والربط المحاسبي التلقائي:
+          </div>
+          • سيتم تجميع <strong>{unpostedLines.length}</strong> إيصال ومصروف غير مرحل بإجمالي <strong className="font-mono">{money(totalUnpostedEgp)} EGP</strong>.
+          <br />• توليد قيد اليومية: مدين حسابات المصروفات وضريبة المدخلات (1250) / دائن حـ/ العهدة (1310).
+          <br />• احتساب فروقات العملة المحققة (حـ/ 4300 أرباح أو حـ/ 5700 خسائر) وإقفال الفواتير.
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="تاريخ التسوية الدورية *">
+            <input
+              type="date"
+              className="input w-full font-mono"
+              value={settlementDate}
+              onChange={(e) => setSettlementDate(e.target.value)}
+              required
+            />
+          </Field>
+
+          <Field label="سعر صرف التسوية (EGP/SAR) *">
+            <input
+              type="number"
+              step="any"
+              className="input w-full font-mono font-bold text-cyan-800"
+              value={exchangeRate}
+              onChange={(e) => setExchangeRate(e.target.value)}
+              required
+            />
+          </Field>
+        </div>
+
+        {/* Calculation Strip */}
+        <div className="grid grid-cols-3 gap-2 p-3 bg-slate-900 text-white rounded-lg font-mono text-center">
+          <div>
+            <div className="text-[10px] text-slate-400 font-sans">إجمالي الفواتير:</div>
+            <div className="text-sm font-bold text-emerald-400">{money(totalUnpostedEgp)} EGP</div>
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-400 font-sans">أساس الريال:</div>
+            <div className="text-sm font-bold text-slate-200">{money(estimatedSarBase)} SAR</div>
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-400 font-sans">فروق العملة (FX):</div>
+            <div className={`text-sm font-bold ${parseFloat(realizedFxEstimate) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {parseFloat(realizedFxEstimate) >= 0 ? `+${money(realizedFxEstimate)}` : money(realizedFxEstimate)}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="النقد المرتجع للبنك بالجنيه (إن وجد)">
+            <input
+              type="number"
+              step="any"
+              className="input w-full font-mono"
+              value={returnedCashEgp}
+              onChange={(e) => setReturnedCashEgp(e.target.value)}
+            />
+          </Field>
+
+          {parseFloat(returnedCashEgp) > 0 && (
+            <Field label="حساب بنك الفرع المودع به">
+              <select
+                className="input w-full text-xs font-bold"
+                value={refundBankAccountId}
+                onChange={(e) => setRefundBankAccountId(e.target.value)}
+              >
+                {bankAccounts.map((b) => (
+                  <option key={b.id} value={b.id}>{b.code} — {b.nameAr}</option>
+                ))}
+              </select>
+            </Field>
+          )}
+        </div>
+
+        <Field label="المرجع / كود التسوية">
+          <input
+            className="input w-full font-mono"
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+          />
+        </Field>
+
+        <Field label="ملاحظات التسوية الدورية">
+          <input
+            className="input w-full"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </Field>
+      </form>
     </Modal>
   );
 }

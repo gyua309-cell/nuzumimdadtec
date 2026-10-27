@@ -70,12 +70,25 @@ export function CompanyPage() {
 // ------------------------------------------------------------------ master data
 export const BranchesPage = () => (
   <CrudPage
-    title="الفروع" path="/branches" entityLabel="فرع"
-    columns={[{ key: 'code', label: 'الرمز' }, { key: 'nameAr', label: 'الاسم' }, { key: 'address', label: 'العنوان' }, { key: 'isActive', label: 'الحالة', render: (r) => <ActiveBadge v={r.isActive} /> }]}
+    title="الفروع والشركات التابعة" path="/branches" entityLabel="فرع"
+    columns={[
+      { key: 'code', label: 'الرمز' },
+      { key: 'nameAr', label: 'الاسم' },
+      { key: 'countryCode', label: 'الدولة', render: (r) => r.countryCode === 'SA' ? 'المملكة العربية السعودية' : r.countryCode === 'EG' ? 'جمهورية مصر العربية' : (r.countryCode ?? 'SA') },
+      { key: 'functionalCurrency', label: 'العملة الوظيفية', render: (r) => <Badge color={r.functionalCurrency === 'SAR' ? 'blue' : r.functionalCurrency === 'EGP' ? 'cyan' : 'slate'}>{r.functionalCurrency ?? 'SAR'}</Badge> },
+      { key: 'documentSequencePrefix', label: 'بادئة الترقيم' },
+      { key: 'taxNumber', label: 'الرقم الضريبي' },
+      { key: 'address', label: 'العنوان' },
+      { key: 'isActive', label: 'الحالة', render: (r) => <ActiveBadge v={r.isActive} /> }
+    ]}
     fields={[
       { name: 'code', label: 'الرمز', type: 'text', required: true, ltr: true },
       { name: 'nameAr', label: 'الاسم بالعربية', type: 'text', required: true },
       { name: 'nameEn', label: 'الاسم بالإنجليزية', type: 'text', ltr: true },
+      { name: 'countryCode', label: 'الدولة', type: 'select', options: [{ value: 'SA', label: 'المملكة العربية السعودية (SA)' }, { value: 'EG', label: 'جمهورية مصر العربية (EG)' }], required: true, default: 'SA' },
+      { name: 'functionalCurrency', label: 'العملة الوظيفية', type: 'select', options: [{ value: 'SAR', label: 'ريال سعودي (SAR - عملة الأساس)' }, { value: 'EGP', label: 'جنيه مصري (EGP)' }, { value: 'USD', label: 'دولار أمريكي (USD)' }], required: true, default: 'SAR' },
+      { name: 'documentSequencePrefix', label: 'بادئة ترقيم الوثائق (مثال: RUH- / CAI-)', type: 'text', ltr: true },
+      { name: 'taxNumber', label: 'الرقم الضريبي للفرع', type: 'text', ltr: true },
       { name: 'isActive', label: 'نشط', type: 'bool', default: true },
       { name: 'address', label: 'العنوان', type: 'textarea' },
     ]}

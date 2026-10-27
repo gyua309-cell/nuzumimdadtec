@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Calendar, CheckCircle2, Clock, Download, ExternalLink,
   FileText, Printer, Search, Sparkles,
@@ -8,11 +8,11 @@ import {
 import { api } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
 import { usePeriods } from '../components/forms';
-import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat, useToast } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Loading, Modal, PageHeader, Spinner, Stat, useToast } from '../components/ui';
 
 export function EmployeeAllocationDaysReportPage() {
   const toast = useToast();
-  const nav = useNavigate();
+  const qc = useQueryClient();
   const periodsQuery = usePeriods();
   const periods = periodsQuery.data || [];
 
@@ -24,6 +24,19 @@ export function EmployeeAllocationDaysReportPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState<'ALL' | 'INVOICED' | 'UNINVOICED'>('ALL');
   const [basisFilter, setBasisFilter] = useState<'ALL' | 'DAYS' | 'PERCENTAGE'>('ALL');
+  const [invoicingRow, setInvoicingRow] = useState<any | null>(null);
+
+  // Mutation to auto-generate draft sales invoice from allocation
+  const createInvoice = useMutation({
+    mutationFn: (body: any) => api.post('/invoices', body),
+    onSuccess: (res: any) => {
+      toast.success(`تم إنشاء مسودة فاتورة المبيعات بنجاح برقم ${res.invoiceNo || ''}`);
+      setInvoicingRow(null);
+      qc.invalidateQueries({ queryKey: ['/assignments/employee-days-report', activePeriodId] });
+      qc.invalidateQueries({ queryKey: ['/invoices'] });
+    },
+    onError: (e: any) => toast.error(e),
+  });
 
   // Fetch report data from backend
   const reportQuery = useQuery({
@@ -486,15 +499,12 @@ export function EmployeeAllocationDaysReportPage() {
                       <td className="text-center print:hidden">
                         {r.invoiceStatus === 'UNINVOICED' ? (
                           <button
-                            className="btn-ghost text-xs text-brand-700 hover:text-brand-900 flex items-center gap-1 mx-auto"
-                            onClick={() => {
-                              toast.info(`توجيه لإصدار فاتورة للمشروع ${r.projectName}...`);
-                              nav('/sal/invoices');
-                            }}
-                            title="الانتقال لمديول المبيعات لإصدار الفاتورة"
+                            className="btn-primary text-xs py-1 px-2.5 flex items-center gap-1 mx-auto"
+                            onClick={() => setInvoicingRow(r)}
+                            title="توليد مسودة فاتورة مبيعات تلقائياً"
                           >
                             <FileText className="size-3.5" />
-                            <span>فوترة</span>
+                            <span>توليد فاتورة</span>
                           </button>
                         ) : (
                           <Link
@@ -515,6 +525,76 @@ export function EmployeeAllocationDaysReportPage() {
           </div>
         )}
       </div>
+
+      {/* Cross-module Invoice Generation Modal */}
+      {invoicingRow && (
+        <Modal
+          open={true}
+          onClose={() => setInvoicingRow(null)}
+          title="توليد مسودة فاتورة مبيعات من أيام التشغيل"
+          footer={
+            <div className="flex items-center justify-end gap-2">
+              <button className="btn-secondary text-xs" onClick={() => setInvoicingRow(null)} disabled={createInvoice.isPending}>إلغاء</button>
+              <button
+                className="btn-primary text-xs flex items-center gap-1.5"
+                disabled={createInvoice.isPending}
+                onClick={() => {
+                  createInvoice.mutate({
+                    invoiceType: 'TAX_INVOICE',
+                    invoiceSubType: 'STANDARD',
+                    clientId: invoicingRow.clientId,
+                    projectId: invoicingRow.projectId,
+                    fiscalPeriodId: activePeriodId,
+                    issueDate: today(),
+                    currencyCode: 'SAR',
+                    lines: [
+                      {
+                        description: `خدمات برمجية وتشغيل كوادر تقنية - ${invoicingRow.employeeName} (${invoicingRow.positionTitle}) - مشروع: ${invoicingRow.projectName}`,
+                        quantity: invoicingRow.allocatedDays,
+                        unitPrice: invoicingRow.unitPrice,
+                        vatRate: '15.00',
+                      },
+                    ],
+                  });
+                }}
+              >
+                {createInvoice.isPending && <Spinner className="size-3.5" />}
+                تأكيد إصدار مسودة الفاتورة
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 leading-relaxed">
+              سيتم إنشاء فاتورة مبيعات ضريبية مسودة (متوافقة مع هيئة الزكاة والضريبة ZATCA) للعميل مباشرة بناءً على أيام تشغيل الكادر التقني وأسعار الإسناد المعتمدة.
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+              <div>
+                <span className="text-slate-500">العميل:</span>
+                <div className="font-bold text-slate-900 mt-0.5">{invoicingRow.clientName}</div>
+              </div>
+              <div>
+                <span className="text-slate-500">المشروع:</span>
+                <div className="font-bold text-slate-900 mt-0.5">{invoicingRow.projectName}</div>
+              </div>
+              <div>
+                <span className="text-slate-500">الكادر المهني:</span>
+                <div className="font-bold text-slate-900 mt-0.5">{invoicingRow.employeeName} ({invoicingRow.positionTitle})</div>
+              </div>
+              <div>
+                <span className="text-slate-500">أيام التشغيل والفوترة:</span>
+                <div className="font-bold text-slate-900 font-mono mt-0.5">{invoicingRow.allocatedDays} يوم × {money(invoicingRow.unitPrice)} SAR</div>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-900 text-white rounded-lg flex items-center justify-between font-mono">
+              <span className="text-xs text-slate-300 font-sans">إجمالي الإيراد قبل الضريبة (15%):</span>
+              <span className="text-base font-bold text-emerald-400">{money(invoicingRow.revenueGenerated)} SAR</span>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Official Signatures Section for Printing */}
       <div className="hidden print:block pt-10 border-t border-slate-300">

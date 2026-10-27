@@ -10,7 +10,9 @@ import {
   CustodyCreate,
   CustodyDisburse,
   CustodyPostSettlement,
+  CustodySettlementCreate,
   CustodySettlementLineCreate,
+  CustodyTransferCreate,
   CustodiesService,
 } from '../application/custodies.service';
 
@@ -55,6 +57,30 @@ export class CustodiesController {
   @RequirePermission('fin.custody.edit')
   recordConversion(@Param('id', idPipe) id: string, @Body(new ZodPipe(CustodyConversion)) body: z.infer<typeof CustodyConversion>) {
     return this.svc.recordConversion(activeCompanyId(), id, body);
+  }
+
+  @Post(':id/transfers')
+  @RequirePermission('fin.custody_transfer.create')
+  createTransfer(@Param('id', idPipe) id: string, @Body(new ZodPipe(CustodyTransferCreate)) body: z.infer<typeof CustodyTransferCreate>) {
+    return this.svc.createTransfer(activeCompanyId(), id, body);
+  }
+
+  @Get(':id/transfers')
+  @RequirePermission('fin.custody_transfer.view')
+  listTransfers(@Param('id', idPipe) id: string) {
+    return this.svc.listTransfers(activeCompanyId(), id);
+  }
+
+  @Post(':id/settlements')
+  @RequirePermission('fin.custody_settlement.create')
+  createSettlement(@Param('id', idPipe) id: string, @Body(new ZodPipe(CustodySettlementCreate)) body: z.infer<typeof CustodySettlementCreate>) {
+    return this.svc.createSettlement(activeCompanyId(), id, body);
+  }
+
+  @Get(':id/settlements')
+  @RequirePermission('fin.custody_settlement.view')
+  listSettlements(@Param('id', idPipe) id: string) {
+    return this.svc.listSettlements(activeCompanyId(), id);
   }
 
   @Post(':id/lines')

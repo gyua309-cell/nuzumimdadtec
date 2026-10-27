@@ -377,6 +377,47 @@ export class PurchasesService {
         [companyId, journalEntryId, id],
       );
 
+      // 5. Cross-Module Automation: Auto-Acquisition of Fixed Assets from Equipment Bills
+      if (!isDebitNote) {
+        for (const line of inv.lines) {
+          const acc = await this.db.one<{ code: string; subtype: string; account_class: string }>(
+            `SELECT code, subtype, account_class FROM acc.accounts WHERE id = $1`,
+            [line.expenseAccountId],
+          );
+          if (acc && (acc.code.startsWith('15') || acc.code.startsWith('16') || acc.subtype === 'FIXED_ASSET' || acc.account_class === 'NON_CURRENT_ASSET')) {
+            const cat = await this.db.one<{ id: string }>(
+              `SELECT id FROM ast.asset_categories WHERE company_id = $1 LIMIT 1`,
+              [companyId],
+            );
+            if (cat) {
+              const countAssets = await this.db.one<{ n: string }>(
+                `SELECT count(*) AS n FROM ast.assets WHERE company_id = $1`,
+                [companyId],
+              );
+              const assetNo = `AST-${new Date().getFullYear()}-${(Number(countAssets?.n ?? 0) + 1).toString().padStart(4, '0')}`;
+              await this.db.query(
+                `INSERT INTO ast.assets (
+                   company_id, asset_no, name, category_id, asset_kind,
+                   purchase_date, acquisition_cost, currency_code, status,
+                   notes, created_by
+                 ) VALUES ($1, $2, $3, $4, 'EQUIPMENT', $5, $6, $7, 'ACTIVE', $8, sys.current_user_id())
+                 ON CONFLICT DO NOTHING`,
+                [
+                  companyId,
+                  assetNo,
+                  line.description,
+                  cat.id,
+                  inv.issueDate,
+                  line.subtotal,
+                  inv.currencyCode,
+                  `تسجيل آلي عند ترحيل فاتورة المشتريات ${inv.invoiceNo} (${inv.vendorName})`,
+                ],
+              );
+            }
+          }
+        }
+      }
+
       return this.get(companyId, id);
     });
   }

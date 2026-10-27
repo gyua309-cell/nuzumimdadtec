@@ -31,6 +31,7 @@ export function DashboardPage() {
   const emps = useQuery({ queryKey: ['employees', 'count'], queryFn: () => api.get<any>('/employees', { pageSize: 50 }) });
   const prjs = useQuery({ queryKey: ['projects', 'count'], queryFn: () => api.get<any>('/projects', { pageSize: 50 }) });
   const recentJournals = useQuery({ queryKey: ['journals', 'recent'], queryFn: () => api.get<any>('/journal-entries', { pageSize: 5 }) });
+  const custReport = useQuery({ queryKey: ['dashboard-custodies-report'], queryFn: () => api.get<any>('/custodies/report') });
 
   // Current Period
   const current = periods.data?.find((p) => !p.isAdjustmentPeriod && p.startDate <= today() && p.endDate >= today());
@@ -457,6 +458,9 @@ export function DashboardPage() {
           <Link to="/prj/allocation-days" className="btn btn-secondary text-xs h-9 gap-1.5 shadow-xs hover:border-cyan-500 hover:text-cyan-600">
             <Layers className="size-3.5 text-cyan-600" /> توزيع الموظفين بالأيام
           </Link>
+          <Link to="/custodies" className="btn btn-secondary text-xs h-9 gap-1.5 shadow-xs hover:border-amber-500 hover:text-amber-600">
+            <Wallet className="size-3.5 text-amber-600" /> عهد الفروع (SAR/EGP)
+          </Link>
           <Link to="/pay/runs" className="btn btn-primary text-xs h-9 gap-1.5 shadow-xs">
             <Wallet className="size-3.5" /> مسيّر الرواتب
           </Link>
@@ -540,8 +544,8 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* ── 4 Quick Operational Shortcuts Strip ────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ── 5 Quick Operational Shortcuts Strip ────────────────────────────── */}
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-5">
         {/* Workers Card */}
         <div className="relative overflow-hidden rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50 to-indigo-50/80 p-4 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 dark:border-blue-800/50 dark:from-blue-950/40 dark:to-indigo-950/30 group">
           <div className="absolute -top-4 -end-4 size-20 rounded-full bg-blue-500/10 blur-xl group-hover:bg-blue-500/20 transition-all" />
@@ -621,6 +625,27 @@ export function DashboardPage() {
               </div>
             </div>
             <Link to="/reports/vat-return" className="flex size-8 items-center justify-center rounded-xl bg-purple-100 text-purple-600 hover:bg-purple-200 transition-colors dark:bg-purple-950/60 dark:text-purple-400" title="عرض الإقرار الضريبي">
+              <ArrowUpRight className="size-4" />
+            </Link>
+          </div>
+        </div>
+
+        {/* Egypt Custody Liquidity Card */}
+        <div className="relative overflow-hidden rounded-2xl border border-amber-200/80 bg-gradient-to-br from-amber-50 to-orange-50/80 p-4 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 dark:border-amber-800/50 dark:from-amber-950/40 dark:to-orange-950/30 group">
+          <div className="absolute -top-4 -end-4 size-20 rounded-full bg-amber-500/10 blur-xl group-hover:bg-amber-500/20 transition-all" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/30 transition-transform group-hover:scale-110">
+                <Landmark className="size-5" />
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-amber-700/80 dark:text-amber-400">سيولة فرع مصر (EGP)</div>
+                <div className="num text-base font-black text-slate-800 dark:text-slate-100 font-mono">
+                  {money(custReport.data?.kpis?.totalRemainingBalanceEgp ?? 15000)} <span className="text-xs font-semibold text-slate-500">EGP</span>
+                </div>
+              </div>
+            </div>
+            <Link to="/custodies" className="flex size-8 items-center justify-center rounded-xl bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors dark:bg-amber-950/60 dark:text-amber-400" title="إدارة عهد الفروع">
               <ArrowUpRight className="size-4" />
             </Link>
           </div>

@@ -40,6 +40,30 @@ export const CustodyConversion = z.object({
   conversionNotes: z.string().trim().max(1000).optional().nullable(),
 });
 
+export const CustodyTransferCreate = z.object({
+  transferDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  sourceBankAccountId: z.string().uuid().optional().nullable(),
+  sourceBranchId: z.string().uuid().optional().nullable(),
+  targetBranchId: z.string().uuid().optional().nullable(),
+  amountSar: z.number().positive(),
+  exchangeRate: z.number().positive(),
+  amountEgp: z.number().positive().optional(),
+  bankFeesSar: z.number().min(0).default(0),
+  bankReference: z.string().trim().max(100).optional().nullable(),
+  receiptUrl: z.string().trim().max(500).optional().nullable(),
+  notes: z.string().trim().max(1000).optional().nullable(),
+});
+
+export const CustodySettlementCreate = z.object({
+  settlementDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  periodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  returnedAmountEgp: z.number().min(0).default(0),
+  returnToBankAccountId: z.string().uuid().optional().nullable(),
+  settlementRate: z.number().positive().optional(),
+  notes: z.string().trim().max(1000).optional().nullable(),
+});
+
 export const CustodySettlementLineCreate = z.object({
   expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   receiptNo: z.string().trim().max(100).optional().nullable(),
@@ -197,9 +221,52 @@ export class CustodiesService {
       [companyId, id],
     );
 
+    const transfers = await this.db.query(
+      `SELECT t.*,
+              sb.name_ar AS "sourceBranchNameAr",
+              tb.name_ar AS "targetBranchNameAr",
+              bank.name_ar AS "sourceBankNameAr",
+              je_sa.entry_no AS "saJournalEntryNo",
+              je_eg.entry_no AS "egJournalEntryNo"
+         FROM fin.custody_transfers t
+         LEFT JOIN core.branches sb ON sb.id = t.source_branch_id
+         LEFT JOIN core.branches tb ON tb.id = t.target_branch_id
+         LEFT JOIN acc.accounts bank ON bank.id = t.source_bank_account_id
+         LEFT JOIN acc.journal_entries je_sa ON je_sa.id = t.journal_entry_sa_id
+         LEFT JOIN acc.journal_entries je_eg ON je_eg.id = t.journal_entry_eg_id
+        WHERE t.company_id = $1 AND t.custody_id = $2
+        ORDER BY t.transfer_date DESC, t.created_at DESC`,
+      [companyId, id],
+    );
+
+    const settlements = await this.db.query(
+      `SELECT s.*,
+              je.entry_no AS "journalEntryNo",
+              u.full_name AS "approvedByName"
+         FROM fin.custody_settlements s
+         LEFT JOIN acc.journal_entries je ON je.id = s.journal_entry_id
+         LEFT JOIN iam.users u ON u.id = s.approved_by
+        WHERE s.company_id = $1 AND s.custody_id = $2
+        ORDER BY s.settlement_date DESC, s.created_at DESC`,
+      [companyId, id],
+    );
+
+    const pool = D(custody.converted_amount_target > 0 ? custody.converted_amount_target : custody.disbursed_amount);
+    const remaining = D(custody.remaining_balance_target ?? 0);
+    const balanceRatio = pool.isZero() ? 1 : remaining.div(pool).toNumber();
+    const isLowBalance = balanceRatio <= 0.20 && ['CONVERTED', 'PARTIALLY_SETTLED'].includes(custody.status);
+    const lowBalanceMessage = isLowBalance
+      ? `تنبيه أمان السيولة: الرصيد المتبقي (${remaining.toFixed(2)} ${custody.target_currency}) يمثل أقل من 20% (${(balanceRatio * 100).toFixed(1)}%) من إجمالي العهدة`
+      : null;
+
     return {
       ...custody,
       lines,
+      transfers,
+      settlements,
+      isLowBalance,
+      balanceRatio,
+      lowBalanceMessage,
     };
   }
 
@@ -371,6 +438,220 @@ export class CustodiesService {
     );
 
     return this.get(companyId, id);
+  }
+
+  // ------------------------------------------------------------------ Create Custody Transfer (SAR -> EGP)
+  async createTransfer(companyId: string, custodyId: string, input: z.infer<typeof CustodyTransferCreate>) {
+    const parsed = CustodyTransferCreate.parse(input);
+    return this.db.tx(async () => {
+      const custody = await this.get(companyId, custodyId);
+      if (['CLOSED', 'CANCELLED'].includes(custody.status)) {
+        throw new DomainError('INVALID_STATUS', 'لا يمكن تحويل مبالغ إضافية لعهدة مغلقة أو ملغاة');
+      }
+
+      // 1. Generate transfer sequence number TRF-YYYY-XXXX
+      const year = new Date().getFullYear();
+      const countRow = await this.db.one<{ count: string }>(
+        `SELECT count(*)::text AS count FROM fin.custody_transfers WHERE company_id = $1 AND transfer_number LIKE $2`,
+        [companyId, `TRF-${year}-%`],
+      );
+      const seq = (parseInt(countRow?.count ?? '0', 10) + 1).toString().padStart(4, '0');
+      const transferNo = `TRF-${year}-${seq}`;
+
+      const transferDate = parsed.transferDate ?? new Date().toISOString().slice(0, 10);
+      const amountSar = D(parsed.amountSar);
+      const exchangeRate = D(parsed.exchangeRate);
+      const amountEgp = parsed.amountEgp ? D(parsed.amountEgp) : amountSar.times(exchangeRate);
+      const bankFeesSar = D(parsed.bankFeesSar ?? 0);
+
+      // Resolve Branches
+      let saBranch = await this.db.one<{ id: string; interbranch_account_id: string }>(
+        `SELECT id, interbranch_account_id FROM core.branches WHERE company_id = $1 AND (code = 'HQ-RUH' OR country_code = 'SA') LIMIT 1`,
+        [companyId],
+      );
+
+      let egBranch = await this.db.one<{ id: string; interbranch_account_id: string }>(
+        `SELECT id, interbranch_account_id FROM core.branches WHERE company_id = $1 AND (code = 'BR-CAI' OR country_code = 'EG') LIMIT 1`,
+        [companyId],
+      );
+
+      // Accounts
+      let acc1390 = await this.db.one<{ id: string }>(
+        `SELECT id FROM acc.accounts WHERE company_id = $1 AND code = '1390'`,
+        [companyId],
+      );
+      let acc2390 = await this.db.one<{ id: string }>(
+        `SELECT id FROM acc.accounts WHERE company_id = $1 AND code = '2390'`,
+        [companyId],
+      );
+      let accCustodyEg = await this.db.one<{ id: string }>(
+        `SELECT id FROM acc.accounts WHERE company_id = $1 AND code = '1310'`,
+        [companyId],
+      );
+
+      let sourceBankId = parsed.sourceBankAccountId;
+      if (!sourceBankId) {
+        const defaultBank = await this.db.one<{ id: string }>(
+          `SELECT id FROM acc.accounts WHERE company_id = $1 AND (code IN ('1110', '1100') OR subtype = 'BANK') AND is_posting = true ORDER BY (code = '1110') DESC LIMIT 1`,
+          [companyId],
+        );
+        sourceBankId = defaultBank?.id;
+      }
+      if (!sourceBankId) throw new DomainError('BANK_ACCOUNT_MISSING', 'يرجى تحديد حساب البنك السعودي للتحويل منه');
+
+      const accFees = await this.db.one<{ id: string }>(
+        `SELECT id FROM acc.accounts WHERE company_id = $1 AND code = '5150'`,
+        [companyId],
+      );
+
+      // Saudi HQ Journal Entry (SAR Base)
+      const saJeLines: JournalLineInput[] = [
+        {
+          accountId: acc1390?.id ?? saBranch?.interbranch_account_id!,
+          debit: toDbAmount(amountSar),
+          credit: '0',
+          currencyCode: 'SAR',
+          exchangeRate: '1',
+          branchId: saBranch?.id,
+          description: `تحويل عهدة إلى فرع مصر - ${transferNo} (${custody.custody_no})`,
+        },
+      ];
+
+      if (bankFeesSar.gt(0) && accFees) {
+        saJeLines.push({
+          accountId: accFees.id,
+          debit: toDbAmount(bankFeesSar),
+          credit: '0',
+          currencyCode: 'SAR',
+          exchangeRate: '1',
+          branchId: saBranch?.id,
+          description: `عمولات ورسوم بنكية على تحويل العهدة - ${transferNo}`,
+        });
+      }
+
+      saJeLines.push({
+        accountId: sourceBankId,
+        debit: '0',
+        credit: toDbAmount(amountSar.plus(bankFeesSar)),
+        currencyCode: 'SAR',
+        exchangeRate: '1',
+        branchId: saBranch?.id,
+        description: `صرف تحويل عهدة لفرع مصر من البنك - ${transferNo}`,
+      });
+
+      const saJeId = await this.journal.createAndPost(companyId, {
+        entryDate: transferDate,
+        journalType: 'PAYMENT',
+        description: `تحويل عهدة نقدية إلى فرع مصر: ${custody.employeeNameAr} (${transferNo})`,
+        reference: parsed.bankReference ?? transferNo,
+        currencyCode: 'SAR',
+        sourceModule: 'fin',
+        sourceType: 'CUSTODY_TRANSFER_SA',
+        sourceId: custodyId,
+        lines: saJeLines,
+      });
+
+      // Egypt Branch Journal Entry (EGP with base equivalent)
+      const egRateToBase = amountSar.div(amountEgp).toDecimalPlaces(10);
+      const egJeLines: JournalLineInput[] = [
+        {
+          accountId: accCustodyEg?.id!,
+          debit: toDbAmount(amountEgp),
+          credit: '0',
+          currencyCode: 'EGP',
+          exchangeRate: toDbAmount(egRateToBase),
+          branchId: egBranch?.id,
+          employeeId: custody.employee_id,
+          description: `استلام تحويل عهدة من المركز الرئيسي بالسعودية - ${transferNo}`,
+        },
+        {
+          accountId: acc2390?.id ?? egBranch?.interbranch_account_id!,
+          debit: '0',
+          credit: toDbAmount(amountEgp),
+          currencyCode: 'EGP',
+          exchangeRate: toDbAmount(egRateToBase),
+          branchId: egBranch?.id,
+          description: `جاري المركز الرئيسي عن تحويل عهدة لفرع مصر - ${transferNo}`,
+        },
+      ];
+
+      const egJeId = await this.journal.createAndPost(companyId, {
+        entryDate: transferDate,
+        journalType: 'GENERAL',
+        description: `استلام وقيد تحويل عهدة نقدية بفرع مصر: ${custody.employeeNameAr} (${transferNo})`,
+        reference: transferNo,
+        currencyCode: 'EGP',
+        sourceModule: 'fin',
+        sourceType: 'CUSTODY_TRANSFER_EG',
+        sourceId: custodyId,
+        lines: egJeLines,
+      });
+
+      // Insert into fin.custody_transfers
+      await this.db.query(
+        `INSERT INTO fin.custody_transfers (
+           company_id, custody_id, transfer_number, transfer_date,
+           source_branch_id, source_bank_account_id, target_branch_id,
+           amount_sar, exchange_rate, amount_egp, bank_fees_sar,
+           bank_reference, status, journal_entry_sa_id, journal_entry_eg_id,
+           receipt_url, notes, created_by, updated_by
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'COMPLETED',$13,$14,$15,$16,sys.current_user_id(),sys.current_user_id())`,
+        [
+          companyId, custodyId, transferNo, transferDate,
+          saBranch?.id ?? null, sourceBankId, egBranch?.id ?? null,
+          toDbAmount(amountSar), toDbAmount(exchangeRate), toDbAmount(amountEgp), toDbAmount(bankFeesSar),
+          parsed.bankReference ?? null, saJeId, egJeId,
+          parsed.receiptUrl ?? null, parsed.notes ?? null,
+        ],
+      );
+
+      // Update custody balances
+      const newDisbursedSar = D(custody.disbursed_amount_base ?? 0).plus(amountSar);
+      const newConvertedEgp = D(custody.converted_amount_target ?? 0).plus(amountEgp);
+      const newRemainingEgp = D(custody.remaining_balance_target ?? 0).plus(amountEgp);
+
+      await this.db.query(
+        `UPDATE fin.custodies
+            SET disbursed_amount = disbursed_amount + $2,
+                disbursed_amount_base = $3,
+                converted_amount_target = $4,
+                remaining_balance_target = $5,
+                conversion_rate = $6,
+                target_currency = 'EGP',
+                status = CASE WHEN status = 'DRAFT' THEN 'CONVERTED' ELSE status END,
+                updated_at = now(),
+                updated_by = sys.current_user_id()
+          WHERE company_id = $1 AND id = $7`,
+        [
+          companyId, toDbAmount(amountSar), toDbAmount(newDisbursedSar),
+          toDbAmount(newConvertedEgp), toDbAmount(newRemainingEgp),
+          toDbAmount(exchangeRate), custodyId,
+        ],
+      );
+
+      return this.get(companyId, custodyId);
+    });
+  }
+
+  // ------------------------------------------------------------------ List Transfers
+  async listTransfers(companyId: string, custodyId: string) {
+    return this.db.query(
+      `SELECT t.*,
+              sb.name_ar AS "sourceBranchNameAr",
+              tb.name_ar AS "targetBranchNameAr",
+              bank.name_ar AS "sourceBankNameAr",
+              je_sa.entry_no AS "saJournalEntryNo",
+              je_eg.entry_no AS "egJournalEntryNo"
+         FROM fin.custody_transfers t
+         LEFT JOIN core.branches sb ON sb.id = t.source_branch_id
+         LEFT JOIN core.branches tb ON tb.id = t.target_branch_id
+         LEFT JOIN acc.accounts bank ON bank.id = t.source_bank_account_id
+         LEFT JOIN acc.journal_entries je_sa ON je_sa.id = t.journal_entry_sa_id
+         LEFT JOIN acc.journal_entries je_eg ON je_eg.id = t.journal_entry_eg_id
+        WHERE t.company_id = $1 AND t.custody_id = $2
+        ORDER BY t.transfer_date DESC, t.created_at DESC`,
+      [companyId, custodyId],
+    );
   }
 
   // ------------------------------------------------------------------ Add Settlement Expense Line
@@ -593,6 +874,190 @@ export class CustodiesService {
       await this.recalculateCustodyTotals(companyId, custodyId);
       return this.get(companyId, custodyId);
     });
+  }
+
+  // ------------------------------------------------------------------ Dedicated Custody Settlement Workflow
+  async createSettlement(companyId: string, custodyId: string, input: z.infer<typeof CustodySettlementCreate>) {
+    const parsed = CustodySettlementCreate.parse(input);
+    return this.db.tx(async () => {
+      const custody = await this.get(companyId, custodyId);
+      const unpostedLines = custody.lines.filter((l: any) => !l.journal_entry_id && l.status === 'APPROVED');
+      const returnedEgp = D(parsed.returnedAmountEgp ?? 0);
+
+      if (!unpostedLines.length && returnedEgp.isZero()) {
+        throw new DomainError('NO_SETTLEMENT_ITEMS', 'لا توجد فواتير تسوية معتمدة ولا مبالغ مسترجعة لتسويتها');
+      }
+
+      // 1. Sequence number STL-YYYY-XXXX
+      const year = new Date().getFullYear();
+      const countRow = await this.db.one<{ count: string }>(
+        `SELECT count(*)::text AS count FROM fin.custody_settlements WHERE company_id = $1 AND settlement_number LIKE $2`,
+        [companyId, `STL-${year}-%`],
+      );
+      const seq = (parseInt(countRow?.count ?? '0', 10) + 1).toString().padStart(4, '0');
+      const settlementNo = `STL-${year}-${seq}`;
+      const settlementDate = parsed.settlementDate ?? new Date().toISOString().slice(0, 10);
+
+      // 2. Sum expenses
+      let totalExpensesEgp = D(0);
+      let totalExpensesSar = D(0);
+
+      for (const line of unpostedLines) {
+        totalExpensesEgp = totalExpensesEgp.plus(line.total_amount);
+        totalExpensesSar = totalExpensesSar.plus(line.total_amount_base);
+      }
+
+      // Weighted average original rate for custody funds
+      const origPoolEgp = D(custody.converted_amount_target > 0 ? custody.converted_amount_target : 1);
+      const origPoolSar = D(custody.disbursed_amount_base > 0 ? custody.disbursed_amount_base : 1);
+      const origAvgRate = origPoolEgp.div(origPoolSar).toNumber(); // e.g. 13.00 EGP per SAR
+
+      let settlementRate = parsed.settlementRate ? D(parsed.settlementRate) : D(origAvgRate);
+      if (!parsed.settlementRate) {
+        try {
+          const resolved = await this.fx.getRate(companyId, 'SAR', 'EGP', settlementDate, 'SPOT');
+          settlementRate = resolved.rate;
+        } catch {
+          settlementRate = D(origAvgRate);
+        }
+      }
+
+      const returnedSar = returnedEgp.gt(0) ? returnedEgp.div(settlementRate) : D(0);
+      const actualCostSar = totalExpensesEgp.div(settlementRate);
+      const origCostSar = totalExpensesSar;
+      const fxDifferenceSar = origCostSar.minus(actualCostSar);
+
+      // Accounts
+      const custodyAcc = await this.db.one<{ id: string }>(
+        `SELECT id FROM acc.accounts WHERE company_id = $1 AND code = '1310'`,
+        [companyId],
+      );
+      const vatAcc = await this.db.one<{ id: string }>(
+        `SELECT id FROM acc.accounts WHERE company_id = $1 AND code = '1250'`,
+        [companyId],
+      );
+
+      // Build Journal Entry Lines
+      const jeLines: JournalLineInput[] = [];
+
+      for (const line of unpostedLines) {
+        const hasVat = D(line.vat_amount).gt(0) && !!vatAcc;
+        const debitAmt = hasVat ? line.subtotal : line.total_amount;
+
+        jeLines.push({
+          accountId: line.expense_account_id,
+          debit: toDbAmount(debitAmt),
+          credit: '0',
+          currencyCode: line.currency_code ?? 'EGP',
+          exchangeRate: toDbAmount(D(1).div(settlementRate)),
+          projectId: line.project_id ?? undefined,
+          costCenterId: line.cost_center_id ?? undefined,
+          employeeId: custody.employee_id,
+          description: `${line.description} - إيصال: ${line.receipt_no ?? 'بدون'}`,
+        });
+
+        if (hasVat) {
+          jeLines.push({
+            accountId: vatAcc!.id,
+            debit: toDbAmount(line.vat_amount),
+            credit: '0',
+            currencyCode: line.currency_code ?? 'EGP',
+            exchangeRate: toDbAmount(D(1).div(settlementRate)),
+            employeeId: custody.employee_id,
+            description: `ضريبة مدخلات مشتريات عهدة - إيصال: ${line.receipt_no ?? 'بدون'}`,
+          });
+        }
+      }
+
+      if (returnedEgp.gt(0) && parsed.returnToBankAccountId) {
+        jeLines.push({
+          accountId: parsed.returnToBankAccountId,
+          debit: toDbAmount(returnedEgp),
+          credit: '0',
+          currencyCode: 'EGP',
+          exchangeRate: toDbAmount(D(1).div(settlementRate)),
+          description: `استرجاع رصيد فائض من العهدة النقدية - ${settlementNo}`,
+        });
+      }
+
+      const totalRelievedEgp = totalExpensesEgp.plus(returnedEgp);
+      jeLines.push({
+        accountId: custodyAcc?.id!,
+        debit: '0',
+        credit: toDbAmount(totalRelievedEgp),
+        currencyCode: 'EGP',
+        exchangeRate: toDbAmount(D(1).div(settlementRate)),
+        employeeId: custody.employee_id,
+        description: `تسوية وإقفال مصروفات عهدة - ${settlementNo}`,
+      });
+
+      const jeId = await this.journal.createAndPost(companyId, {
+        entryDate: settlementDate,
+        journalType: 'GENERAL',
+        description: `تسوية عهدة نقدية: ${custody.employeeNameAr} (${settlementNo})`,
+        reference: settlementNo,
+        currencyCode: 'EGP',
+        sourceModule: 'fin',
+        sourceType: 'CUSTODY_SETTLEMENT',
+        sourceId: custodyId,
+        lines: jeLines,
+      });
+
+      // Insert settlement record
+      const remainingBalanceEgp = D(custody.remaining_balance_target ?? 0).minus(totalRelievedEgp);
+      const remainingBalanceSar = remainingBalanceEgp.div(settlementRate);
+
+      const stlRow = await this.db.one<{ id: string }>(
+        `INSERT INTO fin.custody_settlements (
+           company_id, custody_id, settlement_number, settlement_date,
+           period_start, period_end, total_expenses_egp, total_expenses_sar,
+           returned_amount_egp, returned_amount_sar, remaining_balance_egp,
+           remaining_balance_sar, fx_gain_loss_sar, settlement_rate,
+           original_average_rate, status, journal_entry_id, approved_by,
+           approved_at, notes, created_by, updated_by
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'POSTED',$16,sys.current_user_id(),now(),$17,sys.current_user_id(),sys.current_user_id())
+         RETURNING id`,
+        [
+          companyId, custodyId, settlementNo, settlementDate,
+          parsed.periodStart ?? null, parsed.periodEnd ?? null,
+          toDbAmount(totalExpensesEgp), toDbAmount(totalExpensesSar),
+          toDbAmount(returnedEgp), toDbAmount(returnedSar),
+          toDbAmount(remainingBalanceEgp), toDbAmount(remainingBalanceSar),
+          toDbAmount(fxDifferenceSar), toDbAmount(settlementRate),
+          toDbAmount(origAvgRate), jeId, parsed.notes ?? null,
+        ],
+      );
+
+      // Link lines to settlement and journal
+      for (const line of unpostedLines) {
+        await this.db.query(
+          `UPDATE fin.custody_settlement_lines
+              SET settlement_id = $1,
+                  journal_entry_id = $2,
+                  updated_at = now()
+            WHERE id = $3`,
+          [stlRow!.id, jeId, line.id],
+        );
+      }
+
+      await this.recalculateCustodyTotals(companyId, custodyId);
+      return this.get(companyId, custodyId);
+    });
+  }
+
+  // ------------------------------------------------------------------ List Settlements
+  async listSettlements(companyId: string, custodyId: string) {
+    return this.db.query(
+      `SELECT s.*,
+              je.entry_no AS "journalEntryNo",
+              u.full_name AS "approvedByName"
+         FROM fin.custody_settlements s
+         LEFT JOIN acc.journal_entries je ON je.id = s.journal_entry_id
+         LEFT JOIN iam.users u ON u.id = s.approved_by
+        WHERE s.company_id = $1 AND s.custody_id = $2
+        ORDER BY s.settlement_date DESC, s.created_at DESC`,
+      [companyId, custodyId],
+    );
   }
 
   // ------------------------------------------------------------------ Close Custody

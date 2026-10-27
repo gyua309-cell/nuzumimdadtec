@@ -17,11 +17,34 @@ import { AccountSelect, useAccounts, useQueryParam } from './accounting';
 import { PERIOD_STATUS } from './org';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, Stat, useToast } from '../components/ui';
 
-function Range({ from, to, setFrom, setTo, children }: { from: string; to: string; setFrom: (v: string) => void; setTo: (v: string) => void; children?: React.ReactNode }) {
+export function useBranchesList() {
+  return useQuery({
+    queryKey: ['branches-picker'],
+    queryFn: () => api.get<any[]>('/branches').then((r: any) => r.data || r || []),
+  });
+}
+
+function Range({
+  from, to, setFrom, setTo, branchId, setBranchId, branches, children,
+}: {
+  from: string; to: string; setFrom: (v: string) => void; setTo: (v: string) => void;
+  branchId?: string; setBranchId?: (v: string) => void; branches?: any[];
+  children?: React.ReactNode;
+}) {
   return (
     <div className="card mb-4 flex flex-wrap items-end gap-3 p-3">
-      <Field label="من تاريخ"><input className="input w-44" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-      <Field label="إلى تاريخ"><input className="input w-44" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+      <Field label="من تاريخ"><input className="input w-40" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+      <Field label="إلى تاريخ"><input className="input w-40" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+      {setBranchId && (
+        <Field label="الفرع / المركز المالي">
+          <select className="input w-64 font-medium" value={branchId || 'ALL'} onChange={(e) => setBranchId(e.target.value)}>
+            <option value="ALL">الكل (قوائم موحدة - Consolidated SAR)</option>
+            {(branches ?? []).map((b: any) => (
+              <option key={b.id} value={b.id}>{b.nameAr} ({b.functionalCurrency || b.countryCode})</option>
+            ))}
+          </select>
+        </Field>
+      )}
       {children}
     </div>
   );
@@ -36,8 +59,15 @@ export function TrialBalancePage() {
   const [from, setFrom] = useState(yearStart());
   const [to, setTo] = useState(today());
   const [ledger, setLedger] = useState('FINANCIAL');
+  const [branchId, setBranchId] = useState('ALL');
   const [postingOnly, setPostingOnly] = useState(false);
-  const q = useQuery({ queryKey: ['tb', from, to, ledger], queryFn: () => api.get<any>('/ledger/trial-balance', { from, to, ledger }) });
+  const branchesQ = useBranchesList();
+  const q = useQuery({
+    queryKey: ['tb', from, to, ledger, branchId],
+    queryFn: () => api.get<any>('/ledger/trial-balance', {
+      from, to, ledger, ...(branchId !== 'ALL' ? { branchId } : {}),
+    }),
+  });
   const rows = (q.data?.rows ?? []).filter((r: any) => !postingOnly || r.isPosting);
   const cols = ['openingDebit', 'openingCredit', 'periodDebit', 'periodCredit', 'closingDebit', 'closingCredit'];
   return (
@@ -66,7 +96,7 @@ export function TrialBalancePage() {
           </div>
         }
       />
-      <Range from={from} to={to} setFrom={setFrom} setTo={setTo}>
+      <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data}>
         <Field label="الدفتر"><select className="input w-32" value={ledger} onChange={(e) => setLedger(e.target.value)}><option value="FINANCIAL">مالي</option><option value="MANAGEMENT">إداري</option></select></Field>
         <label className="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" checked={postingOnly} onChange={(e) => setPostingOnly(e.target.checked)} /> الحسابات التفصيلية فقط</label>
         {q.data && <div className="ms-auto pb-1"><BalancedBadge ok={q.data.balanced} /></div>}
@@ -109,8 +139,16 @@ export function AccountStatementPage() {
   const [toP] = useQueryParam('to');
   const [from, setFrom] = useState(fromP || yearStart());
   const [to, setTo] = useState(toP || today());
+  const [branchId, setBranchId] = useState('ALL');
   const [page, setPage] = useState(1);
-  const q = useQuery({ queryKey: ['stmt', accountId, from, to, page], enabled: !!accountId, queryFn: () => api.get<any>('/ledger/account-statement', { accountId, from, to, page, pageSize: 100 }) });
+  const branchesQ = useBranchesList();
+  const q = useQuery({
+    queryKey: ['stmt', accountId, from, to, page, branchId],
+    enabled: !!accountId,
+    queryFn: () => api.get<any>('/ledger/account-statement', {
+      accountId, from, to, page, pageSize: 100, ...(branchId !== 'ALL' ? { branchId } : {}),
+    }),
+  });
   return (
     <div>
       <PageHeader
@@ -139,7 +177,7 @@ export function AccountStatementPage() {
           </div>
         }
       />
-      <Range from={from} to={to} setFrom={setFrom} setTo={setTo}>
+      <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data}>
         <Field label="الحساب" className="w-96"><AccountSelect accounts={accounts.data ?? []} value={accountId} onChange={(v) => { setAccountId(v); setPage(1); }} /></Field>
       </Range>
       {!accountId ? <div className="card"><EmptyState text="اختر حسابًا لعرض كشفه." /></div> : q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
@@ -180,7 +218,14 @@ export function IncomeStatementPage() {
   const base = useBaseCurrency();
   const [from, setFrom] = useState(yearStart());
   const [to, setTo] = useState(today());
-  const q = useQuery({ queryKey: ['is', from, to], queryFn: () => api.get<any>('/ledger/income-statement', { from, to }) });
+  const [branchId, setBranchId] = useState('ALL');
+  const branchesQ = useBranchesList();
+  const q = useQuery({
+    queryKey: ['is', from, to, branchId],
+    queryFn: () => api.get<any>('/ledger/income-statement', {
+      from, to, ...(branchId !== 'ALL' ? { branchId } : {}),
+    }),
+  });
   const section = (cls: string[], title: string, total: string) => {
     const lines = (q.data?.lines ?? []).filter((l: any) => cls.includes(l.accountClass));
     return (
@@ -223,7 +268,7 @@ export function IncomeStatementPage() {
           </div>
         }
       />
-      <Range from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data} />
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
         <div className="card max-w-3xl overflow-hidden">
           <table className="table">
@@ -248,7 +293,14 @@ export function IncomeStatementPage() {
 export function BalanceSheetPage() {
   const base = useBaseCurrency();
   const [asOf, setAsOf] = useState(today());
-  const q = useQuery({ queryKey: ['bs', asOf], queryFn: () => api.get<any>('/ledger/balance-sheet', { asOf }) });
+  const [branchId, setBranchId] = useState('ALL');
+  const branchesQ = useBranchesList();
+  const q = useQuery({
+    queryKey: ['bs', asOf, branchId],
+    queryFn: () => api.get<any>('/ledger/balance-sheet', {
+      asOf, ...(branchId !== 'ALL' ? { branchId } : {}),
+    }),
+  });
   const Section = ({ title, s }: { title: string; s: any }) => (
     <>
       <tr className="bg-slate-50 font-semibold dark:bg-slate-800/40"><td colSpan={2} className="px-3 py-2">{title}</td></tr>
@@ -289,8 +341,21 @@ export function BalanceSheetPage() {
           </div>
         }
       />
-      <div className="card mb-4 flex items-end gap-3 p-3">
+      <div className="card mb-4 flex flex-wrap items-end gap-3 p-3">
         <Field label="كما في تاريخ"><input className="input w-44" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
+        <Field label="الفرع / المركز المالي">
+          <select className="input w-64 font-medium" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+            <option value="ALL">الكل (قوائم موحدة - Consolidated SAR)</option>
+            {(branchesQ.data ?? []).map((b: any) => (
+              <option key={b.id} value={b.id}>{b.nameAr} ({b.functionalCurrency || b.countryCode})</option>
+            ))}
+          </select>
+        </Field>
+        {branchId === 'ALL' && (
+          <div className="text-xs text-blue-700 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 flex items-center gap-2">
+            <span className="font-bold">قوائم موحدة:</span> تشمل عمليات المركز الرئيسي (الرياض) وفرع مصر (القاهرة) مع استبعاد القيود المتقابلة بين الفروع واحتساب فروق ترجمة العملات (CTA).
+          </div>
+        )}
         {q.data && <div className="ms-auto flex items-center gap-2 pb-1">{!q.data.balanced && <span className="text-sm text-rose-600">الفرق: <span className="num">{money(q.data.difference)}</span></span>}<BalancedBadge ok={q.data.balanced} /></div>}
       </div>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
