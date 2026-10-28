@@ -60,6 +60,9 @@ export function saveStoredCompany(patch: Partial<CompanyData>): CompanyData {
     ...patch,
     rowVersion: (current.rowVersion || 1) + 1,
   };
+  // Update in-memory fallback
+  Object.assign(INITIAL_COMPANY, updated);
+
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));

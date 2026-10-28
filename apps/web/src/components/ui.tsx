@@ -133,9 +133,8 @@ export function Modal({
   title,
   children,
   footer,
-  wide,
+  wide = false,
   maxWidth,
-  centered = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -154,47 +153,48 @@ export function Modal({
 
   if (!open) return null;
 
-  if (centered) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 backdrop-blur-xs p-4 pt-10" onMouseDown={onClose}>
-        <div className={`card w-full ${maxWidth ? maxWidth : wide ? 'max-w-5xl' : 'max-w-lg'} shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden animate-fade-in`} onMouseDown={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between border-b border-slate-200/90 px-6 py-4 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">
-            <h2 className="font-bold text-base text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
-            <button className="btn-ghost size-8 p-0 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg" onClick={onClose}>
-              <X className="size-4" />
-            </button>
-          </div>
-          <div className="max-h-[78vh] overflow-y-auto p-6">{children}</div>
-          {footer && <div className="flex justify-end gap-2 border-t border-slate-200/90 px-6 py-4 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">{footer}</div>}
-        </div>
-      </div>
-    );
-  }
-
-  // Right-docked slide-over panel over dashboard (الشاشات تفتح في الجانب الأيمن فوق لوحة التحكم)
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs transition-opacity animate-fade-in" onMouseDown={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/75 backdrop-blur-md p-4 sm:p-6 transition-all animate-fade-in"
+      onMouseDown={onClose}
+    >
       <div
-        className={`fixed inset-y-0 right-0 z-50 flex w-full ${
-          maxWidth ? maxWidth : wide ? 'max-w-3xl' : 'max-w-xl'
-        } flex-col bg-white shadow-2xl dark:bg-slate-900 border-s border-slate-200/90 dark:border-slate-800 animate-slide-in overflow-hidden`}
+        className={`relative flex w-full ${
+          maxWidth ? maxWidth : wide ? 'max-w-5xl' : 'max-w-4xl'
+        } max-h-[90vh] flex-col rounded-3xl border border-slate-200/90 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 overflow-hidden animate-scale-up`}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/90 px-6 py-4.5 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md">
-          <div className="flex items-center gap-2.5">
-            <div className="size-2 rounded-full bg-brand-500 animate-pulse" />
-            <h2 className="font-bold text-base text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
+        {/* Top Accent Gradient Bar */}
+        <div className="h-1.5 w-full bg-gradient-to-r from-brand-500 via-indigo-500 to-emerald-500 shrink-0" />
+
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 px-7 py-5 bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur-md shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-indigo-600 text-white shadow-md">
+              <span className="size-2 rounded-full bg-white animate-pulse" />
+            </div>
+            <div>
+              <h2 className="font-extrabold text-lg text-slate-900 dark:text-white tracking-tight">{title}</h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">نافذة إدخال وتحديث البيانات الموسعة</p>
+            </div>
           </div>
           <button
-            className="flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+            className="flex size-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-white transition-all"
             onClick={onClose}
+            title="إغلاق (Esc)"
           >
-            <X className="size-4.5" />
+            <X className="size-5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">{children}</div>
+
+        {/* Modal Body */}
+        <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+          {children}
+        </div>
+
+        {/* Modal Footer */}
         {footer && (
-          <div className="sticky bottom-0 z-10 flex justify-end gap-2.5 border-t border-slate-200/90 px-6 py-4 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md">
+          <div className="flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800/80 px-7 py-4 bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-md shrink-0">
             {footer}
           </div>
         )}
@@ -203,15 +203,7 @@ export function Modal({
   );
 }
 
-export function Drawer({
-  open,
-  onClose,
-  title,
-  children,
-  footer,
-  wide,
-  maxWidth,
-}: {
+export function Drawer(props: {
   open: boolean;
   onClose: () => void;
   title: string;
@@ -220,36 +212,7 @@ export function Drawer({
   wide?: boolean;
   maxWidth?: string;
 }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs transition-opacity animate-fade-in" onMouseDown={onClose}>
-      <div
-        className={`fixed inset-y-0 right-0 z-50 flex w-full ${
-          maxWidth ? maxWidth : wide ? 'max-w-3xl' : 'max-w-xl'
-        } flex-col bg-white shadow-2xl dark:bg-slate-900 border-s border-slate-200/90 dark:border-slate-800 animate-slide-in overflow-hidden`}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/90 px-6 py-4.5 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md">
-          <div className="flex items-center gap-2.5">
-            <div className="size-2 rounded-full bg-brand-500 animate-pulse" />
-            <h2 className="font-bold text-base text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
-          </div>
-          <button
-            className="flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-            onClick={onClose}
-          >
-            <X className="size-4.5" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">{children}</div>
-        {footer && (
-          <div className="sticky bottom-0 z-10 flex justify-end gap-2.5 border-t border-slate-200/90 px-6 py-4 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md">
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <Modal {...props} />;
 }
 
 /** Prompt that requires a reason (cancel, reverse, reopen…). */

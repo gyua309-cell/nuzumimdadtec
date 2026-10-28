@@ -6,8 +6,9 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
-import { Badge, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
 export interface BankAccount {
   id: string;
@@ -55,23 +56,20 @@ export function BanksHubPage() {
   const { data: bankAccounts = [], isLoading, error, refetch } = useQuery({
     queryKey: ['bank-accounts-hub'],
     queryFn: async () => {
-      const res = await api.get<any>('/bank-accounts', { pageSize: '50' });
+      const res = await api.get<any>('/bank-accounts', { pageSize: '50' }).catch(() => []);
       const rawAccounts = res?.data || res || [];
       const glAccounts = await api.get<any[]>('/accounts', { postingOnly: 'true' }).catch(() => []);
       const glMap = new Map<string, any>(glAccounts.map((a: any) => [a.id, a]));
 
       return rawAccounts.map((b: any) => {
         const gl = glMap.get(b.glAccountId);
-        let defaultBal = 1420500;
-        if (b.currencyCode === 'SAR') defaultBal = 385000;
-        else if (b.code?.includes('NBE')) defaultBal = 650000;
-        else if (b.kind === 'CASH') defaultBal = 812250;
+        const actualBal = Number(b.balance ?? gl?.currentBalance ?? 0);
 
         return {
           ...b,
           glAccountCode: gl?.code || '1100',
           glAccountNameAr: gl?.nameAr || 'النقدية بالبنوك',
-          balance: defaultBal,
+          balance: actualBal,
         };
       });
     },
@@ -83,62 +81,36 @@ export function BanksHubPage() {
     queryFn: () => api.get<any[]>('/accounts', { postingOnly: 'true' }).catch(() => []),
   });
 
-  // Query: Recent Bank Transfers from journal entries (sourceModule = TREASURY or MANUAL)
+  // Query: Recent Bank Transfers
   const { data: recentTransfers = [] } = useQuery({
     queryKey: ['recent-bank-transfers'],
     queryFn: async () => {
-      // Demo seeded realistic transfers
-      const demoTransfers: BankTransferRecord[] = [
-        {
-          id: 'TRF-001',
-          transferDate: '2026-02-15',
-          sourceBankName: 'مصرف الراجحي - الرياض (SAR)',
-          sourceCurrency: 'SAR',
-          sourceAmount: 65000,
-          targetBankName: 'البنك التجاري الدولي CIB (EGP)',
-          targetCurrency: 'EGP',
-          targetAmount: 854750,
-          exchangeRate: 13.15,
-          bankFee: 150,
-          reference: 'SWIFT-RAJHI-88910',
-          notes: 'تحويل سيولة لتمويل عهدة فرع مصر وصرف الرواتب والمصروفات التشغيلية',
-          journalEntryNo: 'JE-2026-0041',
-        },
-        {
-          id: 'TRF-002',
-          transferDate: '2026-01-20',
-          sourceBankName: 'مصرف الراجحي - الرياض (SAR)',
-          sourceCurrency: 'SAR',
-          sourceAmount: 40000,
-          targetBankName: 'البنك التجاري الدولي CIB (EGP)',
-          targetCurrency: 'EGP',
-          targetAmount: 524000,
-          exchangeRate: 13.10,
-          bankFee: 120,
-          reference: 'SWIFT-RAJHI-77215',
-          notes: 'تحويل سيولة دورية لتغطية إيجار مقر القاهرة وتراخيص البرمجيات',
-          journalEntryNo: 'JE-2026-0028',
-        },
-        {
-          id: 'TRF-003',
-          transferDate: '2026-03-01',
-          sourceBankName: 'البنك التجاري الدولي CIB (EGP)',
-          sourceCurrency: 'EGP',
-          sourceAmount: 150000,
-          targetBankName: 'خزينة النقدية الرئيسية وفرع مصر',
-          targetCurrency: 'EGP',
-          targetAmount: 150000,
-          exchangeRate: 1.00,
-          bankFee: 0,
-          reference: 'CHQ-CIB-55102',
-          notes: 'سحب شيك نقدي لتغذية خزينة الفرع للمصروفات النثرية اليومية',
-          journalEntryNo: 'JE-2026-0056',
-        },
-      ];
-
-      return demoTransfers;
+      const res = await api.get<any[]>('/bank-transfers').catch(() => []);
+      return Array.isArray(res) ? res : [];
     },
   });
+
+  const stats = useMemo(() => {
+    let sarBalance = 0;
+    let egpBalance = 0;
+    let nbeBalance = 0;
+    let cashBalance = 0;
+
+    for (const b of bankAccounts) {
+      const bal = Number(b.balance || 0);
+      if (b.currencyCode === 'SAR') {
+        sarBalance += bal;
+      } else if (b.kind === 'CASH') {
+        cashBalance += bal;
+      } else if (b.code?.includes('NBE') || b.name?.includes('الأهلي')) {
+        nbeBalance += bal;
+      } else {
+        egpBalance += bal;
+      }
+    }
+
+    return { sarBalance, egpBalance, nbeBalance, cashBalance };
+  }, [bankAccounts]);
 
   const handleExportCsv = () => {
     const rows = [
@@ -203,85 +175,85 @@ export function BanksHubPage() {
       {/* 4 Executive Bank Account Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Al-Rajhi SAR */}
-        <div className="card p-5 bg-gradient-to-br from-blue-50/70 to-white border border-blue-200 shadow-sm rounded-xl">
+        <div className="card p-5 bg-gradient-to-br from-blue-50/70 to-white dark:from-slate-900 dark:to-slate-900 border border-blue-200 dark:border-slate-800 shadow-sm rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-blue-900">مصرف الراجحي / الرياض (SAR)</span>
-            <span className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+            <span className="text-xs font-bold text-blue-900 dark:text-blue-300">مصرف الراجحي / الرياض (SAR)</span>
+            <span className="p-2 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-lg">
               <Landmark className="size-5" />
             </span>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-blue-950 tracking-tight font-mono">
-              {money(385000)} SAR
+            <div className="text-2xl font-black text-blue-950 dark:text-blue-200 tracking-tight font-mono">
+              {money(stats.sarBalance)} SAR
             </div>
-            <div className="text-xs text-blue-700 font-semibold mt-1">
-              معادل: {money(385000 * 13.15)} EGP
+            <div className="text-xs text-blue-700 dark:text-blue-400 font-semibold mt-1">
+              معادل: {money(stats.sarBalance * 13.15)} EGP
             </div>
-            <div className="mt-2 text-[11px] text-slate-500 font-mono" title="SA4480000456608010099887">
-              IBAN: SA4480000456608010099887
+            <div className="mt-2 text-[11px] text-slate-500 font-mono">
+              حساب بنكي رئيسي (الريال السعودي)
             </div>
           </div>
         </div>
 
         {/* Card 2: CIB EGP */}
-        <div className="card p-5 bg-gradient-to-br from-emerald-50/70 to-white border border-emerald-200 shadow-sm rounded-xl">
+        <div className="card p-5 bg-gradient-to-br from-emerald-50/70 to-white dark:from-slate-900 dark:to-slate-900 border border-emerald-200 dark:border-slate-800 shadow-sm rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-emerald-900">البنك التجاري الدولي CIB (EGP)</span>
-            <span className="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
+            <span className="text-xs font-bold text-emerald-900 dark:text-emerald-300">البنك التجاري الدولي CIB (EGP)</span>
+            <span className="p-2 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-lg">
               <Building className="size-5" />
             </span>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-emerald-950 tracking-tight font-mono">
-              {money(1420500)} EGP
+            <div className="text-2xl font-black text-emerald-950 dark:text-emerald-200 tracking-tight font-mono">
+              {money(stats.egpBalance)} EGP
             </div>
-            <div className="text-xs text-emerald-700 font-semibold mt-1">
+            <div className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold mt-1">
               حساب العمليات التشغيلية والرواتب (فرع مصر)
             </div>
-            <div className="mt-2 text-[11px] text-slate-500 font-mono" title="EG380010002000000123456789">
-              IBAN: EG380010002000000123456789
+            <div className="mt-2 text-[11px] text-slate-500 font-mono">
+              حساب بنكي جاري (الجنيه المصري)
             </div>
           </div>
         </div>
 
         {/* Card 3: NBE EGP */}
-        <div className="card p-5 bg-gradient-to-br from-cyan-50/70 to-white border border-cyan-200 shadow-sm rounded-xl">
+        <div className="card p-5 bg-gradient-to-br from-cyan-50/70 to-white dark:from-slate-900 dark:to-slate-900 border border-cyan-200 dark:border-slate-800 shadow-sm rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-cyan-900">البنك الأهلي المصري NBE (EGP)</span>
-            <span className="p-2 bg-cyan-100 text-cyan-700 rounded-lg">
+            <span className="text-xs font-bold text-cyan-900 dark:text-cyan-300">البنك الأهلي المصري NBE (EGP)</span>
+            <span className="p-2 bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded-lg">
               <Landmark className="size-5" />
             </span>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-cyan-950 tracking-tight font-mono">
-              {money(650000)} EGP
+            <div className="text-2xl font-black text-cyan-950 dark:text-cyan-200 tracking-tight font-mono">
+              {money(stats.nbeBalance)} EGP
             </div>
-            <div className="text-xs text-cyan-700 font-semibold mt-1">
+            <div className="text-xs text-cyan-700 dark:text-cyan-400 font-semibold mt-1">
               حساب الودائع والاحتياطي التشغيلي
             </div>
             <div className="mt-2 text-[11px] text-slate-500 font-mono">
-              IBAN: EG760003001900000088992110
+              حساب فرعي احتياطي
             </div>
           </div>
         </div>
 
         {/* Card 4: Main Cash Drawer & Custody Pool */}
-        <div className="card p-5 bg-gradient-to-br from-amber-50/70 to-white border border-amber-200 shadow-sm rounded-xl">
+        <div className="card p-5 bg-gradient-to-br from-amber-50/70 to-white dark:from-slate-900 dark:to-slate-900 border border-amber-200 dark:border-slate-800 shadow-sm rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-amber-900">الخزينة النقدية وصناديق العهد</span>
-            <span className="p-2 bg-amber-100 text-amber-700 rounded-lg">
+            <span className="text-xs font-bold text-amber-900 dark:text-amber-300">الخزينة النقدية وصناديق العهد</span>
+            <span className="p-2 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded-lg">
               <Wallet className="size-5" />
             </span>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-amber-950 tracking-tight font-mono">
-              {money(812250)} EGP
+            <div className="text-2xl font-black text-amber-950 dark:text-amber-200 tracking-tight font-mono">
+              {money(stats.cashBalance)} EGP
             </div>
-            <div className="text-xs text-amber-700 font-semibold mt-1">
-              سيولة الخزائن النقدية وعهد الفروع النشطة
+            <div className="text-xs text-amber-700 dark:text-amber-400 font-semibold mt-1">
+              سيولة الخزائن النقدية وعهد الفروع
             </div>
             <div className="mt-2 text-[11px] text-slate-500 font-mono">
-              حساب الأستاذ: 1100 / 1310
+              النقدية في الصندوق
             </div>
           </div>
         </div>
@@ -384,60 +356,77 @@ export function BanksHubPage() {
               </button>
             </div>
 
-            <div className="overflow-x-auto custom-scrollbar">
-              <table className="table w-full text-right text-xs">
-                <thead className="bg-slate-50/80 border-b border-slate-200 font-bold text-slate-700">
-                  <tr>
-                    <th className="py-3 px-4">التاريخ</th>
-                    <th className="py-3 px-4">رقم الإشعار / السويفت</th>
-                    <th className="py-3 px-4">الحساب المحول منه (المصدر)</th>
-                    <th className="py-3 px-4">الحساب المستلم (الهدف)</th>
-                    <th className="py-3 px-4 text-center font-bold">المبلغ المصروف</th>
-                    <th className="py-3 px-4 text-center">سعر الصرف</th>
-                    <th className="py-3 px-4 text-center font-bold">المبلغ المستلم</th>
-                    <th className="py-3 px-4 text-center">العمولة البنكية</th>
-                    <th className="py-3 px-4 text-center">قيد اليومية</th>
-                    <th className="py-3 px-4 text-center">إجراءات</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {recentTransfers.map((trf) => (
-                    <tr key={trf.id} className="hover:bg-slate-50/60">
-                      <td className="py-3 px-4 font-mono">{date(trf.transferDate)}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-slate-700">{trf.reference}</td>
-                      <td className="py-3 px-4 font-semibold text-slate-900">{trf.sourceBankName}</td>
-                      <td className="py-3 px-4 font-semibold text-slate-900">{trf.targetBankName}</td>
-                      <td className="py-3 px-4 text-center font-mono font-bold text-blue-900">
-                        {money(trf.sourceAmount)} {trf.sourceCurrency}
-                      </td>
-                      <td className="py-3 px-4 text-center font-mono font-semibold text-cyan-800">
-                        {trf.exchangeRate}
-                      </td>
-                      <td className="py-3 px-4 text-center font-mono font-bold text-emerald-700">
-                        {money(trf.targetAmount)} {trf.targetCurrency}
-                      </td>
-                      <td className="py-3 px-4 text-center font-mono text-slate-500">
-                        {trf.bankFee > 0 ? `${money(trf.bankFee)} EGP` : '—'}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
-                          {trf.journalEntryNo}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={() => setPrintTransfer(trf)}
-                          className="btn-ghost p-1.5 text-slate-600 hover:text-slate-900"
-                          title="طباعة إشعار التحويل الرسمي"
-                        >
-                          <Printer className="size-4" />
-                        </button>
-                      </td>
+            {recentTransfers.length === 0 ? (
+              <div className="p-8 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                <EmptyState
+                  text="لا توجد تحويلات بنكية مسجلة حتى الآن."
+                  action={
+                    <button
+                      onClick={() => setTransferModalOpen(true)}
+                      className="btn-primary text-xs inline-flex items-center gap-1.5 mt-2"
+                    >
+                      <Plus className="size-3.5" />
+                      إجراء أول تحويل بنكي
+                    </button>
+                  }
+                />
+              </div>
+            ) : (
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="table w-full text-right text-xs">
+                  <thead className="bg-slate-50/80 border-b border-slate-200 font-bold text-slate-700">
+                    <tr>
+                      <th className="py-3 px-4">التاريخ</th>
+                      <th className="py-3 px-4">رقم الإشعار / السويفت</th>
+                      <th className="py-3 px-4">الحساب المحول منه (المصدر)</th>
+                      <th className="py-3 px-4">الحساب المستلم (الهدف)</th>
+                      <th className="py-3 px-4 text-center font-bold">المبلغ المصروف</th>
+                      <th className="py-3 px-4 text-center">سعر الصرف</th>
+                      <th className="py-3 px-4 text-center font-bold">المبلغ المستلم</th>
+                      <th className="py-3 px-4 text-center">العمولة البنكية</th>
+                      <th className="py-3 px-4 text-center">قيد اليومية</th>
+                      <th className="py-3 px-4 text-center">إجراءات</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {recentTransfers.map((trf) => (
+                      <tr key={trf.id} className="hover:bg-slate-50/60">
+                        <td className="py-3 px-4 font-mono">{date(trf.transferDate)}</td>
+                        <td className="py-3 px-4 font-mono font-bold text-slate-700">{trf.reference}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-900">{trf.sourceBankName}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-900">{trf.targetBankName}</td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-blue-900">
+                          {money(trf.sourceAmount)} {trf.sourceCurrency}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-semibold text-cyan-800">
+                          {trf.exchangeRate}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-emerald-700">
+                          {money(trf.targetAmount)} {trf.targetCurrency}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono text-slate-500">
+                          {trf.bankFee > 0 ? `${money(trf.bankFee)} EGP` : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                            {trf.journalEntryNo}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => setPrintTransfer(trf)}
+                            className="btn-ghost p-1.5 text-slate-600 hover:text-slate-900"
+                            title="طباعة إشعار التحويل الرسمي"
+                          >
+                            <Printer className="size-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -920,6 +909,7 @@ function PrintTransferVoucherModal({
   transfer: BankTransferRecord;
   onClose: () => void;
 }) {
+  const { company } = useAuth();
   return (
     <Modal
       open
@@ -939,7 +929,7 @@ function PrintTransferVoucherModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b-2 border-slate-900 pb-4">
           <div>
-            <div className="text-xl font-black text-slate-900">شركة عزم للتكنولوجيا والحلول الرقمية</div>
+            <div className="text-xl font-black text-slate-900">{company?.nameAr || 'شركة عزم للتكنولوجيا والحلول الرقمية'}</div>
             <div className="text-xs text-slate-600 mt-1">سند تحويل بنكي وصرافة عملات بين الحسابات المصرفية</div>
           </div>
           <div className="text-left font-mono text-xs">

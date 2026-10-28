@@ -40,15 +40,38 @@ export function AccountsReceivableAgingReportPage() {
     queryFn: () => api.get<any[]>('/invoices', { pageSize: '200' }).then((r: any) => r.data || []).catch(() => []),
   });
 
-  // Calculate Aging Data
+  // Calculate Aging Data from real invoices strictly
   const agingData = useMemo<AgingBucketRow[]>(() => {
+    const asOfMs = new Date(asOfDate).getTime();
+
     return clients.map((cl: any, idx: number) => {
-      // Deterministic realistic receivables spread across buckets for demo
-      const baseReceivable = (idx + 1) * 65000 + (idx % 2 === 0 ? 45000 : 15000);
-      const current0to30 = Math.round(baseReceivable * (idx % 3 === 0 ? 0.6 : 0.45));
-      const days31to60 = Math.round(baseReceivable * (idx % 3 === 0 ? 0.25 : 0.3));
-      const days61to90 = Math.round(baseReceivable * (idx % 2 === 0 ? 0.1 : 0.15));
-      const over90 = Math.max(0, baseReceivable - (current0to30 + days31to60 + days61to90));
+      const clientInvoices = invoices.filter(
+        (inv: any) => (inv.clientId === cl.id || inv.client_id === cl.id) && inv.status !== 'CANCELLED' && inv.status !== 'DRAFT'
+      );
+
+      let current0to30 = 0;
+      let days31to60 = 0;
+      let days61to90 = 0;
+      let over90 = 0;
+      let latestDate = '—';
+
+      for (const inv of clientInvoices) {
+        const total = Number(inv.totalAmount || inv.total_amount || 0);
+        const paid = Number(inv.paidAmount || inv.paid_amount || 0);
+        const unpaid = Math.max(0, total - paid);
+        if (unpaid <= 0) continue;
+
+        const invDateStr = inv.issueDate || inv.issue_date || inv.date || asOfDate;
+        if (latestDate === '—' || invDateStr > latestDate) latestDate = invDateStr;
+
+        const diffDays = Math.max(0, Math.floor((asOfMs - new Date(invDateStr).getTime()) / (1000 * 60 * 60 * 24)));
+        if (diffDays <= 30) current0to30 += unpaid;
+        else if (diffDays <= 60) days31to60 += unpaid;
+        else if (diffDays <= 90) days61to90 += unpaid;
+        else over90 += unpaid;
+      }
+
+      const baseReceivable = current0to30 + days31to60 + days61to90 + over90;
 
       let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
       if (over90 > 25000) riskLevel = 'CRITICAL';
@@ -59,19 +82,19 @@ export function AccountsReceivableAgingReportPage() {
         clientId: cl.id,
         clientCode: cl.code || `CL-${idx + 101}`,
         clientNameAr: cl.name_ar || cl.nameAr || 'عميل تعاقدي',
-        projectCount: (idx % 3) + 1,
+        projectCount: Number(cl.projectCount || cl.activeProjectsCount || 0),
         totalReceivable: baseReceivable,
         current0to30,
         days31to60,
         days61to90,
         over90,
         riskLevel,
-        lastInvoiceDate: '2026-02-28',
-        contactPerson: cl.contact_person || 'مدير الحسابات',
-        phone: cl.phone || '+966 50 000 0000',
+        lastInvoiceDate: latestDate,
+        contactPerson: cl.contact_person || cl.contactPerson || '—',
+        phone: cl.phone || '—',
       };
     });
-  }, [clients, invoices]);
+  }, [clients, invoices, asOfDate]);
 
   // Filtered rows
   const filteredRows = useMemo(() => {

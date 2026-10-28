@@ -30,7 +30,7 @@ function getDemoUser(): Me {
       id: '01a17cb2-9afa-7ef5-91f6-b47561899afb',
       username: 'admin',
       email: 'admin@idham.net',
-      fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا والحلول الرقمية)',
+      fullName: `المدير التنفيذي (${c.nameAr})`,
       isSystemAdmin: true,
       preferredLocale: 'ar',
       mustChangePassword: false,

@@ -14,12 +14,13 @@ const nameOf = (r: any) => `${r.code} — ${r.nameAr ?? r.name ?? r.titleAr}`;
 const companyFields: FieldDef[] = [
   { name: 'nameAr', label: 'الاسم بالعربية', type: 'text', required: true },
   { name: 'nameEn', label: 'الاسم بالإنجليزية', type: 'text', ltr: true },
-  { name: 'legalName', label: 'الاسم القانوني', type: 'text' },
-  { name: 'taxNumber', label: 'الرقم الضريبي', type: 'text', ltr: true },
+  { name: 'legalName', label: 'الاسم القانوني الكامل', type: 'text' },
+  { name: 'taxNumber', label: 'الرقم الضريبي (VAT)', type: 'text', ltr: true },
   { name: 'commercialReg', label: 'السجل التجاري', type: 'text', ltr: true },
   { name: 'countryCode', label: 'رمز الدولة', type: 'text', ltr: true },
   { name: 'timezone', label: 'المنطقة الزمنية', type: 'text', ltr: true },
-  { name: 'address', label: 'العنوان', type: 'textarea' },
+  { name: 'baseCurrency', label: 'العملة الأساسية (SAR)', type: 'text', ltr: true },
+  { name: 'address', label: 'العنوان الوطني / المقر الرئيسي', type: 'textarea' },
 ];
 
 export function CompanyPage() {
@@ -30,12 +31,18 @@ export function CompanyPage() {
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const save = useMutation({
     mutationFn: async () => {
-      const payload = { ...cleanPayload(companyFields, form!, true), rowVersion: q.data?.rowVersion ?? 1 };
+      const cleaned = cleanPayload(companyFields, form!, true);
+      const payload = {
+        ...q.data,
+        ...form,
+        ...cleaned,
+        rowVersion: (q.data?.rowVersion ?? 1) + 1,
+      };
       saveStoredCompany(payload);
       return api.patch('/companies/current', payload);
     },
     onSuccess: async () => {
-      toast.success('تم حفظ بيانات الشركة بنجاح');
+      toast.success('تم حفظ بيانات الشركة بنجاح وتحديث كافة الأنظمة');
       setForm(null);
       qc.invalidateQueries({ queryKey: ['company'] });
       await reload();
@@ -47,7 +54,7 @@ export function CompanyPage() {
   const c = q.data;
   return (
     <div>
-      <PageHeader title="بيانات الشركة" actions={<button className="btn-primary" onClick={() => setForm({ ...c })}>تعديل</button>} />
+      <PageHeader title="بيانات الشركة والترخيص" actions={<button className="btn-primary" onClick={() => setForm({ ...c })}>تعديل بيانات الشركة</button>} />
       <div className="card grid grid-cols-2 gap-4 p-5 md:grid-cols-3">
         {[
           ['الرمز', c.code], ['الاسم بالعربية', c.nameAr], ['الاسم بالإنجليزية', c.nameEn], ['الاسم القانوني', c.legalName],
@@ -60,14 +67,30 @@ export function CompanyPage() {
           </div>
         ))}
       </div>
-      <Drawer
+      <Modal
         open={!!form}
         onClose={() => setForm(null)}
-        title="تعديل بيانات الشركة"
-        footer={<><button className="btn-secondary" onClick={() => setForm(null)}>إلغاء</button><button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending && <Spinner />} حفظ</button></>}
+        title="تعديل بيانات وهوية المنشأة والترخيص"
+        wide
+        footer={
+          <>
+            <button className="btn-secondary" onClick={() => setForm(null)}>إلغاء</button>
+            <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
+              {save.isPending && <Spinner />} حفظ التعديلات وتحديث المنظومة
+            </button>
+          </>
+        }
       >
-        {form && <EntityForm fields={companyFields} value={form} onChange={setForm} />}
-      </Drawer>
+        {form && (
+          <div className="space-y-4">
+            <div className="p-3.5 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/40 rounded-xl text-xs text-blue-800 dark:text-blue-300 flex items-center gap-2">
+              <span className="font-bold">ملاحظة نظامية:</span>
+              <span>تعديلات اسم الشركة والرقم الضريبي تنعكس فورياً وبشكل دائم على الهوية البصرية، الفواتير، التقارير المالية، والطباعة.</span>
+            </div>
+            <EntityForm fields={companyFields} value={form} onChange={setForm} />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -359,7 +359,7 @@ export function DashboardPage() {
               </h2>
 
               <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-                مرحباً بك في منظومة <strong className="text-white">{company?.nameAr || 'شركة عزم للتكنولوجيا والحلول الرقمية'}</strong>.
+                مرحباً بك في منظومة <strong className="text-white">{company?.nameAr || 'المنشأة'}</strong>.
                 جميع القيود المحاسبية، ومسيرات رواتب المطورين، ومطابقة هيئة الزكاة والضريبة والجمارك (ZATCA Phase 2) متزامنة ومطابقة لحظياً.
               </p>
 

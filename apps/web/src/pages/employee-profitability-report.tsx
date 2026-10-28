@@ -58,30 +58,28 @@ export function EmployeeProfitabilityReportPage() {
         totalAllocatedPct += parseFloat(a.allocation_pct || a.allocationPct || '0');
       }
 
-      // Realistic cost and billing structures for software developers
-      const baseSalary = Number(emp.basic_salary || emp.base_salary || (35000 + (idx % 4) * 8000));
-      const overheadAllocation = Math.round(baseSalary * 0.18); // 18% general & admin overhead
+      // Cost and billing structures derived strictly from employee profile
+      const baseSalary = Number(emp.basic_salary || emp.base_salary || 0);
+      const overheadAllocation = baseSalary > 0 ? Math.round(baseSalary * 0.18) : 0; // 18% general & admin overhead
       const totalLoadedCost = baseSalary + overheadAllocation;
 
-      // Billed revenue from projects
+      // Billed revenue from active project assignments
       const activeProjectsCount = empAssignments.length;
       let billedRevenue = 0;
-      if (totalAllocatedPct > 0) {
-        // Industry average developer billing: 1.6x - 2.2x cost
-        const billingMultiplier = idx % 3 === 0 ? 2.1 : idx % 2 === 0 ? 1.75 : 1.35;
-        billedRevenue = Math.round(totalLoadedCost * (totalAllocatedPct / 100) * billingMultiplier);
+      if (totalAllocatedPct > 0 && totalLoadedCost > 0) {
+        billedRevenue = Math.round(totalLoadedCost * (totalAllocatedPct / 100) * 1.5);
       }
 
       const freePct = Math.max(0, 100 - totalAllocatedPct);
       const unutilizedCost = Math.round((freePct / 100) * baseSalary);
 
       const netProfit = billedRevenue - totalLoadedCost;
-      const profitMarginPct = billedRevenue > 0 ? Math.round((netProfit / billedRevenue) * 100) : -100;
+      const profitMarginPct = billedRevenue > 0 ? Math.round((netProfit / billedRevenue) * 100) : 0;
       const targetMarginPct = 35; // 35% target margin
 
       let status: 'TOP_PERFORMER' | 'PROFITABLE' | 'LOSS_MAKER' = 'PROFITABLE';
       if (profitMarginPct >= targetMarginPct) status = 'TOP_PERFORMER';
-      else if (netProfit <= 0) status = 'LOSS_MAKER';
+      else if (netProfit < 0) status = 'LOSS_MAKER';
 
       const dept = deptMap.get(emp.department_id || emp.departmentId);
 

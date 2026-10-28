@@ -5,6 +5,7 @@ import {
   Search, Table, UserCheck, Users, Wallet
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { downloadCsv, money, today } from '../lib/format';
 import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
@@ -148,11 +149,11 @@ export function EmployeeWorkloadCardsPage() {
       const branchCountry: 'SA' | 'EG' = isSaudi ? 'SA' : 'EG';
       const currency = emp.salaryCurrency || (isSaudi ? 'SAR' : 'EGP');
 
-      // Realistic cost estimations based on employee level
-      const monthlyCost = Number(emp.basicSalary || emp.basic_salary || emp.base_salary || (isSaudi ? 18500 : 30000));
-      const dailyCost = Math.round(monthlyCost / 22);
-      const hourlyCost = Math.round(monthlyCost / 176);
-      const unutilizedCost = Math.round((freeCapacityPct / 100) * monthlyCost);
+      // Cost estimations derived strictly from employee contract
+      const monthlyCost = Number(emp.basicSalary || emp.basic_salary || emp.base_salary || 0);
+      const dailyCost = monthlyCost > 0 ? Math.round(monthlyCost / 22) : 0;
+      const hourlyCost = monthlyCost > 0 ? Math.round(monthlyCost / 176) : 0;
+      const unutilizedCost = monthlyCost > 0 ? Math.round((freeCapacityPct / 100) * monthlyCost) : 0;
 
       // Dual currency conversion
       let monthlyCostSar = monthlyCost;
@@ -299,9 +300,11 @@ export function EmployeeWorkloadCardsPage() {
     };
   }, [employeeCards]);
 
+  const { company } = useAuth();
+
   const handleExportCsv = () => {
     const rows = [
-      ['تقرير كروت تتبع نسب إسناد وتفرغ وتكاليف الموظفين والمطورين - شركة عزم للتكنولوجيا (المملكة العربية السعودية)'],
+      [`تقرير كروت تتبع نسب إسناد وتفرغ وتكاليف الموظفين والمطورين - ${company?.nameAr || 'المملكة العربية السعودية'}`],
       ['العملة الأساسية للنظام:', 'ريال سعودي (SAR)'],
       ['سعر الصرف المعتمد:', `1 SAR = ${SAR_TO_EGP} EGP`],
       ['تاريخ التصدير:', today()],
@@ -1015,6 +1018,7 @@ function PrintEmployeeCardModal({
   employee: EmployeeCardData;
   onClose: () => void;
 }) {
+  const { company } = useAuth();
   return (
     <Modal
       open
@@ -1034,7 +1038,7 @@ function PrintEmployeeCardModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b-2 border-slate-900 pb-4">
           <div>
-            <div className="text-xl font-black text-slate-900">شركة عزم للتكنولوجيا والحلول الرقمية</div>
+            <div className="text-xl font-black text-slate-900">{company?.nameAr || 'شركة عزم للتكنولوجيا والحلول الرقمية'}</div>
             <div className="text-xs text-slate-600 mt-1">
               المملكة العربية السعودية 🇸🇦 • بطاقة تتبع الكوادر البرمجية ومعدلات التفرغ وتكلفة المشاريع
             </div>

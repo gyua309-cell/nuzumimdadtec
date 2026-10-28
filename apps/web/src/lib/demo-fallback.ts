@@ -88,7 +88,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         id: '01a17cb2-9afa-7ef5-91f6-b47561899afb',
         username: 'admin',
         email: 'admin@idham.net',
-        fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا والحلول الرقمية)',
+        fullName: `المدير التنفيذي (${comp.nameAr})`,
         isSystemAdmin: true,
         preferredLocale: 'ar',
         mustChangePassword: false,
@@ -258,7 +258,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/departments')) {
     return makeList([
-      { id: 'dept-01', code: 'TECH', nameAr: 'تطوير البرمجيات والأنظمة', nameEn: 'Software Engineering', managerName: 'م. أحمد عبد الرحمن الفايد', isActive: true },
+      { id: 'dept-01', code: 'TECH', nameAr: 'تطوير البرمجيات والأنظمة', nameEn: 'Software Engineering', managerName: 'مدير تطوير البرمجيات', isActive: true },
       { id: 'dept-02', code: 'PMO', nameAr: 'إدارة المشاريع والتحول الرقمي', nameEn: 'PMO & Digital Delivery', managerName: 'سارة محمد المنصور', isActive: true },
       { id: 'dept-03', code: 'FIN', nameAr: 'الشؤون المالية والمحاسبية', nameEn: 'Finance & Accounting', managerName: 'مريم خالد العتيبي', isActive: true },
       { id: 'dept-04', code: 'OPS', nameAr: 'العمليات والتشغيل السحابي', nameEn: 'Cloud Operations & DevOps', managerName: 'م. إسلام حسن', isActive: true },
@@ -520,17 +520,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/zatca/decode-qr')) {
+    const comp = getStoredCompany();
     return {
-      sellerName: 'شركة عزم للتكنولوجيا والحلول الرقمية',
-      vatNumber: '310123456700003',
+      sellerName: comp.nameAr,
+      vatNumber: comp.taxNumber || '310123456700003',
       timestamp: '2026-10-22T14:30:00Z',
       totalAmount: '87400.00',
       vatAmount: '11400.00',
       hashValid: true,
       signatureValid: true,
       tags: {
-        sellerName: 'شركة عزم للتكنولوجيا والحلول الرقمية',
-        vatNumber: '310123456700003',
+        sellerName: comp.nameAr,
+        vatNumber: comp.taxNumber || '310123456700003',
         timestamp: '2026-10-22T14:30:00Z',
         totalAmount: '87400.00',
         vatAmount: '11400.00',
@@ -708,7 +709,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         {
           employeeId: 'emp-01',
           code: 'EMP-001',
-          fullNameAr: 'م. أحمد عبد الرحمن الفايد',
+          fullNameAr: 'مهندس برمجيات أول',
           employedDays: 22,
           periodDays: 22,
           totalCostBase: '22500.00',
@@ -774,7 +775,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       {
         id: 'sp-1',
         employeeId: 'emp-01',
-        employeeName: 'م. أحمد عبد الرحمن الفايد',
+        employeeName: 'مهندس برمجيات أول',
         positionId: 'pos-1',
         positionCode: 'POS-001',
         roleCode: 'POS-001',
@@ -856,7 +857,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       {
         id: 'adj-01',
         employeeId: 'emp-01',
-        employeeName: 'م. أحمد عبد الرحمن الفايد',
+        employeeName: 'مهندس برمجيات أول',
         projectId: 'prj-01',
         projectName: 'مشروع التحول الرقمي والفوترة الإلكترونية (ZATCA)',
         clientId: 'cli-01',
@@ -876,7 +877,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     if (path.includes('/preview')) {
       return {
         lines: [
-          { employeeName: 'م. أحمد عبد الرحمن الفايد', projectName: 'مشروع التحول الرقمي ZATCA', pricingBasis: 'DAYS', units: 22, allocationPct: 100, grossRevenueBase: '85000.00' },
+          { employeeName: 'مهندس برمجيات أول', projectName: 'مشروع التحول الرقمي ZATCA', pricingBasis: 'DAYS', units: 22, allocationPct: 100, grossRevenueBase: '85000.00' },
           { employeeName: 'م. إسلام حسن عبد العليم', projectName: 'تطوير منصة التجارة والتوزيع', pricingBasis: 'DAYS', units: 22, allocationPct: 100, grossRevenueBase: '67000.00' },
         ],
       };
@@ -1046,11 +1047,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/users')) {
+    const comp = getStoredCompany();
     return makeList([
       {
         id: 'u-1',
         username: 'admin',
-        fullName: 'المدير التنفيذي (شركة عزم للتكنولوجيا)',
+        fullName: `المدير التنفيذي (${comp.nameAr})`,
         email: 'admin@idham.net',
         isSystemAdmin: true,
         status: 'ACTIVE',

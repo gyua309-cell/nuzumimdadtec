@@ -120,7 +120,7 @@ function FieldInput({ f, value, onChange, error }: { f: FieldDef; value: any; on
 /** Generic form (create/edit) used by CRUD pages and custom screens. */
 export function EntityForm({ fields, value, onChange, errors, editing }: { fields: FieldDef[]; value: Record<string, any>; onChange: (v: Record<string, any>) => void; errors?: Record<string, string>; editing?: boolean }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-1">
       {fields
         .filter((f) => !(editing && f.createOnly))
         .map((f) => (
