@@ -4,13 +4,14 @@
  * in localStorage when operating on static hosting (GitHub Pages).
  */
 
-export function getEntityList<T = any>(entityKey: string, initialDefaults: T[] = []): T[] {
+const STORAGE_PREFIX = 'idham_prod_';
+
+export function getEntityList<T = any>(entityKey: string, initialDefaults: any = []): T[] {
   if (typeof window === 'undefined') return initialDefaults;
   try {
-    const raw = localStorage.getItem(`azm_prod_${entityKey}`);
+    const raw = localStorage.getItem(`${STORAGE_PREFIX}${entityKey}`);
     if (!raw) {
-      // Store initial empty or baseline list
-      localStorage.setItem(`azm_prod_${entityKey}`, JSON.stringify(initialDefaults));
+      localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(initialDefaults));
       return initialDefaults;
     }
     return JSON.parse(raw);
@@ -55,18 +56,50 @@ export function saveEntityItem<T extends { id?: string }>(entityKey: string, ite
   }
 
   if (typeof window !== 'undefined') {
-    localStorage.setItem(`azm_prod_${entityKey}`, JSON.stringify(list));
-    window.dispatchEvent(new CustomEvent(`azm_${entityKey}_updated`, { detail: list }));
+    localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(list));
+    window.dispatchEvent(new CustomEvent(`idham_${entityKey}_updated`, { detail: list }));
   }
   return result;
 }
 
 export function deleteEntityItem(entityKey: string, id: string): boolean {
   const list = getEntityList<any>(entityKey);
-  const filtered = list.filter((x) => x.id !== id);
+  const filtered = list.filter((x) => x.id !== id && x.code !== id);
   if (typeof window !== 'undefined') {
-    localStorage.setItem(`azm_prod_${entityKey}`, JSON.stringify(filtered));
-    window.dispatchEvent(new CustomEvent(`azm_${entityKey}_updated`, { detail: filtered }));
+    localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(filtered));
+    window.dispatchEvent(new CustomEvent(`idham_${entityKey}_updated`, { detail: filtered }));
   }
   return filtered.length !== list.length;
+}
+
+/** Complete purge of all demo, mock, and seed keys in user's browser (preserves company customizations) */
+export function purgeAllMockData() {
+  if (typeof window === 'undefined') return;
+  const existingCompany = localStorage.getItem('idham_company_data') || localStorage.getItem('azm_erp_company_data');
+  const toRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && (k.startsWith('azm_') || k.startsWith('idham_mock_') || k.startsWith('demo_'))) {
+      if (k !== 'azm_erp_company_data' && k !== 'idham_company_data') {
+        toRemove.push(k);
+      }
+    }
+  }
+  for (const k of toRemove) {
+    localStorage.removeItem(k);
+  }
+  if (existingCompany) {
+    localStorage.setItem('idham_company_data', existingCompany);
+    localStorage.setItem('azm_erp_company_data', existingCompany);
+  }
+  window.dispatchEvent(new CustomEvent('idham_all_purged'));
+}
+
+// Auto-run one-time purge of legacy mock data on startup
+if (typeof window !== 'undefined') {
+  const PURGE_KEY = 'idham_clean_prod_baseline_v3';
+  if (!localStorage.getItem(PURGE_KEY)) {
+    purgeAllMockData();
+    localStorage.setItem(PURGE_KEY, 'true');
+  }
 }

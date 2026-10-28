@@ -20,7 +20,7 @@ export interface CompanyData {
   rowVersion: number;
 }
 
-const STORAGE_KEY = 'azm_erp_company_data';
+const STORAGE_KEY = 'idham_company_data';
 
 export const INITIAL_COMPANY: CompanyData = {
   id: '01a17cb2-9afa-7ef5-91f6-b47561899afb',
@@ -41,7 +41,7 @@ export const INITIAL_COMPANY: CompanyData = {
 export function getStoredCompany(): CompanyData {
   if (typeof window === 'undefined') return { ...INITIAL_COMPANY };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('azm_erp_company_data');
     if (!raw) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_COMPANY));
       return { ...INITIAL_COMPANY };
@@ -60,13 +60,14 @@ export function saveStoredCompany(patch: Partial<CompanyData>): CompanyData {
     ...patch,
     rowVersion: (current.rowVersion || 1) + 1,
   };
-  // Update in-memory fallback
   Object.assign(INITIAL_COMPANY, updated);
 
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      localStorage.setItem('azm_erp_company_data', JSON.stringify(updated));
       window.dispatchEvent(new CustomEvent('azm_company_updated', { detail: updated }));
+      window.dispatchEvent(new CustomEvent('idham_company_updated', { detail: updated }));
     } catch (err) {
       console.error('Failed to save company to localStorage:', err);
     }
