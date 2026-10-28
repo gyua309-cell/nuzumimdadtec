@@ -339,11 +339,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     ]);
   }
 
-  if (path.includes('/bank-accounts')) {
+  if (path.includes('/bank-accounts') || path.includes('/banks')) {
     return makeList([
-      { id: 'ba-01', bankNameAr: 'مصرف الراجحي', bankNameEn: 'Al Rajhi Bank', accountNumber: '20401827491001', iban: 'SA038000020401827491001', currency: 'SAR', currentBalance: '0.00', glAccountId: 'acc-102', isActive: true },
-      { id: 'ba-02', bankNameAr: 'البنك الأهلي السعودي (SNB)', bankNameEn: 'Saudi National Bank', accountNumber: '10029384756002', iban: 'SA4410000010029384756002', currency: 'SAR', currentBalance: '0.00', glAccountId: 'acc-103', isActive: true },
-      { id: 'ba-03', bankNameAr: 'البنك التجاري الدولي (CIB مصر)', bankNameEn: 'Commercial International Bank', accountNumber: '100029384711', iban: 'EG3800100000000100029384711', currency: 'EGP', currentBalance: '0.00', glAccountId: 'acc-101', isActive: true },
+      { id: 'ba-01', code: 'BA-RAJHI', name: 'مصرف الراجحي - الحساب الجاري التجاري', bankName: 'مصرف الراجحي', bankNameAr: 'مصرف الراجحي', bankNameEn: 'Al Rajhi Bank', kind: 'BANK', accountNumber: '20401827491001', iban: 'SA038000020401827491001', currency: 'SAR', currencyCode: 'SAR', currentBalance: '0.00', balance: 385000, glAccountId: 'acc-102', isActive: true },
+      { id: 'ba-02', code: 'BA-SNB', name: 'البنك الأهلي السعودي (SNB) - حساب العمليات', bankName: 'البنك الأهلي السعودي (SNB)', bankNameAr: 'البنك الأهلي السعودي (SNB)', bankNameEn: 'Saudi National Bank', kind: 'BANK', accountNumber: '10029384756002', iban: 'SA4410000010029384756002', currency: 'SAR', currencyCode: 'SAR', currentBalance: '0.00', balance: 120000, glAccountId: 'acc-103', isActive: true },
+      { id: 'ba-03', code: 'BA-CIB', name: 'البنك التجاري الدولي (CIB مصر) - فرع القاهرة', bankName: 'البنك التجاري الدولي CIB', bankNameAr: 'البنك التجاري الدولي (CIB مصر)', bankNameEn: 'Commercial International Bank', kind: 'BANK', accountNumber: '100029384711', iban: 'EG3800100000000100029384711', currency: 'EGP', currencyCode: 'EGP', currentBalance: '0.00', balance: 1420500, glAccountId: 'acc-101', isActive: true },
+      { id: 'ba-04', code: 'CASH-EGY', name: 'صندوق العهدة النقدية - فرع القاهرة', bankName: 'الخزينة النقدية الرئيسية', bankNameAr: 'الخزينة النقدية الرئيسية', bankNameEn: 'Main Petty Cash', kind: 'CASH', accountNumber: 'CASH-EGY-01', iban: null, currency: 'EGP', currencyCode: 'EGP', currentBalance: '0.00', balance: 812250, glAccountId: 'acc-104', isActive: true },
     ]);
   }
 
@@ -357,9 +358,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       period: 'أكتوبر 2026',
       totalDebit: '0.00',
       totalCredit: '0.00',
+      balanced: true,
       isBalanced: true,
       rows: [],
       lines: [],
+      totals: {
+        openingDebit: '0.00',
+        openingCredit: '0.00',
+        periodDebit: '0.00',
+        periodCredit: '0.00',
+        closingDebit: '0.00',
+        closingCredit: '0.00',
+      },
     };
   }
 
@@ -369,6 +379,9 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       directCost: '0.00',
       grossProfit: '0.00',
       operatingExpenses: '0.00',
+      operatingProfit: '0.00',
+      otherIncome: '0.00',
+      otherExpenses: '0.00',
       netProfit: '0.00',
       marginPct: '0.00',
       lines: [],
@@ -378,6 +391,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   if (path.includes('/ledger/balance')) {
     return {
       asOfDate: '2026-10-31',
+      balanced: true,
+      isBalanced: true,
+      difference: '0.00',
+      currentEarnings: '0.00',
+      liabilitiesAndEquity: '0.00',
       assets: {
         total: '0.00',
         current: '0.00',
@@ -392,18 +410,21 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         total: '0.00',
         lines: [],
       },
-      isBalanced: true,
     };
   }
 
   if (path.includes('/ledger/account-statement')) {
     return {
-      account: { code: '10201', nameAr: 'مصرف الراجحي - الحساب الجاري التجاري', currency: 'SAR' },
+      account: { code: '10201', nameAr: 'مصرف الراجحي - الحساب الجاري التجاري', currency: 'SAR', normalBalance: 'DEBIT' },
       openingBalance: '0.00',
       closingBalance: '0.00',
+      periodDebit: '0.00',
+      periodCredit: '0.00',
       totalDebit: '0.00',
       totalCredit: '0.00',
       lines: [],
+      data: [],
+      meta: { page: 1, pageSize: 50, total: 0 },
     };
   }
 
@@ -542,7 +563,15 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/services/catalog') || path.includes('/services')) {
-    return makeList(getEntityList('services_catalog', []));
+    const defaultServices = [
+      { id: 'srv-001', code: 'SRV-DEV-01', serviceCode: 'SRV-DEV-01', nameAr: 'تأجير مهندس برمجيات متقدم (Senior Full-Stack Engineer)', category: 'SOFTWARE_DEVELOPMENT', billingBasis: 'MONTHLY', defaultUnitPrice: '28000.00', currencyCode: 'SAR', vatRate: '15.00', isActive: true },
+      { id: 'srv-002', code: 'SRV-CLD-02', serviceCode: 'SRV-CLD-02', nameAr: 'تأجير مهندس سحابة وبنية تحتية (DevOps & SRE Specialist)', category: 'CLOUD_DEVOPS', billingBasis: 'MONTHLY', defaultUnitPrice: '32000.00', currencyCode: 'SAR', vatRate: '15.00', isActive: true },
+      { id: 'srv-003', code: 'SRV-QA-03', serviceCode: 'SRV-QA-03', nameAr: 'تأجير مهندس جودة واختبارات برمجية (QA Automation Engineer)', category: 'QA_TESTING', billingBasis: 'MONTHLY', defaultUnitPrice: '20000.00', currencyCode: 'SAR', vatRate: '15.00', isActive: true },
+      { id: 'srv-004', code: 'SRV-ACC-04', serviceCode: 'SRV-ACC-04', nameAr: 'تأجير محاسب مالي أول (Senior Financial Accountant)', category: 'ACCOUNTING_FINANCE', billingBasis: 'MONTHLY', defaultUnitPrice: '18000.00', currencyCode: 'SAR', vatRate: '15.00', isActive: true },
+      { id: 'srv-005', code: 'SRV-PMO-05', serviceCode: 'SRV-PMO-05', nameAr: 'تأجير مدير مشاريع تقنية (Agile PM / Scrum Master)', category: 'PROJECT_MANAGEMENT', billingBasis: 'MONTHLY', defaultUnitPrice: '30000.00', currencyCode: 'SAR', vatRate: '15.00', isActive: true },
+      { id: 'srv-006', code: 'SRV-SEC-06', serviceCode: 'SRV-SEC-06', nameAr: 'استشارات أمن سيبراني واختبار اختراق (Cybersecurity Audit)', category: 'TECHNICAL_CONSULTING', billingBasis: 'DAILY', defaultUnitPrice: '4500.00', currencyCode: 'SAR', vatRate: '15.00', isActive: true },
+    ];
+    return makeList(getEntityList('services_catalog', defaultServices));
   }
 
   // 15. Payroll, Variables, Loans (Production Zero Baseline)
@@ -557,11 +586,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         totalDeductions: '0.00',
         netPayableBase: '0.00',
         currencyCode: 'SAR',
+        payoutCurrency: 'SAR',
+        lines: [],
       };
     }
     const runs = getEntityList('payroll_runs', []);
     const singleRun = runs.find((r: any) => path.endsWith(`/${r.id}`));
-    if (singleRun) return singleRun;
+    if (singleRun) return { lines: [], ...(singleRun as Record<string, any>) };
     return makeList(runs);
   }
 
@@ -612,19 +643,24 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(getEntityList('depreciation_runs', []));
   }
 
+  if (path.includes('/custodies/report') || (path.includes('/custodies') && path.includes('/report'))) {
+    const custodies = getEntityList('custodies', []);
+    return {
+      kpis: {
+        totalCustodiesCount: custodies.length,
+        totalDisbursedSar: '0.00',
+        totalConvertedToEgp: '0.00',
+        totalSettledEgp: '0.00',
+        totalRemainingBalanceEgp: '0.00',
+      },
+      expenseBreakdown: [],
+      custodians: [],
+      rows: custodies,
+    };
+  }
+
   if (path.includes('/custodies')) {
     const custodies = getEntityList('custodies', []);
-    if (path.includes('/report')) {
-      return {
-        kpis: {
-          totalDisbursedSar: '0.00',
-          totalConvertedToEgp: '0.00',
-          totalSettledEgp: '0.00',
-          totalRemainingBalanceEgp: '0.00',
-        },
-        rows: custodies,
-      };
-    }
     const singleCst = custodies.find((c: any) => path.endsWith(`/${c.id}`));
     if (singleCst) return singleCst;
     return makeList(custodies);
@@ -913,6 +949,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/zakat/settings')) {
     return {
+      saudiGulfPct: '100.00',
+      foreignPct: '0.00',
+      zakatRatePct: '2.50',
+      incomeTaxRatePct: '20.00',
+      hijriYearDays: 354,
+      zakatTin: '300000000000003',
       calculationMethod: 'CAPITAL_BASE',
       foreignOwnershipPct: '0.00',
       hijriYearRatio: '2.577',
@@ -920,12 +962,51 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/zakat/calculate') || path.includes('/zakat')) {
+    const year = new Date().getFullYear();
     return {
-      zakatBase: '762000.00',
-      ratePct: '2.577', // Hijri/Gregorian proportion
-      calculatedZakat: '19636.74',
-      year: 2026,
+      periodFrom: `${year}-01-01`,
+      periodTo: `${year}-12-31`,
+      days: 365,
+      saudiGulfPct: '100.00',
+      foreignPct: '0.00',
+      effectiveZakatRatePct: '2.577',
+      adjustedNetProfit: '0.00',
+      baseBeforeDeductions: '0.00',
+      totalDeductions: '0.00',
+      zakatBaseRaw: '0.00',
+      zakatBase: '0.00',
+      baseFlooredToProfit: false,
+      zakatableBase: '0.00',
+      zakatDue: '0.00',
+      incomeTaxableProfit: '0.00',
+      incomeTaxDue: '0.00',
+      totalDue: '0.00',
+      ratePct: '2.577',
+      calculatedZakat: '0.00',
+      year,
       status: 'CALCULATED',
+      lines: [
+        { key: 'openingEquity', labelAr: 'حقوق الملكية في بداية الفترة (رأس المال والأرباح المبقاة)', amount: '0.00', kind: 'ledger' },
+        { key: 'netProfitBeforeZakat', labelAr: 'صافي الربح للفترة قبل الزكاة (من دفتر الأستاذ)', amount: '0.00', kind: 'ledger' },
+        { key: 'provisionsAddBack', labelAr: 'يضاف: المخصصات المكوّنة خلال الفترة', amount: '0.00', kind: 'manual' },
+        { key: 'nonDeductibleExpenses', labelAr: 'يضاف: مصروفات غير قابلة للحسم', amount: '0.00', kind: 'manual' },
+        { key: 'otherDeductionsFromProfit', labelAr: 'يخصم: إيرادات/بنود معفاة من الربح', amount: '0.00', kind: 'manual' },
+        { key: 'adjustedNetProfit', labelAr: 'صافي الربح المعدّل', amount: '0.00', kind: 'subtotal' },
+        { key: 'longTermLiabilities', labelAr: 'يضاف: قروض والتزامات طويلة الأجل', amount: '0.00', kind: 'manual' },
+        { key: 'otherAdditionsToBase', labelAr: 'يضاف: بنود أخرى إلى الوعاء', amount: '0.00', kind: 'manual' },
+        { key: 'baseBeforeDeductions', labelAr: 'الوعاء قبل الحسميات', amount: '0.00', kind: 'subtotal' },
+        { key: 'netFixedAssets', labelAr: 'يخصم: صافي الأصول الثابتة (من دفتر الأستاذ)', amount: '0.00', kind: 'ledger' },
+        { key: 'investmentsDeduction', labelAr: 'يخصم: استثمارات', amount: '0.00', kind: 'manual' },
+        { key: 'otherNonCurrentAssetsDeduction', labelAr: 'يخصم: أصول غير متداولة أخرى', amount: '0.00', kind: 'manual' },
+        { key: 'carriedForwardLossesDeduction', labelAr: 'يخصم: خسائر مدورة', amount: '0.00', kind: 'manual' },
+        { key: 'dividendsDeduction', labelAr: 'يخصم: توزيعات أرباح', amount: '0.00', kind: 'manual' },
+        { key: 'zakatBase', labelAr: 'الوعاء الزكوي (لا يقل عن صافي الربح المعدّل)', amount: '0.00', kind: 'subtotal' },
+        { key: 'zakatableBase', labelAr: 'حصة الشركاء السعوديين/الخليجيين من الوعاء', amount: '0.00', kind: 'subtotal' },
+        { key: 'zakatDue', labelAr: 'الزكاة المستحقة', amount: '0.00', kind: 'result' },
+        { key: 'incomeTaxableProfit', labelAr: 'حصة الشريك الأجنبي من الربح الخاضع للضريبة', amount: '0.00', kind: 'subtotal' },
+        { key: 'incomeTaxDue', labelAr: 'ضريبة الدخل المستحقة', amount: '0.00', kind: 'result' },
+        { key: 'totalDue', labelAr: 'إجمالي المستحق (زكاة + ضريبة دخل)', amount: '0.00', kind: 'result' },
+      ],
     };
   }
 

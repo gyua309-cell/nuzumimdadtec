@@ -99,7 +99,7 @@ export function TrialBalancePage() {
       <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data}>
         <Field label="الدفتر"><select className="input w-32" value={ledger} onChange={(e) => setLedger(e.target.value)}><option value="FINANCIAL">مالي</option><option value="MANAGEMENT">إداري</option></select></Field>
         <label className="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" checked={postingOnly} onChange={(e) => setPostingOnly(e.target.checked)} /> الحسابات التفصيلية فقط</label>
-        {q.data && <div className="ms-auto pb-1"><BalancedBadge ok={q.data.balanced} /></div>}
+        {q.data && <div className="ms-auto pb-1"><BalancedBadge ok={Boolean(q.data.balanced ?? q.data.isBalanced)} /></div>}
       </Range>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : rows.length === 0 ? <div className="card"><EmptyState text="لا توجد حركات مرحّلة في هذه الفترة." /></div> : (
         <div className="card max-h-[70vh] overflow-auto">
@@ -120,7 +120,7 @@ export function TrialBalancePage() {
             <tfoot>
               <tr className="sticky bottom-0 bg-slate-100 font-bold dark:bg-slate-800">
                 <td colSpan={2} className="px-3 py-2">الإجمالي (الحسابات التفصيلية)</td>
-                {cols.map((c) => <td key={c} className="num px-3">{money(q.data.totals[c])}</td>)}
+                {cols.map((c) => <td key={c} className="num px-3">{money(q.data?.totals?.[c] ?? '0.00')}</td>)}
               </tr>
             </tfoot>
           </table>
@@ -163,9 +163,9 @@ export function AccountStatementPage() {
               <button
                 className="btn-secondary text-xs flex items-center gap-1.5"
                 onClick={() =>
-                  downloadCsv(`statement-${q.data.account?.code || 'acc'}-${from}-${to}.csv`, [
+                  downloadCsv(`statement-${q.data?.account?.code || 'acc'}-${from}-${to}.csv`, [
                     ['التاريخ', 'القيد', 'البيان', 'العملة', 'مدين (عملة)', 'دائن (عملة)', 'مدين', 'دائن', 'الرصيد'],
-                    ...q.data.data.map((l: any) => [
+                    ...(q.data?.data ?? []).map((l: any) => [
                       l.entryDate, l.entryNo, l.lineDescription ?? l.description, l.currencyCode, l.debitTx, l.creditTx, l.debitBase, l.creditBase, l.runningBalance,
                     ]),
                   ])
@@ -183,18 +183,18 @@ export function AccountStatementPage() {
       {!accountId ? <div className="card"><EmptyState text="اختر حسابًا لعرض كشفه." /></div> : q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
         <>
           <div className="mb-4 grid grid-cols-4 gap-3">
-            <Stat label="الرصيد الافتتاحي" value={money(q.data.openingBalance)} />
-            <Stat label="مدين الفترة" value={money(q.data.periodDebit)} />
-            <Stat label="دائن الفترة" value={money(q.data.periodCredit)} />
-            <Stat label="الرصيد الختامي" value={money(q.data.closingBalance)} tone="blue" hint={q.data.account.normalBalance === 'DEBIT' ? 'طبيعة مدينة' : 'طبيعة دائنة'} />
+            <Stat label="الرصيد الافتتاحي" value={money(q.data?.openingBalance ?? '0.00')} />
+            <Stat label="مدين الفترة" value={money(q.data?.periodDebit ?? '0.00')} />
+            <Stat label="دائن الفترة" value={money(q.data?.periodCredit ?? '0.00')} />
+            <Stat label="الرصيد الختامي" value={money(q.data?.closingBalance ?? '0.00')} tone="blue" hint={q.data?.account?.normalBalance === 'DEBIT' ? 'طبيعة مدينة' : 'طبيعة دائنة'} />
           </div>
           <div className="card overflow-hidden">
-            {q.data.data.length === 0 ? <EmptyState text="لا توجد حركات في هذه الفترة." /> : (
+            {!(q.data?.data?.length) ? <EmptyState text="لا توجد حركات في هذه الفترة." /> : (
               <>
                 <table className="table">
                   <thead><tr><th>التاريخ</th><th>رقم القيد</th><th>البيان</th><th>العملة</th><th>مدين (عملة)</th><th>دائن (عملة)</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
                   <tbody>
-                    {q.data.data.map((l: any, i: number) => (
+                    {(q.data?.data ?? []).map((l: any, i: number) => (
                       <tr key={i} className="cursor-pointer" onClick={() => nav(`/acc/journals/${l.entryId}`)}>
                         <td>{date(l.entryDate)}</td><td className="num text-start">{l.entryNo}</td><td className="max-w-sm truncate">{l.lineDescription ?? l.description}</td>
                         <td>{l.currencyCode}</td><td className="num">{money(l.debitTx)}</td><td className="num">{money(l.creditTx)}</td>
@@ -203,7 +203,7 @@ export function AccountStatementPage() {
                     ))}
                   </tbody>
                 </table>
-                <Pager {...q.data.meta} onPage={setPage} />
+                <Pager {...(q.data?.meta ?? { page: 1, pageSize: 50, total: 0 })} onPage={setPage} />
               </>
             )}
           </div>
@@ -252,13 +252,13 @@ export function IncomeStatementPage() {
                 onClick={() =>
                   downloadCsv(`income-statement-${from}-${to}.csv`, [
                     ['الرمز', 'الحساب', 'المبلغ'],
-                    ...q.data.lines.map((l: any) => [l.code, l.nameAr, l.amount]),
-                    ['', 'إجمالي الإيرادات', q.data.revenue],
-                    ['', 'إجمالي التكاليف المباشرة', q.data.directCost],
-                    ['', 'مجمل الربح', q.data.grossProfit],
-                    ['', 'المصروفات التشغيلية', q.data.operatingExpenses],
-                    ['', 'الربح التشغيلي', q.data.operatingProfit],
-                    ['', 'صافي الربح', q.data.netProfit],
+                    ...(q.data?.lines ?? []).map((l: any) => [l.code, l.nameAr, l.amount]),
+                    ['', 'إجمالي الإيرادات', q.data?.revenue ?? '0.00'],
+                    ['', 'إجمالي التكاليف المباشرة', q.data?.directCost ?? '0.00'],
+                    ['', 'مجمل الربح', q.data?.grossProfit ?? '0.00'],
+                    ['', 'المصروفات التشغيلية', q.data?.operatingExpenses ?? '0.00'],
+                    ['', 'الربح التشغيلي', q.data?.operatingProfit ?? '0.00'],
+                    ['', 'صافي الربح', q.data?.netProfit ?? '0.00'],
                   ])
                 }
               >
@@ -273,14 +273,14 @@ export function IncomeStatementPage() {
         <div className="card max-w-3xl overflow-hidden">
           <table className="table">
             <tbody>
-              {section(['REVENUE'], ACCOUNT_CLASS.REVENUE, q.data.revenue)}
-              {section(['DIRECT_COST'], ACCOUNT_CLASS.DIRECT_COST, q.data.directCost)}
-              <tr className="bg-brand-50 font-bold dark:bg-brand-500/10"><td className="px-3 py-2">مجمل الربح</td><td className="num px-3">{money(q.data.grossProfit)}</td></tr>
-              {section(['OPERATING_EXPENSE'], ACCOUNT_CLASS.OPERATING_EXPENSE, q.data.operatingExpenses)}
-              <tr className="bg-brand-50 font-bold dark:bg-brand-500/10"><td className="px-3 py-2">الربح التشغيلي</td><td className="num px-3">{money(q.data.operatingProfit)}</td></tr>
-              {section(['OTHER_INCOME'], ACCOUNT_CLASS.OTHER_INCOME, q.data.otherIncome)}
-              {section(['OTHER_EXPENSE'], ACCOUNT_CLASS.OTHER_EXPENSE, q.data.otherExpenses)}
-              <tr className="bg-slate-800 text-lg font-bold text-white"><td className="px-3 py-3">صافي الربح / (الخسارة)</td><td className="num px-3">{money(q.data.netProfit)}</td></tr>
+              {section(['REVENUE'], ACCOUNT_CLASS.REVENUE, q.data?.revenue ?? '0.00')}
+              {section(['DIRECT_COST'], ACCOUNT_CLASS.DIRECT_COST, q.data?.directCost ?? '0.00')}
+              <tr className="bg-brand-50 font-bold dark:bg-brand-500/10"><td className="px-3 py-2">مجمل الربح</td><td className="num px-3">{money(q.data?.grossProfit ?? '0.00')}</td></tr>
+              {section(['OPERATING_EXPENSE'], ACCOUNT_CLASS.OPERATING_EXPENSE, q.data?.operatingExpenses ?? '0.00')}
+              <tr className="bg-brand-50 font-bold dark:bg-brand-500/10"><td className="px-3 py-2">الربح التشغيلي</td><td className="num px-3">{money(q.data?.operatingProfit ?? '0.00')}</td></tr>
+              {section(['OTHER_INCOME'], ACCOUNT_CLASS.OTHER_INCOME, q.data?.otherIncome ?? '0.00')}
+              {section(['OTHER_EXPENSE'], ACCOUNT_CLASS.OTHER_EXPENSE, q.data?.otherExpenses ?? '0.00')}
+              <tr className="bg-slate-800 text-lg font-bold text-white"><td className="px-3 py-3">صافي الربح / (الخسارة)</td><td className="num px-3">{money(q.data?.netProfit ?? '0.00')}</td></tr>
             </tbody>
           </table>
         </div>
@@ -304,8 +304,8 @@ export function BalanceSheetPage() {
   const Section = ({ title, s }: { title: string; s: any }) => (
     <>
       <tr className="bg-slate-50 font-semibold dark:bg-slate-800/40"><td colSpan={2} className="px-3 py-2">{title}</td></tr>
-      {s.lines.map((l: any) => <tr key={l.accountId}><td className="ps-8"><span className="num">{l.code}</span> {l.nameAr}</td><td className="num">{money(l.amount)}</td></tr>)}
-      <tr className="font-semibold"><td className="px-3 py-2">إجمالي {title}</td><td className="num px-3">{money(s.total)}</td></tr>
+      {(s?.lines ?? []).map((l: any) => <tr key={l.accountId}><td className="ps-8"><span className="num">{l.code}</span> {l.nameAr}</td><td className="num">{money(l.amount)}</td></tr>)}
+      <tr className="font-semibold"><td className="px-3 py-2">إجمالي {title}</td><td className="num px-3">{money(s?.total ?? '0.00')}</td></tr>
     </>
   );
   return (
@@ -324,14 +324,14 @@ export function BalanceSheetPage() {
                 onClick={() =>
                   downloadCsv(`balance-sheet-${asOf}.csv`, [
                     ['التصنيف', 'الرمز', 'الحساب', 'المبلغ'],
-                    ...q.data.assets.lines.map((l: any) => ['الأصول', l.code, l.nameAr, l.amount]),
-                    ['الأصول', '', 'إجمالي الأصول', q.data.assets.total],
-                    ...q.data.liabilities.lines.map((l: any) => ['الالتزامات', l.code, l.nameAr, l.amount]),
-                    ['الالتزامات', '', 'إجمالي الالتزامات', q.data.liabilities.total],
-                    ...q.data.equity.lines.map((l: any) => ['حقوق الملكية', l.code, l.nameAr, l.amount]),
-                    ['حقوق الملكية', '', 'إجمالي حقوق الملكية', q.data.equity.total],
-                    ['حقوق الملكية', '', 'أرباح الفترة غير المقفلة', q.data.currentEarnings],
-                    ['الالتزامات وحقوق الملكية', '', 'إجمالي الالتزامات وحقوق الملكية', q.data.liabilitiesAndEquity],
+                    ...(q.data?.assets?.lines ?? []).map((l: any) => ['الأصول', l.code, l.nameAr, l.amount]),
+                    ['الأصول', '', 'إجمالي الأصول', q.data?.assets?.total ?? '0.00'],
+                    ...(q.data?.liabilities?.lines ?? []).map((l: any) => ['الالتزامات', l.code, l.nameAr, l.amount]),
+                    ['الالتزامات', '', 'إجمالي الالتزامات', q.data?.liabilities?.total ?? '0.00'],
+                    ...(q.data?.equity?.lines ?? []).map((l: any) => ['حقوق الملكية', l.code, l.nameAr, l.amount]),
+                    ['حقوق الملكية', '', 'إجمالي حقوق الملكية', q.data?.equity?.total ?? '0.00'],
+                    ['حقوق الملكية', '', 'أرباح الفترة غير المقفلة', q.data?.currentEarnings ?? '0.00'],
+                    ['الالتزامات وحقوق الملكية', '', 'إجمالي الالتزامات وحقوق الملكية', q.data?.liabilitiesAndEquity ?? '0.00'],
                   ])
                 }
               >
@@ -356,18 +356,25 @@ export function BalanceSheetPage() {
             <span className="font-bold">قوائم موحدة:</span> تشمل عمليات المركز الرئيسي (الرياض) وفرع مصر (القاهرة) مع استبعاد القيود المتقابلة بين الفروع واحتساب فروق ترجمة العملات (CTA).
           </div>
         )}
-        {q.data && <div className="ms-auto flex items-center gap-2 pb-1">{!q.data.balanced && <span className="text-sm text-rose-600">الفرق: <span className="num">{money(q.data.difference)}</span></span>}<BalancedBadge ok={q.data.balanced} /></div>}
+        {q.data && (
+          <div className="ms-auto flex items-center gap-2 pb-1">
+            {!Boolean(q.data.balanced ?? q.data.isBalanced) && (
+              <span className="text-sm text-rose-600">الفرق: <span className="num">{money(q.data.difference ?? '0.00')}</span></span>
+            )}
+            <BalancedBadge ok={Boolean(q.data.balanced ?? q.data.isBalanced)} />
+          </div>
+        )}
       </div>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="card overflow-hidden"><table className="table"><tbody><Section title="الأصول" s={q.data.assets} /></tbody></table></div>
+          <div className="card overflow-hidden"><table className="table"><tbody><Section title="الأصول" s={q.data?.assets} /></tbody></table></div>
           <div className="card overflow-hidden">
             <table className="table">
               <tbody>
-                <Section title="الالتزامات" s={q.data.liabilities} />
-                <Section title="حقوق الملكية" s={q.data.equity} />
-                <tr><td className="px-3 py-2">أرباح (خسائر) الفترة غير المقفلة</td><td className="num px-3">{money(q.data.currentEarnings)}</td></tr>
-                <tr className="bg-slate-800 font-bold text-white"><td className="px-3 py-2">الالتزامات وحقوق الملكية</td><td className="num px-3">{money(q.data.liabilitiesAndEquity)}</td></tr>
+                <Section title="الالتزامات" s={q.data?.liabilities} />
+                <Section title="حقوق الملكية" s={q.data?.equity} />
+                <tr><td className="px-3 py-2">أرباح (خسائر) الفترة غير المقفلة</td><td className="num px-3">{money(q.data?.currentEarnings ?? '0.00')}</td></tr>
+                <tr className="bg-slate-800 font-bold text-white"><td className="px-3 py-2">الالتزامات وحقوق الملكية</td><td className="num px-3">{money(q.data?.liabilitiesAndEquity ?? '0.00')}</td></tr>
               </tbody>
             </table>
           </div>

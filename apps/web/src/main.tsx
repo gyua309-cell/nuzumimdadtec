@@ -6,7 +6,7 @@ import './index.css';
 import { ApiError } from './lib/api';
 import { AuthProvider, useAuth } from './lib/auth';
 import { AppShell } from './components/AppShell';
-import { Loading, ToastProvider } from './components/ui';
+import { ErrorBoundary, Loading, ToastProvider } from './components/ui';
 import { ChangePasswordPage, LoginPage, SetupWizard } from './pages/auth';
 import { BranchesPage, CalendarsPage, CompanyPage, CostCentersPage, CurrenciesPage, DepartmentsPage, FiscalPage, TaxesPage } from './pages/org';
 import { AccountsPage, JournalDetailPage, JournalFormPage, JournalsPage, PostingRulesPage } from './pages/accounting';
@@ -149,7 +149,9 @@ createRoot(document.getElementById('root')!).render(
       <HashRouter>
         <ToastProvider>
           <AuthProvider>
-            <Root />
+            <ErrorBoundary fallbackTitle="حدث خطأ أثناء تحميل واجهة النظام">
+              <Root />
+            </ErrorBoundary>
           </AuthProvider>
         </ToastProvider>
       </HashRouter>

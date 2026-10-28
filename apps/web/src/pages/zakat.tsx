@@ -38,7 +38,12 @@ export function ZakatPage() {
   const settings = useQuery({ queryKey: ['zakat-settings'], queryFn: () => api.get<any>('/zakat/settings') });
   const [own, setOwn] = useState({ saudi: '100', foreign: '0' });
   useEffect(() => {
-    if (settings.data) setOwn({ saudi: String(Number(settings.data.saudiGulfPct)), foreign: String(Number(settings.data.foreignPct)) });
+    if (settings.data) {
+      setOwn({
+        saudi: String(Number(settings.data.saudiGulfPct ?? 100)),
+        foreign: String(Number(settings.data.foreignPct ?? 0)),
+      });
+    }
   }, [settings.data]);
   const saveOwn = useMutation({
     mutationFn: () => api.put<any>('/zakat/settings', { saudiGulfPct: own.saudi, foreignPct: own.foreign }),
@@ -78,6 +83,8 @@ export function ZakatPage() {
   if (settings.error) return <ErrorState error={settings.error} />;
   const s = settings.data;
   const ws = calc.data;
+  const rawReturns: any = returns.data;
+  const savedReturns: any[] = Array.isArray(rawReturns) ? rawReturns : (rawReturns?.data ?? []);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -98,7 +105,9 @@ export function ZakatPage() {
         <button className="btn-secondary" disabled={saveOwn.isPending || Number(own.saudi) + Number(own.foreign) !== 100} onClick={() => saveOwn.mutate()}>
           {saveOwn.isPending ? <Spinner /> : <Save className="size-4" />} حفظ النسب
         </button>
-        <span className="pb-2 text-slate-600 dark:text-slate-300">معدل الزكاة {Number(s.zakatRatePct)}% — ضريبة الدخل {Number(s.incomeTaxRatePct)}%</span>
+        <span className="pb-2 text-slate-600 dark:text-slate-300">
+          معدل الزكاة {Number(s?.zakatRatePct ?? 2.5)}% — ضريبة الدخل {Number(s?.incomeTaxRatePct ?? 20)}%
+        </span>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-5">
@@ -125,27 +134,27 @@ export function ZakatPage() {
 
         <div className="space-y-4 lg:col-span-3">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Stat label="الوعاء الزكوي" value={ws ? money(ws.zakatBase) : '…'} tone="blue" icon={FileText} />
-            <Stat label="الزكاة المستحقة" value={ws ? money(ws.zakatDue) : '…'} tone="green" icon={Calculator} />
-            <Stat label="ضريبة الدخل" value={ws ? money(ws.incomeTaxDue) : '…'} tone="amber" icon={Calculator} />
-            <Stat label="إجمالي المستحق" value={ws ? money(ws.totalDue) : '…'} tone="purple" icon={Calculator} />
+            <Stat label="الوعاء الزكوي" value={ws ? money(ws.zakatBase ?? 0) : '…'} tone="blue" icon={FileText} />
+            <Stat label="الزكاة المستحقة" value={ws ? money(ws.zakatDue ?? 0) : '…'} tone="green" icon={Calculator} />
+            <Stat label="ضريبة الدخل" value={ws ? money(ws.incomeTaxDue ?? 0) : '…'} tone="amber" icon={Calculator} />
+            <Stat label="إجمالي المستحق" value={ws ? money(ws.totalDue ?? 0) : '…'} tone="purple" icon={Calculator} />
           </div>
 
           {ws?.baseFlooredToProfit && (
             <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-              <span>الوعاء بعد الحسميات ({money(ws.zakatBaseRaw)}) أقل من صافي الربح المعدّل، لذلك رُفع الوعاء إلى صافي الربح المعدّل.</span>
+              <span>الوعاء بعد الحسميات ({money(ws.zakatBaseRaw ?? 0)}) أقل من صافي الربح المعدّل، لذلك رُفع الوعاء إلى صافي الربح المعدّل.</span>
             </div>
           )}
 
           <div className="card overflow-hidden">
             <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold dark:border-slate-800 dark:bg-slate-900/60">
-              ورقة العمل — {ws ? `${date(ws.periodFrom)} إلى ${date(ws.periodTo)} (${ws.days} يوماً، المعدل الفعلي ${ws.effectiveZakatRatePct}%)` : 'جارٍ الاحتساب…'}
+              ورقة العمل — {ws ? `${date(ws.periodFrom)} إلى ${date(ws.periodTo)} (${ws.days ?? 365} يوماً، المعدل الفعلي ${ws.effectiveZakatRatePct ?? '2.577'}%)` : 'جارٍ الاحتساب…'}
             </div>
             {!ws ? <Loading /> : (
               <table className="table">
                 <tbody>
-                  {ws.lines.map((l: any) => (
+                  {(ws.lines ?? []).map((l: any) => (
                     <tr key={l.key} className={l.kind === 'subtotal' ? 'bg-slate-50 font-bold dark:bg-slate-800/40' : l.kind === 'result' ? 'bg-brand-50 font-black dark:bg-brand-950/30' : ''}>
                       <td className="whitespace-normal">
                         {l.labelAr}
@@ -163,11 +172,11 @@ export function ZakatPage() {
 
       <div className="card overflow-hidden">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold dark:border-slate-800 dark:bg-slate-900/60">الإقرارات المحفوظة</div>
-        {returns.isLoading ? <Loading /> : !returns.data?.length ? <EmptyState text="لا توجد إقرارات محفوظة بعد." /> : (
+        {returns.isLoading ? <Loading /> : !savedReturns.length ? <EmptyState text="لا توجد إقرارات محفوظة بعد." /> : (
           <table className="table">
             <thead><tr><th>الرقم</th><th>الفترة</th><th>الوعاء</th><th>الزكاة</th><th>ضريبة الدخل</th><th>الإجمالي</th><th>الحالة</th><th /></tr></thead>
             <tbody>
-              {returns.data.map((r: any) => (
+              {savedReturns.map((r: any) => (
                 <tr key={r.id}>
                   <td className="num">{r.returnNo}</td>
                   <td className="num whitespace-normal">{date(r.periodFrom)} ← {date(r.periodTo)}</td>

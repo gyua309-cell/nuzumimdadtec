@@ -754,7 +754,7 @@ export function ProfitabilityPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {clientProf.data.map((c: any) => {
+                  {(Array.isArray(clientProf.data) ? clientProf.data : (clientProf.data as any)?.data || []).map((c: any) => {
                     const margin = c.grossMarginPct != null ? Number(c.grossMarginPct) : null;
                     return (
                       <tr key={c.clientId} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">

@@ -7,6 +7,7 @@ import {
   Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { ErrorBoundary } from './ErrorBoundary';
 
 interface NavItem {
   to: string;
@@ -642,7 +643,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
         </header>
 
         {/* Main Body */}
-        <main className="min-w-0 flex-1 overflow-y-auto p-6">{children ?? <Outlet />}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto p-6">
+          <ErrorBoundary>
+            {children ?? <Outlet />}
+          </ErrorBoundary>
+        </main>
       </div>
     </div>
   );

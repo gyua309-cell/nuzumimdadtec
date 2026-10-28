@@ -90,7 +90,9 @@ export function ZatcaInvoicesPage() {
   if (invoicesQuery.isLoading) return <Loading />;
   if (invoicesQuery.error) return <ErrorState error={invoicesQuery.error} />;
 
-  const invoices = invoicesQuery.data || [];
+  const invoices: any[] = Array.isArray(invoicesQuery.data)
+    ? invoicesQuery.data
+    : (invoicesQuery.data as any)?.data || [];
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">

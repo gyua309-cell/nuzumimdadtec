@@ -425,7 +425,7 @@ export function DepreciationPage() {
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-slate-800"><h3 className="font-semibold">تشغيل #{detail.data.runNo} — {detail.data.periodName}</h3><button className="btn-ghost h-7" onClick={() => setView(null)}>إغلاق</button></div>
           <table className="table">
             <thead><tr><th>الأصل</th><th>الشهر</th><th>الموظف</th><th>أيام</th><th>المبلغ</th><th>القيمة الدفترية</th></tr></thead>
-            <tbody>{detail.data.lines.map((l: any) => <tr key={l.id}><td>{l.assetNo} — {l.assetName}</td><td>{l.month.slice(0, 7)}</td><td>{l.employeeName ?? '—'}</td><td className="num">{l.days}</td><td className="num">{money(l.amountBase)}</td><td className="num">{money(l.netBookValueBase)}</td></tr>)}</tbody>
+            <tbody>{(detail.data.lines ?? []).map((l: any) => <tr key={l.id}><td>{l.assetNo} — {l.assetName}</td><td>{l.month?.slice(0, 7) ?? '—'}</td><td>{l.employeeName ?? '—'}</td><td className="num">{l.days}</td><td className="num">{money(l.amountBase)}</td><td className="num">{money(l.netBookValueBase)}</td></tr>)}</tbody>
           </table>
         </div>
       )}

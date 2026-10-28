@@ -464,3 +464,6 @@ export function Stat({
     </div>
   );
 }
+
+
+export { ErrorBoundary } from './ErrorBoundary';
