@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, History, Percent, Plus, Trash2 } from 'lucide-react';
+import { CalendarDays, Download, History, Percent, Plus, RotateCcw, Trash2, Upload, Database } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { saveStoredCompany } from '../lib/storage-company';
+import { exportAllErpData, importAllErpData, resetSystemToZero } from '../lib/local-store';
 import { date, dateTime } from '../lib/format';
 import { ActiveBadge, cleanPayload, CrudPage, EntityForm, FieldDef, fieldErrors } from '../components/CrudPage';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
@@ -27,6 +28,7 @@ export function CompanyPage() {
   const toast = useToast();
   const { reload } = useAuth();
   const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const q = useQuery({ queryKey: ['company'], queryFn: () => api.get<any>('/companies/current') });
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const save = useMutation({
@@ -53,19 +55,116 @@ export function CompanyPage() {
   if (q.error) return <ErrorState error={q.error} />;
   const c = q.data;
   return (
-    <div>
-      <PageHeader title="بيانات الشركة والترخيص" actions={<button className="btn-primary" onClick={() => setForm({ ...c })}>تعديل بيانات الشركة</button>} />
-      <div className="card grid grid-cols-2 gap-4 p-5 md:grid-cols-3">
-        {[
-          ['الرمز', c.code], ['الاسم بالعربية', c.nameAr], ['الاسم بالإنجليزية', c.nameEn], ['الاسم القانوني', c.legalName],
-          ['الرقم الضريبي', c.taxNumber], ['السجل التجاري', c.commercialReg], ['الدولة', c.countryCode], ['المنطقة الزمنية', c.timezone],
-          ['العملة الأساسية', c.baseCurrency], ['شهر بداية السنة المالية', c.fiscalYearStartMonth], ['العنوان', c.address],
-        ].map(([k, v]) => (
-          <div key={k as string}>
-            <div className="text-xs text-slate-500">{k}</div>
-            <div className="mt-0.5 font-medium">{v ?? '—'}</div>
+    <div className="space-y-6">
+      <div>
+        <PageHeader title="بيانات الشركة والترخيص" actions={<button className="btn-primary" onClick={() => setForm({ ...c })}>تعديل بيانات الشركة</button>} />
+        <div className="card grid grid-cols-2 gap-4 p-5 md:grid-cols-3">
+          {[
+            ['الرمز', c.code], ['الاسم بالعربية', c.nameAr], ['الاسم بالإنجليزية', c.nameEn], ['الاسم القانوني', c.legalName],
+            ['الرقم الضريبي', c.taxNumber], ['السجل التجاري', c.commercialReg], ['الدولة', c.countryCode], ['المنطقة الزمنية', c.timezone],
+            ['العملة الأساسية', c.baseCurrency], ['شهر بداية السنة المالية', c.fiscalYearStartMonth], ['العنوان', c.address],
+          ].map(([k, v]) => (
+            <div key={k as string}>
+              <div className="text-xs text-slate-500">{k}</div>
+              <div className="mt-0.5 font-medium">{v ?? '—'}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card p-5 border border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <Database className="size-5 text-brand-600" />
+          <div>
+            <h3 className="font-semibold text-sm">أدوات إدارة وتأمين بيانات المنظومة</h3>
+            <p className="text-xs text-slate-500">حفظ نسخة احتياطية من مدخلاتك الحقيقية، استعادتها بأي وقت، وتصفير البيانات الوهمية لبدء التشغيل الفعلي.</p>
           </div>
-        ))}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col justify-between">
+            <div>
+              <div className="font-semibold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Download className="size-4 text-emerald-600" />
+                تصدير نسخة احتياطية كاملة (JSON)
+              </div>
+              <p className="text-xs text-slate-500 mt-1">تنزيل ملف يحتوي كافة الموظفين، الفروع، الفواتير، والقيود لحفظها بأمان على جهازك.</p>
+            </div>
+            <button
+              className="btn-secondary text-xs mt-3 w-full flex items-center justify-center gap-1.5"
+              onClick={() => {
+                exportAllErpData();
+                toast.success('تم تصدير النسخة الاحتياطية بنجاح');
+              }}
+            >
+              <Download className="size-3.5" /> تحميل النسخة الاحتياطية
+            </button>
+          </div>
+
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col justify-between">
+            <div>
+              <div className="font-semibold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Upload className="size-4 text-blue-600" />
+                استعادة نسخة احتياطية من ملف
+              </div>
+              <p className="text-xs text-slate-500 mt-1">استيراد ملف النسخة الاحتياطية السابقة واسترجاع كافة البيانات المدخلة بضغطة واحدة.</p>
+            </div>
+            <div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = async (ev) => {
+                    const content = ev.target?.result as string;
+                    const res = importAllErpData(content);
+                    if (res.success) {
+                      toast.success(res.message);
+                      qc.invalidateQueries();
+                      await reload();
+                    } else {
+                      toast.error(res.message);
+                    }
+                  };
+                  reader.readAsText(file);
+                }}
+              />
+              <button
+                className="btn-secondary text-xs mt-3 w-full flex items-center justify-center gap-1.5"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="size-3.5" /> اختيار ملف الاستعادة
+              </button>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl border border-rose-200 dark:border-rose-950 bg-rose-50/30 dark:bg-rose-950/20 flex flex-col justify-between">
+            <div>
+              <div className="font-semibold text-xs text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
+                <RotateCcw className="size-4 text-rose-600" />
+                تصفير وتهيئة النظام لبدء العمل الفعلي
+              </div>
+              <p className="text-xs text-slate-500 mt-1">إزالة أي بيانات وهمية أو اختبارية من الذاكرة والبدء بجداول فارغة 100% مع الحفاظ على ترخيص الشركة.</p>
+            </div>
+            <button
+              className="btn-ghost border border-rose-300 text-rose-700 hover:bg-rose-100 dark:border-rose-800 dark:text-rose-300 text-xs mt-3 w-full flex items-center justify-center gap-1.5"
+              onClick={async () => {
+                if (confirm('تأكيد: هل ترغب في تصفير أي بيانات وهمية/اختبارية والبدء ببيانات فارغة وجداول نظيفة؟ لن يتأثر اسم الشركة والترخيص.')) {
+                  resetSystemToZero();
+                  toast.success('تم تصفير النظام وتهيئته بنجاح. كافة الشاشات فارغة وجاهزة لإدخال بياناتك الحقيقية.');
+                  qc.invalidateQueries();
+                  await reload();
+                }
+              }}
+            >
+              <RotateCcw className="size-3.5" /> تصفير وبدء التشغيل الفعلي
+            </button>
+          </div>
+        </div>
       </div>
       <Modal
         open={!!form}
