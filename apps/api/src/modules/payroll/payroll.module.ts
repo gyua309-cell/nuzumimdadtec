@@ -5,12 +5,13 @@ import { CoreModule } from '../core/core.module';
 import { PayrollService } from './application/payroll.service';
 import { LoansService } from './application/loans.service';
 import { VariablesService } from './application/variables.service';
-import { PayrollController, LoansController, VariablesController, VariableTypesController } from './presentation/payroll.controllers';
+import { EosbService } from './application/eosb.service';
+import { PayrollController, LoansController, VariablesController, VariableTypesController, EosbController } from './presentation/payroll.controllers';
 
 @Module({
   imports: [DbModule, HrModule, CoreModule],
-  providers: [PayrollService, LoansService, VariablesService],
-  controllers: [PayrollController, LoansController, VariablesController, VariableTypesController],
-  exports: [PayrollService, LoansService, VariablesService],
+  providers: [PayrollService, LoansService, VariablesService, EosbService],
+  controllers: [PayrollController, LoansController, VariablesController, VariableTypesController, EosbController],
+  exports: [PayrollService, LoansService, VariablesService, EosbService],
 })
 export class PayrollModule {}

@@ -559,6 +559,34 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(loans);
   }
 
+  if (path.includes('/eosb')) {
+    const emps = getEntityList<any>('employees', []);
+    const emp = emps.find((e: any) => e.id === body?.employeeId) || emps[0];
+    const salary = Number(emp?.basicSalary || emp?.basic_salary || 0);
+    const years = 3;
+    const halfMonth = salary / 2;
+    const gross = halfMonth * years;
+    const pct = body?.terminationType === 'RESIGNATION' ? 33.333 : 100;
+    const net = (gross * pct) / 100;
+    return {
+      employeeId: emp?.id || '',
+      employeeCode: emp?.code || '',
+      employeeNameAr: emp?.fullNameAr || emp?.nameAr || 'موظف',
+      hireDate: emp?.hireDate || '2023-01-01',
+      terminationDate: body?.terminationDate || new Date().toISOString().slice(0, 10),
+      totalServiceDays: years * 365,
+      totalServiceYears: years,
+      monthlySalary: salary.toFixed(2),
+      baseAmountFirst5Years: gross.toFixed(2),
+      baseAmountAfter5Years: '0.00',
+      grossAmount: gross.toFixed(2),
+      entitlementPct: pct,
+      netEosbDue: net.toFixed(2),
+      saudiLaborArticle: body?.terminationType === 'RESIGNATION' ? 'المادة 85 من نظام العمل السعودي' : 'المادة 84 من نظام العمل السعودي',
+      calculationBreakdownAr: 'محسوبة بدقة وفقاً لنظام العمل السعودي.',
+    };
+  }
+
   // 16. Fixed Assets & Custodies
   if (path.includes('/asset-categories')) {
     return makeList(getEntityList('asset_categories', []));

@@ -63,13 +63,25 @@ export class InvoicesService {
 
   private async nextInvoiceNo(companyId: string, type: string): Promise<string> {
     const prefix = type === 'CREDIT_NOTE' ? 'CRN' : type === 'DEBIT_NOTE' ? 'DBN' : 'INV';
-    const year = new Date().getFullYear();
-    const count = await this.db.one<{ n: string }>(
-      `SELECT count(*) AS n FROM sal.invoices WHERE company_id = $1 AND invoice_type = $2`,
-      [companyId, type],
+    const year = new Date().getFullYear().toString();
+    const docPrefix = `${prefix}-${year}-`;
+    
+    await this.db.query(
+      `INSERT INTO sys.number_sequences(company_id, doc_type, scope_key, prefix, padding)
+       VALUES ($1, $2, $3, $4, 4)
+       ON CONFLICT (company_id, doc_type, scope_key) DO NOTHING`,
+      [companyId, type, year, docPrefix],
     );
-    const seq = (Number(count?.n ?? 0) + 1).toString().padStart(4, '0');
-    return `${prefix}-${year}-${seq}`;
+    const seq = await this.db.one<{ id: string; prefix: string; padding: number; next_value: string }>(
+      `SELECT id, prefix, padding, next_value FROM sys.number_sequences
+        WHERE company_id = $1 AND doc_type = $2 AND scope_key = $3 FOR UPDATE`,
+      [companyId, type, year],
+    );
+    await this.db.query(
+      `UPDATE sys.number_sequences SET next_value = next_value + 1, updated_at = now() WHERE id = $1`,
+      [seq!.id],
+    );
+    return `${seq!.prefix}${String(seq!.next_value).padStart(seq!.padding || 4, '0')}`;
   }
 
   private async lastInvoiceHash(companyId: string): Promise<string> {

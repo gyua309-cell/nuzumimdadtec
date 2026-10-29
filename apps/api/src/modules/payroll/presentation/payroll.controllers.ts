@@ -11,6 +11,7 @@ import { PostponeInstallment, CancelLoan, LoanCreate, LoansService } from '../ap
 const InstallmentPostpone = PostponeInstallment;
 const LoanCancel = CancelLoan;
 import { PayrollRunCancel, PayrollRunCreate, PayrollService } from '../application/payroll.service';
+import { EosbCalculationInput, EosbService } from '../application/eosb.service';
 
 const idPipe = new ZodPipe(uuid);
 const listPipe = new ZodPipe(listQuery.passthrough());
@@ -182,5 +183,18 @@ export class PayrollController {
   @RequirePermission('pay.run.cancel')
   cancel(@Param('id', idPipe) id: string, @Body(new ZodPipe(PayrollRunCancel)) body: z.infer<typeof PayrollRunCancel>) {
     return this.svc.cancel(activeCompanyId(), id, body);
+  }
+}
+
+// ---------------------------------------------------------------- eosb (end of service benefits)
+
+@Controller('eosb')
+export class EosbController {
+  constructor(private readonly svc: EosbService) {}
+
+  @Post('calculate')
+  @RequirePermission('pay.run.view')
+  calculate(@Body(new ZodPipe(EosbCalculationInput)) body: z.infer<typeof EosbCalculationInput>) {
+    return this.svc.calculateEosb(activeCompanyId(), body);
   }
 }
