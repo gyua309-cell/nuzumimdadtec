@@ -1,12 +1,14 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Download, Eye, FileSpreadsheet, Pencil, Plus, Printer,
+  AlertTriangle, Download, Eye, FileSpreadsheet, Pencil, Plus,
   Search, Trash2, Upload,
 } from 'lucide-react';
 import { api, ApiError, Page } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { downloadCsv, parseCsv, today } from '../lib/format';
+import { ExportMenu } from './ExportMenu';
+import { ExportColumnDef } from '../engine/export-engine';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Spinner, useToast } from './ui';
 
 export type Option = { value: string; label: string };
@@ -435,26 +437,19 @@ export function CrudPage({
     setEditing(row ?? {});
   };
 
-  const handleExport = () => {
-    const colKeys = columns.map((c) => c.key);
-    const colLabels = columns.map((c) => c.label);
-    const dataRows = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
-    const exportRows = dataRows.map((row) =>
-      colKeys.map((k) => {
-        const val = row[k];
-        if (val === true) return 'نعم';
-        if (val === false) return 'لا';
-        if (val === null || val === undefined) return '';
-        return String(val);
-      })
-    );
-    downloadCsv(`${title}-${today()}.csv`, [colLabels, ...exportRows]);
-    toast.success('تم تصدير البيانات إلى ملف CSV بنجاح');
-  };
-
   const rows = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
   const totalCount = list.data?.meta?.total ?? rows.length;
   const meta = list.data?.meta ?? { page, pageSize: 50, total: totalCount };
+
+  const exportColumns: ExportColumnDef[] = columns.map((c) => ({
+    key: c.key,
+    header: c.label,
+    type: c.key.toLowerCase().includes('amount') || c.key.toLowerCase().includes('salary') || c.key.toLowerCase().includes('balance') || c.key.toLowerCase().includes('cost')
+      ? 'currency'
+      : c.key.toLowerCase().includes('date') || c.key.toLowerCase().includes('at')
+      ? 'date'
+      : 'text',
+  }));
 
   return (
     <div>
@@ -477,12 +472,12 @@ export function CrudPage({
         subtitle={subtitle}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title={title}
+              columns={exportColumns}
+              data={rows}
+              currency={company?.baseCurrency || 'SAR'}
+            />
             <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => setImportingOpen(true)} title="استيراد CSV">
               <Upload className="size-3.5" /> استيراد CSV
             </button>

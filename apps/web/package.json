@@ -16,6 +16,7 @@
     "decimal.js": "^10.6.0",
     "echarts": "^6.1.0",
     "echarts-for-react": "^3.0.6",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.51.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.3.0",

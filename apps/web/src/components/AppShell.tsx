@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
+import { JobsCenterButton } from './JobsCenterModal';
 
 interface NavItem {
   to: string;
@@ -610,6 +611,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
           {/* Right Controls */}
           <div className="flex items-center gap-2">
+            <JobsCenterButton />
+
             <button
               type="button"
               className="flex size-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
