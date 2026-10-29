@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { QRCodeSVG } from 'qrcode.react';
 import {
-  ArrowRight, Building2, Check, CheckCircle2, Code2, Copy, Cpu, Download, FileCheck2,
-  FileText, Filter, Plus, Printer, RotateCcw, Send, ShieldCheck, Sparkles,
+  ArrowRight, Building2, Code2, Cpu, Download, FileCheck2,
+  FileSpreadsheet, FileText, Filter, Plus, Printer, RotateCcw, Send, ShieldCheck, Sparkles,
   Terminal, Trash2, User, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { downloadCsv, money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
 import { PeriodSelect } from '../components/forms';
+import { ZatcaTaxInvoiceTemplate, exportInvoiceToExcel } from '../components/ZatcaTaxInvoiceTemplate';
+import { PrintEngine } from '../engine/print-engine';
 import {
   Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader,
   ReasonDialog, Stat, useToast,
@@ -1254,6 +1255,7 @@ export function InvoiceDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [creditNoteOpen, setCreditNoteOpen] = useState(false);
   const [copiedIban, setCopiedIban] = useState(false);
+  const [printMode, setPrintMode] = useState<'A4' | 'THERMAL_80MM'>('A4');
 
   const invoice = useQuery({
     queryKey: ['/invoices', id],
@@ -1308,9 +1310,6 @@ export function InvoiceDetailPage() {
   if (invoice.isError || !inv) return <ErrorState error={invoice.error} />;
 
   const isCreditNote = inv.invoiceType === 'CREDIT_NOTE';
-  const ibanNumber = inv.bankIban || 'SA03 1000 0001 0293 8475 61';
-  const bankName = inv.bankName || 'البنك الأهلي السعودي (The Saudi National Bank - SNB)';
-  const accountNo = inv.bankAccountNo || '1029384756';
 
   return (
     <div className="space-y-6">
@@ -1374,11 +1373,46 @@ export function InvoiceDetailPage() {
             </button>
           )}
 
+          {/* Print Format Switcher */}
+          <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-0.5 text-xs">
+            <button
+              type="button"
+              className={`px-2.5 py-1 rounded-lg font-semibold transition ${printMode === 'A4' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300'}`}
+              onClick={() => setPrintMode('A4')}
+            >
+              A4 معيارية
+            </button>
+            <button
+              type="button"
+              className={`px-2.5 py-1 rounded-lg font-semibold transition ${printMode === 'THERMAL_80MM' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300'}`}
+              onClick={() => setPrintMode('THERMAL_80MM')}
+            >
+              حراري 80mm
+            </button>
+          </div>
+
+          <button
+            className="btn-primary bg-emerald-700 hover:bg-emerald-800 text-white flex items-center gap-1.5 text-xs shadow-sm"
+            onClick={async () => {
+              await PrintEngine.print({
+                elementId: 'tax-invoice-printable',
+                title: `فاتورة ضريبية - ${inv.invoiceNo}`,
+                pageSize: printMode === 'THERMAL_80MM' ? '80mm' : 'A4',
+                orientation: 'portrait',
+              });
+            }}
+          >
+            <Printer className="size-3.5" /> طباعة ({printMode === 'THERMAL_80MM' ? 'إيصال حراري' : 'A4'})
+          </button>
+
           <button
             className="btn-secondary flex items-center gap-1.5 text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300"
-            onClick={() => window.print()}
+            onClick={async () => {
+              const ok = await exportInvoiceToExcel(inv);
+              if (ok) toast.success('تم تصدير الفاتورة كملف Excel (.xlsx) بنجاح');
+            }}
           >
-            <Printer className="size-3.5 text-emerald-600" /> طباعة الفاتورة الضريبية (A4)
+            <FileSpreadsheet className="size-3.5 text-emerald-600" /> تصدير Excel (.xlsx)
           </button>
 
           {inv.status !== 'CANCELLED' && (
@@ -1393,449 +1427,12 @@ export function InvoiceDetailPage() {
       </div>
 
       {/* Official Executive ZATCA Tax Invoice Document (Print Ready) */}
-      <div
-        id="tax-invoice-printable"
-        className="card p-8 sm:p-10 bg-white dark:bg-slate-900 border-2 border-emerald-800/80 rounded-2xl shadow-xl space-y-6 print:shadow-none print:border-none print:p-0 print:m-0 print:text-black print:bg-white relative overflow-hidden"
-      >
-        {/* Top Watermark / Decorative Accent */}
-        <div className="absolute top-0 end-0 size-48 bg-gradient-to-bl from-emerald-500/10 to-transparent rounded-bl-full pointer-events-none print:hidden" />
-
-        {/* 1. Official Header */}
-        <div className="flex flex-wrap items-start justify-between gap-6 border-b-2 border-emerald-800/20 dark:border-emerald-700 pb-6 relative z-10">
-          {/* Company / Supplier Identity */}
-          <div className="space-y-2.5 max-w-md">
-            <div className="flex items-center gap-3">
-              <div className="size-14 rounded-2xl bg-gradient-to-br from-emerald-700 to-teal-900 flex items-center justify-center text-white font-black text-2xl shadow-md border border-emerald-600/30">
-                إ
-              </div>
-              <div>
-                <h1 className="text-xl font-black text-slate-950 dark:text-slate-50 tracking-tight">
-                  {inv.sellerName || 'شركة الموارد البشرية والحلول التقنية'}
-                </h1>
-                <div className="text-xs text-slate-500 font-semibold tracking-wider uppercase font-sans">
-                  {inv.sellerLegalName || 'IDHAM HR & SOFTWARE SOLUTIONS CO.'}
-                </div>
-                <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-0.5">
-                  حلول هندسة البرمجيات وتأجير الكفاءات الرقمية
-                </div>
-              </div>
-            </div>
-
-            <div className="text-xs text-slate-700 dark:text-slate-300 space-y-1 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">الرقم الضريبي (VAT):</span>
-                <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{inv.sellerVatNumber || '300000000000003'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">السجل التجاري (CR):</span>
-                <span className="font-mono">{inv.sellerCrNumber || '1010000000'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">العنوان الوطني:</span>
-                <span>{inv.sellerAddress || 'طريق الملك فهد، حي النخيل، الرياض، المملكة العربية السعودية'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Document Title & Invoice Meta */}
-          <div className="text-end space-y-2">
-            <div className="inline-block bg-gradient-to-r from-emerald-800 to-teal-900 text-white px-4 py-2 rounded-xl font-black text-lg tracking-wide shadow-xs border border-emerald-700">
-              {isCreditNote ? 'إشعار دائن ضريبي معتمد / TAX CREDIT NOTE' : 'فاتورة ضريبية إلكترونية معتمدة / TAX INVOICE'}
-            </div>
-            <div className="text-xs text-emerald-800 dark:text-emerald-300 font-semibold">
-              {inv.invoiceType === 'SIMPLIFIED'
-                ? 'فاتورة ضريبية مبسطة للأفراد (Simplified Tax Invoice - B2C)'
-                : 'فاتورة ضريبية قياسية للشركات (Standard Tax Invoice - B2B)'}
-            </div>
-
-            <div className="pt-2 text-xs space-y-1 bg-emerald-50/40 dark:bg-emerald-950/20 p-3 rounded-xl border border-emerald-200/80 dark:border-emerald-800 text-end">
-              <div className="flex items-center justify-end gap-2">
-                <span className="text-slate-500">رقم الفاتورة:</span>
-                <span className="font-mono font-black text-base text-emerald-800 dark:text-emerald-300">
-                  {inv.invoiceNo}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-500">تاريخ الإصدار والتوريد: </span>
-                <span className="font-mono font-semibold">{inv.issueDate}</span>
-                {inv.issueTime && <span className="font-mono text-slate-400 ms-1">({inv.issueTime.slice(11, 19)})</span>}
-              </div>
-              <div>
-                <span className="text-slate-500">تاريخ الاستحقاق: </span>
-                <span className="font-mono">{inv.dueDate || 'عند الاستلام (Due on Receipt)'}</span>
-              </div>
-              <div>
-                <span className="text-slate-500">العملة المعتمدة: </span>
-                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{inv.currencyCode}</span>
-              </div>
-              {isCreditNote && inv.originalInvoiceNo && (
-                <div className="text-purple-700 dark:text-purple-300 font-semibold pt-1 border-t border-purple-200 dark:border-purple-800">
-                  مرتبطة بالفاتورة الأصلية: <span className="font-mono">{inv.originalInvoiceNo}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* 2. ZATCA QR Code & Phase 2 Security Stamp Block */}
-        <div className="rounded-2xl border-2 border-emerald-300 dark:border-emerald-700 bg-gradient-to-r from-emerald-50/70 via-teal-50/50 to-slate-50 dark:from-emerald-950/30 dark:via-teal-950/20 dark:to-slate-900 p-4 sm:p-5 flex flex-wrap items-center justify-between gap-5 shadow-xs">
-          <div className="flex items-center gap-4">
-            <div className="bg-white p-2.5 rounded-xl border-2 border-emerald-600/40 shadow-sm shrink-0">
-              {inv.zatcaQrCode ? (
-                <QRCodeSVG
-                  value={inv.zatcaQrCode}
-                  size={120}
-                  level="M"
-                  includeMargin={false}
-                />
-              ) : (
-                <div className="size-28 flex items-center justify-center text-xs text-slate-400 text-center border border-dashed border-slate-300 rounded">
-                  رمز ZATCA يظهر عند الترحيل
-                </div>
-              )}
-            </div>
-            <div className="space-y-1.5 text-xs">
-              <div className="flex items-center gap-1.5 font-black text-emerald-900 dark:text-emerald-200 text-sm">
-                <ShieldCheck className="size-5 text-emerald-600 shrink-0" />
-                متوافقة ومعتمدة لدى هيئة الزكاة والضريبة والجمارك (ZATCA Cleared)
-              </div>
-              <p className="text-slate-700 dark:text-slate-300 text-[11px] max-w-lg leading-relaxed">
-                تحتوي شفرة الاستجابة السريعة (QR) على بصمة التشفير الرقمية (ECDSA SHA-256) والبيانات المشفرة بصيغة TLV Base64 المعتمدة للمرحلة الثانية من الفوترة الإلكترونية (فاتورة).
-              </p>
-              {inv.zatcaUuid && (
-                <div className="font-mono text-[10px] text-slate-500 break-all bg-white dark:bg-slate-800 p-1 rounded border border-slate-200 dark:border-slate-700 max-w-lg">
-                  UUID: {inv.zatcaUuid}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="text-end text-xs space-y-1 shrink-0">
-            <div className="text-slate-500 font-medium">حالة الامتثال والربط الضريبي:</div>
-            <div className="font-bold text-emerald-700 dark:text-emerald-400 flex items-center justify-end gap-1.5 text-sm">
-              <CheckCircle2 className="size-4" /> معتمد ومطابق للمواصفات
-            </div>
-            {inv.zatcaIcv && (
-              <div className="font-mono text-slate-600 dark:text-slate-400 text-[11px] bg-emerald-100/60 dark:bg-emerald-900/40 px-2 py-0.5 rounded">
-                العداد التسلسلي (ICV): #{inv.zatcaIcv}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 3. Seller & Buyer Information Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-          {/* Supplier Card */}
-          <div className="rounded-xl bg-slate-50/70 dark:bg-slate-800/40 p-4 border border-slate-200 dark:border-slate-800 space-y-2">
-            <div className="font-bold text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-700 pb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
-                <Building2 className="size-4" /> بيانات المورّد / مقدّم الخدمة (Supplier)
-              </span>
-              <span className="text-[10px] text-slate-400 font-sans uppercase">Seller Info</span>
-            </div>
-            <div className="space-y-1 text-slate-700 dark:text-slate-300">
-              <div><strong>الاسم:</strong> {inv.sellerName || 'شركة الموارد البشرية والتقنية'}</div>
-              <div><strong>الرقم الضريبي:</strong> <span className="font-mono font-bold">{inv.sellerVatNumber || '300000000000003'}</span></div>
-              {inv.sellerCrNumber && <div><strong>السجل التجاري:</strong> <span className="font-mono">{inv.sellerCrNumber}</span></div>}
-              <div><strong>العنوان:</strong> {inv.sellerAddress || 'المملكة العربية السعودية'}</div>
-            </div>
-          </div>
-
-          {/* Buyer Card */}
-          <div className="rounded-xl bg-slate-50/70 dark:bg-slate-800/40 p-4 border border-slate-200 dark:border-slate-800 space-y-2">
-            <div className="font-bold text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-700 pb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
-                <User className="size-4" /> بيانات العميل / المشتري (Customer / Buyer)
-              </span>
-              <span className="text-[10px] text-slate-400 font-sans uppercase">Buyer Info</span>
-            </div>
-            <div className="space-y-1 text-slate-700 dark:text-slate-300">
-              <div><strong>الاسم:</strong> <span className="font-semibold text-slate-900 dark:text-slate-100">{inv.clientName}</span></div>
-              {inv.clientNameEn && <div className="text-[11px] text-slate-500 font-sans">English: {inv.clientNameEn}</div>}
-              <div>
-                <strong>الرقم الضريبي:</strong>{' '}
-                <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                  {inv.clientVatNumber || 'غير مسجل (Individual Customer)'}
-                </span>
-              </div>
-              {inv.clientCrNumber && <div><strong>السجل التجاري:</strong> <span className="font-mono">{inv.clientCrNumber}</span></div>}
-              {inv.clientAddress && <div><strong>العنوان:</strong> {inv.clientAddress} {inv.clientCity ? `، ${inv.clientCity}` : ''}</div>}
-              {inv.projectName && (
-                <div className="pt-1 text-emerald-700 dark:text-emerald-400 font-medium">
-                  <strong>المشروع:</strong> {inv.projectName} ({inv.projectCode})
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* 4. Engineering & Software Services Line Items Table */}
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div className="font-black text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <Code2 className="size-4 text-emerald-600" />
-              جدول بنود الخدمات البرمجية والهندسية وتأجير الكفاءات (Software Engineering Line Items)
-            </div>
-            <span className="text-xs text-slate-500 font-sans uppercase">All Amounts in {inv.currencyCode}</span>
-          </div>
-
-          <div className="border-2 border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-xs">
-            <table className="table w-full text-xs">
-              <thead className="bg-gradient-to-r from-slate-100 to-emerald-50/60 dark:from-slate-800 dark:to-emerald-950/40 text-slate-800 dark:text-slate-200">
-                <tr>
-                  <th className="w-8 text-center">#</th>
-                  <th style={{ width: '22%' }}>المبرمج / المهندس التقني</th>
-                  <th style={{ width: '28%' }}>الخدمة البرمجية والمسار الفني</th>
-                  <th style={{ width: '10%' }} className="text-center">الوقت / الأساس</th>
-                  <th style={{ width: '10%' }} className="text-end">سعر الوحدة</th>
-                  <th style={{ width: '6%' }} className="text-center">الخصم %</th>
-                  <th style={{ width: '8%' }} className="text-end">الوعاء الضريبي</th>
-                  <th style={{ width: '6%' }} className="text-center">الضريبة</th>
-                  <th style={{ width: '10%' }} className="text-end font-bold">الإجمالي</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                {inv.lines.map((l, i) => {
-                  // Enhanced description parser for rich technical display
-                  const desc = l.description || '';
-                  const devMatch = desc.match(/المبرمج:\s*([^(\-|\[]+)(?:\(([^)]+)\))?/);
-                  const trackMatch = desc.match(/\[([^\]]+)\]/);
-                  const empName = l.employeeName || (devMatch ? devMatch[1].trim() : '');
-                  const empCode = l.employeeCode || (devMatch && devMatch[2] ? devMatch[2].trim() : '');
-
-                  return (
-                    <tr key={l.id || i} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                      <td className="text-center text-slate-400 font-mono text-[11px]">{l.lineNo ?? i + 1}</td>
-
-                      {/* Software Engineer */}
-                      <td>
-                        <div className="space-y-0.5">
-                          {empName ? (
-                            <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100">
-                              <span className="size-5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 flex items-center justify-center text-[10px] shrink-0">
-                                <User className="size-3" />
-                              </span>
-                              <span>{empName}</span>
-                            </div>
-                          ) : (
-                            <div className="text-slate-400 italic">فريق التطوير والبرمجة</div>
-                          )}
-                          <div className="text-[11px] text-slate-500 font-mono">
-                            {empCode ? `كود: ${empCode}` : ''}{' '}
-                            {l.positionTitle ? `• ${l.positionTitle}` : ''}
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Technical Service Track & Scope */}
-                      <td>
-                        <div className="space-y-1">
-                          {trackMatch && (
-                            <span className="inline-block bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-semibold px-2 py-0.5 rounded text-[10px] border border-emerald-200 dark:border-emerald-800">
-                              {trackMatch[1]}
-                            </span>
-                          )}
-                          <div className="font-medium text-slate-900 dark:text-slate-100 leading-snug">
-                            {desc.replace(/\[[^\]]+\]/g, '').replace(/المبرمج:[^|]+(\|)?/, '').trim() || desc}
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Time & Basis */}
-                      <td className="text-center">
-                        <div className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                          {Number(l.quantity).toFixed(2)}
-                        </div>
-                        <div className="text-[10px] text-slate-500">
-                          {l.pricingBasis ? (
-                            l.pricingBasis === 'HOURS' ? 'ساعة عمل' :
-                            l.pricingBasis === 'DAYS' ? 'يوم عمل' :
-                            l.pricingBasis === 'MONTH' ? 'شهر تفرغ' : l.pricingBasis
-                          ) : (
-                            desc.includes('ساعة') ? 'ساعة' :
-                            desc.includes('يوم') ? 'يوم' :
-                            desc.includes('شهر') ? 'شهر' : 'وحدة'
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Unit Price */}
-                      <td className="text-end font-mono font-medium">{money(l.unitPrice)}</td>
-
-                      {/* Discount % */}
-                      <td className="text-center font-mono">
-                        {Number(l.discountPct || 0) > 0 ? (
-                          <span className="text-rose-600 font-medium">{Number(l.discountPct)}%</span>
-                        ) : (
-                          '0%'
-                        )}
-                      </td>
-
-                      {/* Subtotal */}
-                      <td className="text-end font-mono">{money(l.subtotal)}</td>
-
-                      {/* VAT Rate */}
-                      <td className="text-center font-mono text-slate-500">{Number(l.vatRate || 15)}%</td>
-
-                      {/* Grand Line Total */}
-                      <td className="text-end font-mono font-black text-slate-900 dark:text-slate-100 text-xs">
-                        {money(l.total)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* 5. Financial Summary & Bilingual Tafqeet */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 items-start">
-          {/* Left: Bilingual Tafqeet Box & Notes */}
-          <div className="space-y-3">
-            <div className="rounded-2xl border-2 border-emerald-600/30 bg-emerald-50/50 dark:bg-emerald-950/20 p-4 space-y-2">
-              <div className="font-black text-xs text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
-                <FileCheck2 className="size-4 text-emerald-600" />
-                المبلغ الإجمالي كتابة (Bilingual Amount in Words):
-              </div>
-              <div className="text-xs text-slate-900 dark:text-slate-100 font-bold leading-relaxed">
-                <strong>المبلغ بالعربية: </strong>
-                {tafqeetArabic(inv.totalAmount, inv.currencyCode)}
-              </div>
-              <div className="text-xs text-slate-700 dark:text-slate-300 font-medium font-sans leading-relaxed border-t border-emerald-200/60 dark:border-emerald-800 pt-1.5">
-                <strong>In English: </strong>
-                {tafqeetEnglish(inv.totalAmount, inv.currencyCode)}
-              </div>
-            </div>
-
-            {inv.notes && (
-              <div className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
-                <strong className="text-slate-800 dark:text-slate-200">الشروط والملاحظات:</strong>
-                <p className="whitespace-pre-wrap leading-relaxed">{inv.notes}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Right: Totals Card */}
-          <div className="rounded-2xl bg-gradient-to-br from-slate-50 to-emerald-50/40 dark:from-slate-800 dark:to-emerald-950/30 border-2 border-slate-200 dark:border-slate-800 p-5 space-y-2.5 text-xs shadow-xs">
-            <div className="flex justify-between text-slate-600 dark:text-slate-400">
-              <span>المجموع الفرعي (غير شامل ضريبة القيمة المضافة):</span>
-              <span className="font-mono font-medium">{money(inv.subtotal)} {inv.currencyCode}</span>
-            </div>
-            {Number(inv.discountAmount) > 0 && (
-              <div className="flex justify-between text-rose-600">
-                <span>إجمالي الخصم التجاري:</span>
-                <span className="font-mono font-medium">-{money(inv.discountAmount)} {inv.currencyCode}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-slate-700 dark:text-slate-300 font-medium">
-              <span>المبلغ الخاضع للضريبة (Taxable Base):</span>
-              <span className="font-mono font-bold">{money(inv.taxableAmount)} {inv.currencyCode}</span>
-            </div>
-            <div className="flex justify-between text-amber-700 dark:text-amber-400 font-bold">
-              <span>ضريبة القيمة المضافة (15% VAT):</span>
-              <span className="font-mono">{money(inv.vatAmount)} {inv.currencyCode}</span>
-            </div>
-            <div className="pt-3 border-t-2 border-emerald-800/20 dark:border-emerald-700 flex justify-between font-black text-lg text-slate-900 dark:text-slate-100">
-              <span className="text-emerald-900 dark:text-emerald-300">صافي المجموع المستحق:</span>
-              <span className="font-mono text-emerald-800 dark:text-emerald-300">
-                {isCreditNote ? `-${money(inv.totalAmount)}` : money(inv.totalAmount)} {inv.currencyCode}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 6. Bank Transfer Instructions */}
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 p-4 space-y-2 text-xs">
-          <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-1.5">
-            <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
-              <Wallet className="size-4" /> بيانات الحساب والتحويل البنكي المعتمد (Bank Transfer Instructions)
-            </span>
-            <span className="text-[11px] text-slate-400">يرجى إدراج رقم الفاتورة في وصف التحويل</span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-            <div>
-              <span className="text-slate-500 block">اسم البنك المعتمد:</span>
-              <span className="font-semibold text-slate-800 dark:text-slate-200">{bankName}</span>
-            </div>
-            <div>
-              <span className="text-slate-500 block">رقم الحساب:</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{accountNo}</span>
-            </div>
-            <div>
-              <span className="text-slate-500 block">رقم الآيبان الدولي (IBAN):</span>
-              <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-emerald-800 dark:text-emerald-300">{ibanNumber}</span>
-                <button
-                  type="button"
-                  onClick={() => copyIban(ibanNumber)}
-                  className="print:hidden text-slate-400 hover:text-emerald-600 transition"
-                  title="نسخ رقم الآيبان"
-                >
-                  {copiedIban ? <Check className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 7. Official Signatures & Certified Stamp Block */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-200 dark:border-slate-800 text-xs">
-          {/* Prepared By */}
-          <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-center space-y-6 bg-slate-50/40 dark:bg-slate-800/20">
-            <div className="font-bold text-slate-700 dark:text-slate-300">
-              إعداد ومراجعة المحاسب المالي
-            </div>
-            <div className="font-script text-slate-400 italic text-sm">
-              Certified Financial Accountant
-            </div>
-            <div className="border-t border-dashed border-slate-300 dark:border-slate-700 pt-1 text-[11px] text-slate-500">
-              التوقيع والتاريخ
-            </div>
-          </div>
-
-          {/* Approved By */}
-          <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-center space-y-6 bg-slate-50/40 dark:bg-slate-800/20">
-            <div className="font-bold text-slate-700 dark:text-slate-300">
-              اعتماد المدير المالي / المفوض بالتوقيع
-            </div>
-            <div className="font-script text-slate-400 italic text-sm">
-              Authorized Executive Signatory
-            </div>
-            <div className="border-t border-dashed border-slate-300 dark:border-slate-700 pt-1 text-[11px] text-slate-500">
-              التوقيع والاعتماد
-            </div>
-          </div>
-
-          {/* Certified Digital Stamp */}
-          <div className="border-2 border-emerald-600/40 rounded-xl p-4 flex flex-col items-center justify-center text-center space-y-1 bg-emerald-50/30 dark:bg-emerald-950/20 relative">
-            <div className="size-16 rounded-full border-2 border-dashed border-emerald-600 flex items-center justify-center p-1 text-emerald-800 dark:text-emerald-300">
-              <div className="size-full rounded-full border border-emerald-600 flex flex-col items-center justify-center">
-                <span className="text-[8px] font-black uppercase">ZATCA</span>
-                <Check className="size-4 text-emerald-600" />
-                <span className="text-[7px] font-bold">VERIFIED</span>
-              </div>
-            </div>
-            <div className="font-black text-emerald-900 dark:text-emerald-200 text-[11px]">
-              الختم الرقمي المعتمد
-            </div>
-            <div className="text-[10px] text-slate-500">
-              منظومة إدهام للموارد البشرية والحلول التقنية
-            </div>
-          </div>
-        </div>
-
-        {/* 8. Official Footer */}
-        <div className="border-t border-slate-200 dark:border-slate-800 pt-4 text-center text-[11px] text-slate-500 space-y-1">
-          <p className="font-medium">
-            فاتورة ضريبية إلكترونية معتمدة قانونياً ومولدة آلياً عبر نظام إدهام السحابي (IDHAM ERP)، ومسجلة في دفاتر الحسابات العامة ودفتر الأستاذ وفقاً للائحة الفوترة الإلكترونية بهيئة الزكاة والضريبة والجمارك بالمملكة العربية السعودية.
-          </p>
-          <p className="text-[10px] text-slate-400 font-mono">
-            Generated via IDHAM Enterprise Cloud • ZATCA Phase 2 Verified • Electronic Cryptographic Signature
-          </p>
-        </div>
-      </div>
+      <ZatcaTaxInvoiceTemplate
+        invoice={inv}
+        mode={printMode}
+        copiedIban={copiedIban}
+        onCopyIban={copyIban}
+      />
 
       {/* Credit Note Modal */}
       <CreateCreditNoteModal
