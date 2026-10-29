@@ -147,6 +147,7 @@ export const NAV_GROUPS: NavGroup[] = [
         color: 'violet',
         items: [
           { to: '/pay/runs', label: 'مسيّر الرواتب' },
+          { to: '/pay/eosb', label: 'مكافأة نهاية الخدمة (نظام العمل)' },
           { to: '/reports/multi-currency-payroll', label: 'رواتب العملات (SAR/EGP)' },
           { to: '/pay/variables', label: 'البدلات والخصومات' },
           { to: '/pay/loans', label: 'سلف الموظفين' },

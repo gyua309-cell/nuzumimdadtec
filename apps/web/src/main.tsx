@@ -23,7 +23,7 @@ import { EmployeeDetailPage, EmployeesPage, PositionsPage } from './pages/hr';
 import { CostComponentsPage, CostProfileDetailPage, CostProfilesPage, CostSheetPage } from './pages/cost';
 import { AssetCategoriesPage, AssetDetailPage, AssetsPage, DepreciationPage } from './pages/assets';
 import { AssignmentsPage, ClientsPage, ProjectDetailPage, ProjectsPage, ServicePricesPage, UtilizationPage } from './pages/projects';
-import { LoansPage, MonthlyVariablesPage, PayrollRunsPage, VariableTypesPage } from './pages/payroll';
+import { LoansPage, MonthlyVariablesPage, PayrollRunsPage, VariableTypesPage, EosbPage } from './pages/payroll';
 import { ProfitabilityPage, RevenuePage } from './pages/revenue';
 import { CreditNotesPage, InvoiceDetailPage, InvoicesPage } from './pages/sales';
 import { PurchaseDebitNotesPage, PurchaseInvoiceDetailPage, PurchaseInvoicesPage, VendorsPage } from './pages/purchases';
@@ -92,6 +92,7 @@ function Root() {
         <Route path="pay/variables" element={<MonthlyVariablesPage />} />
         <Route path="pay/loans" element={<LoansPage />} />
         <Route path="pay/runs" element={<PayrollRunsPage />} />
+        <Route path="pay/eosb" element={<EosbPage />} />
         <Route path="rev/revenue" element={<RevenuePage />} />
         <Route path="rev/profitability" element={<ProfitabilityPage />} />
         <Route path="sal/invoices" element={<InvoicesPage />} />

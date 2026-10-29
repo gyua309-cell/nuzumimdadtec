@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Play, Plus, Printer, Search } from 'lucide-react';
+import { Download, Play, Plus, Printer, Search, Calculator, Award, FileCheck2 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date as _date, downloadCsv, money, today } from '../lib/format';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
@@ -708,6 +708,271 @@ export function PayrollRunsPage() {
         onConfirm={async (reason) => {
           try { await api.post(`/payroll-runs/${cancelId}/cancel`, { reason }); toast.success('تم الإلغاء'); setCancelId(null); qc.invalidateQueries({ queryKey: ['/payroll-runs'] }); } catch (e) { toast.error(e); }
         }} />
+    </div>
+  );
+}
+
+// ================================================================== End of Service Benefits (EOSB) Page
+export function EosbPage() {
+  const toast = useToast();
+  const [employeeId, setEmployeeId] = useState('');
+  const [hireDate, setHireDate] = useState('2022-01-01');
+  const [terminationDate, setTerminationDate] = useState(today());
+  const [monthlySalary, setMonthlySalary] = useState('10000');
+  const [terminationType, setTerminationType] = useState('TERMINATION_BY_EMPLOYER');
+  const [vacationDays, setVacationDays] = useState('0');
+  const [result, setResult] = useState<any>(null);
+
+  const emps = useQuery({
+    queryKey: ['/employees', 'eosb-list'],
+    queryFn: () => api.get<any>('/employees', { pageSize: 100 }),
+  });
+
+  const employeeList = Array.isArray(emps.data) ? emps.data : (emps.data?.data ?? []);
+
+  // When an employee is selected, autofill hireDate and salary
+  const onSelectEmp = (id: string) => {
+    setEmployeeId(id);
+    const emp = employeeList.find((e: any) => e.id === id);
+    if (emp) {
+      if (emp.hireDate) setHireDate(emp.hireDate);
+      const sal = Number(emp.basicSalary || emp.basic_salary || 0) + Number(emp.housingAllowance || 0) + Number(emp.transportAllowance || 0);
+      if (sal > 0) setMonthlySalary(String(sal));
+    }
+  };
+
+  const calculate = () => {
+    const hDate = new Date(hireDate);
+    const tDate = new Date(terminationDate);
+    const diffMs = tDate.getTime() - hDate.getTime();
+    if (diffMs <= 0) {
+      toast.error('تاريخ انتهاء الخدمة يجب أن يكون بعد تاريخ التعيين');
+      return;
+    }
+
+    const totalDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const totalYears = Number((totalDays / 365.25).toFixed(2));
+    const sal = Number(monthlySalary) || 0;
+    const halfMonth = sal / 2;
+
+    let first5 = 0;
+    let after5 = 0;
+
+    if (totalYears <= 5) {
+      first5 = halfMonth * totalYears;
+    } else {
+      first5 = halfMonth * 5;
+      after5 = sal * (totalYears - 5);
+    }
+
+    const gross = first5 + after5;
+
+    let pct = 100;
+    let article = 'المادة 84 من نظام العمل السعودي (استحقاق كامل)';
+    let note = 'إنهاء الخدمة من قِبل المنشأة أو انتهاء العقد محدد المدة يوجب صرف المكافأة كاملة 100%.';
+
+    if (terminationType === 'RESIGNATION') {
+      article = 'المادة 85 من نظام العمل السعودي (استقالة الموظف)';
+      if (totalYears < 2) {
+        pct = 0;
+        note = 'استقالة مع خدمة أقل من سنتين: لا يستحق مكافأة نهاية خدمة (0%).';
+      } else if (totalYears < 5) {
+        pct = 33.333;
+        note = 'استقالة مع خدمة بين سنتين وأقل من 5 سنوات: يستحق ثلث المكافأة (33.33%).';
+      } else if (totalYears < 10) {
+        pct = 66.667;
+        note = 'استقالة مع خدمة بين 5 سنوات وأقل من 10 سنوات: يستحق ثلثي المكافأة (66.67%).';
+      } else {
+        pct = 100;
+        note = 'استقالة مع خدمة 10 سنوات فأكثر: يستحق المكافأة كاملة (100%).';
+      }
+    }
+
+    const netEosb = (gross * pct) / 100;
+    const vacPay = ((sal / 30) * (Number(vacationDays) || 0));
+    const totalSettlement = netEosb + vacPay;
+
+    setResult({
+      totalDays,
+      totalYears,
+      monthlySalary: sal,
+      first5,
+      after5,
+      gross,
+      pct,
+      netEosb,
+      vacPay,
+      totalSettlement,
+      article,
+      note,
+    });
+    toast.success('تم احتساب تصفية المستحقات بنجاح');
+  };
+
+  return (
+    <div className="space-y-5 animate-fade-in">
+      <PageHeader
+        title="احتساب مكافأة نهاية الخدمة وتصفية المستحقات"
+        subtitle="حساب نظامي إلزامي وفقاً للمادتين 84 و 85 من نظام العمل السعودي، يشمل احتساب الإجازات المتبقية والبدلات."
+        actions={
+          <div className="flex items-center gap-2">
+            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()}>
+              <Printer className="size-3.5" /> طباعة إشعار التصفية
+            </button>
+          </div>
+        }
+      />
+
+      <div className="grid gap-5 lg:grid-cols-12">
+        {/* Input Form */}
+        <div className="card space-y-4 p-5 lg:col-span-5">
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3 text-sm font-bold dark:border-slate-800">
+            <Calculator className="size-4 text-brand-600" />
+            <span>بيانات الموظف وسبب إنهاء الخدمة</span>
+          </div>
+
+          <Field label="اختيار موظف من السجل (اختياري)">
+            <select
+              className="input text-xs"
+              value={employeeId}
+              onChange={(e) => onSelectEmp(e.target.value)}
+            >
+              <option value="">-- اختر موظفاً أو أدخل البيانات يدوياً --</option>
+              {employeeList.map((e: any) => (
+                <option key={e.id} value={e.id}>
+                  {e.code} — {e.fullNameAr || e.nameAr || e.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="تاريخ التعيين / المباشرة *">
+              <input
+                type="date"
+                className="input"
+                value={hireDate}
+                onChange={(e) => setHireDate(e.target.value)}
+              />
+            </Field>
+            <Field label="تاريخ آخر يوم عمل (الإنهاء) *">
+              <input
+                type="date"
+                className="input"
+                value={terminationDate}
+                onChange={(e) => setTerminationDate(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          <Field label="الراتب الفعلي الكامل (الأساسي + السكن + النقل) *" hint="الراتب الأخير الذي يُبنى عليه احتساب المكافأة">
+            <input
+              type="number"
+              className="input num"
+              value={monthlySalary}
+              onChange={(e) => setMonthlySalary(e.target.value)}
+            />
+          </Field>
+
+          <Field label="سبب إنهاء الخدمة (النظامي) *">
+            <select
+              className="input"
+              value={terminationType}
+              onChange={(e) => setTerminationType(e.target.value)}
+            >
+              <option value="TERMINATION_BY_EMPLOYER">إنهاء العقد من صاحب العمل / المنشأة (استحقاق 100%)</option>
+              <option value="CONTRACT_EXPIRY">انتهاء مدة العقد محدد المدة دون تجديد (استحقاق 100%)</option>
+              <option value="RESIGNATION">استقالة الموظف بمحض إرادته (المادة 85: تدرج نسبي)</option>
+              <option value="FORCE_MAJEURE">ترك العمل لظرف قوة قاهرة أو عجز (استحقاق 100%)</option>
+              <option value="RETIREMENT">بلوغ سن التقاعد النظامي (استحقاق 100%)</option>
+            </select>
+          </Field>
+
+          <Field label="رصيد الإجازات المتبقي (أيام)" hint="يُحسب تعويض نقدي عن الأيام غير المستنفذة">
+            <input
+              type="number"
+              className="input num"
+              value={vacationDays}
+              onChange={(e) => setVacationDays(e.target.value)}
+            />
+          </Field>
+
+          <button className="btn-primary w-full py-2.5 font-bold" onClick={calculate}>
+            <Calculator className="size-4" /> احتساب المكافأة وصافي التصفية
+          </button>
+        </div>
+
+        {/* Calculation Result Panel */}
+        <div className="space-y-4 lg:col-span-7">
+          {!result ? (
+            <div className="card flex flex-col items-center justify-center p-12 text-center text-slate-500">
+              <Award className="size-12 text-slate-300 dark:text-slate-600 mb-3" />
+              <div className="font-bold text-slate-700 dark:text-slate-300">أدخل بيانات العقد والإنهاء واضغط على احتساب</div>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm">سيتم احتساب المكافأة وفق المواد النظامية وتقدير المستحقات الصافية بدقة متناهية.</p>
+            </div>
+          ) : (
+            <>
+              {/* Top Stats */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Stat label="مدة الخدمة" value={`${result.totalYears} سنة`} hint={`${result.totalDays} يوماً`} tone="blue" />
+                <Stat label="إجمالي المكافأة" value={money(result.gross)} hint="قبل تطبيق نسب الاستقالة" />
+                <Stat label="نسبة الاستحقاق" value={`${result.pct}%`} hint={result.pct === 100 ? 'كامل المستحقات' : 'استحقاق جزئي'} tone="green" />
+                <Stat label="صافي التصفية المستحق" value={money(result.totalSettlement)} hint="مكافأة + رصيد إجازات" tone="purple" />
+              </div>
+
+              {/* Legal Reference Alert */}
+              <div className="card p-4 bg-brand-50/50 dark:bg-brand-950/20 border-brand-200 dark:border-brand-900/40">
+                <div className="flex items-start gap-3">
+                  <FileCheck2 className="size-5 text-brand-600 dark:text-brand-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold text-sm text-slate-900 dark:text-white">{result.article}</div>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{result.note}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Detailed Breakdown Table */}
+              <div className="card overflow-hidden">
+                <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs font-bold dark:border-slate-800 dark:bg-slate-900/60">
+                  تفاصيل ورقة التصفية النظامية
+                </div>
+                <table className="table">
+                  <tbody>
+                    <tr>
+                      <td>الراتب الأخير المعتمد للحساب</td>
+                      <td className="num font-bold">{money(result.monthlySalary)}</td>
+                    </tr>
+                    <tr>
+                      <td>مكافأة الخمس سنوات الأولى (نصف راتب لكل سنة)</td>
+                      <td className="num">{money(result.first5)}</td>
+                    </tr>
+                    {result.after5 > 0 && (
+                      <tr>
+                        <td>مكافأة ما بعد الخمس سنوات (راتب كامل لكل سنة)</td>
+                        <td className="num">{money(result.after5)}</td>
+                      </tr>
+                    )}
+                    <tr className="bg-slate-50/50 dark:bg-slate-800/30">
+                      <td className="font-bold">إجمالي مكافأة نهاية الخدمة المستحقة</td>
+                      <td className="num font-bold">{money(result.netEosb)}</td>
+                    </tr>
+                    {result.vacPay > 0 && (
+                      <tr>
+                        <td>بدل رصيد الإجازات المتبقي ({vacationDays} يوم)</td>
+                        <td className="num text-emerald-600">{money(result.vacPay)}</td>
+                      </tr>
+                    )}
+                    <tr className="bg-brand-50/70 dark:bg-brand-950/40 font-extrabold text-brand-700 dark:text-brand-300">
+                      <td className="text-sm">صافي المبلغ المستحق صرفه للموظف</td>
+                      <td className="num text-base font-mono">{money(result.totalSettlement)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
