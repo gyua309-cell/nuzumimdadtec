@@ -442,3 +442,55 @@ body {
   display: none;
 }
 
+/* ── IDHAM Executive Theme & Cyber Neon Tokens ────────────── */
+
+/* Hazard warning stripes badge (Identical to reference screenshot) */
+.hazard-badge {
+  background: repeating-linear-gradient(
+    -45deg,
+    #f59e0b,
+    #f59e0b 8px,
+    #0f172a 8px,
+    #0f172a 16px
+  );
+}
+
+/* Cyber Neon KPI Cards */
+.cyber-card-cyan {
+  border: 1.5px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 0 16px -2px rgba(6, 182, 212, 0.18), inset 0 0 12px -4px rgba(6, 182, 212, 0.08);
+}
+.dark .cyber-card-cyan {
+  border: 1.5px solid rgba(6, 182, 212, 0.7);
+  box-shadow: 0 0 22px -2px rgba(6, 182, 212, 0.28), inset 0 0 16px -4px rgba(6, 182, 212, 0.12);
+}
+
+.cyber-card-emerald {
+  border: 1.5px solid rgba(16, 185, 129, 0.45);
+  box-shadow: 0 0 16px -2px rgba(16, 185, 129, 0.18), inset 0 0 12px -4px rgba(16, 185, 129, 0.08);
+}
+.dark .cyber-card-emerald {
+  border: 1.5px solid rgba(16, 185, 129, 0.7);
+  box-shadow: 0 0 22px -2px rgba(16, 185, 129, 0.28), inset 0 0 16px -4px rgba(16, 185, 129, 0.12);
+}
+
+.cyber-card-amber {
+  border: 1.5px solid rgba(245, 158, 11, 0.45);
+  box-shadow: 0 0 16px -2px rgba(245, 158, 11, 0.18), inset 0 0 12px -4px rgba(245, 158, 11, 0.08);
+}
+.dark .cyber-card-amber {
+  border: 1.5px solid rgba(245, 158, 11, 0.7);
+  box-shadow: 0 0 22px -2px rgba(245, 158, 11, 0.28), inset 0 0 16px -4px rgba(245, 158, 11, 0.12);
+}
+
+/* Operations Ticker Pill Banner */
+.ops-ticker-dark {
+  background: linear-gradient(90deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.92) 50%, rgba(15, 23, 42, 0.98) 100%);
+  border: 1px solid rgba(51, 65, 85, 0.8);
+}
+.ops-ticker-light {
+  background: linear-gradient(90deg, #ffffff 0%, #f8fafc 50%, #ffffff 100%);
+  border: 1px solid #e2e8f0;
+}
+
+

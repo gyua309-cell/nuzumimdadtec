@@ -2,9 +2,9 @@ import { ReactNode, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, BookOpen, Briefcase, Building2, Calculator, Calendar, ChevronDown, Clock,
-  Coins, FileText, Landmark, LayoutDashboard, LogOut, Moon, Package, PanelRightClose,
-  Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet,
+  BarChart3, BookOpen, Briefcase, Building2, Calculator, ChevronDown,
+  Coins, FileText, Globe, Landmark, LayoutDashboard, LogOut, Moon, Package, PanelRightClose,
+  Plus, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -337,6 +337,30 @@ function useTheme() {
   return { dark, toggle: () => setDark((d) => !d) };
 }
 
+function useDualClock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const meccaTime = new Intl.DateTimeFormat('ar-SA-u-nu-latn', {
+    timeZone: 'Asia/Riyadh',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(now);
+
+  const cairoTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
+    timeZone: 'Africa/Cairo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(now);
+
+  return { meccaTime, cairoTime };
+}
+
 function Section({ s, collapsed }: { s: NavSection; collapsed?: boolean }) {
   const loc = useLocation();
   const active = s.items?.some((i) => loc.pathname === i.to || loc.pathname.startsWith(`${i.to}/`));
@@ -358,8 +382,8 @@ function Section({ s, collapsed }: { s: NavSection; collapsed?: boolean }) {
         className={({ isActive }) =>
           `${base} ${
             isActive
-              ? 'bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-md shadow-brand-500/20 font-bold'
-              : 'text-slate-300 hover:bg-white/10 hover:text-white'
+              ? 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400 font-bold border-s-4 border-amber-500 shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white'
           }`
         }
         title={collapsed ? s.label : undefined}
@@ -368,7 +392,7 @@ function Section({ s, collapsed }: { s: NavSection; collapsed?: boolean }) {
           <>
             <div
               className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-transform duration-150 group-hover:scale-105 ${
-                isActive ? 'bg-white/20 text-white' : color.iconBg
+                isActive ? 'bg-amber-500/20 text-amber-500' : color.iconBg
               }`}
             >
               <s.icon className="size-4" />
@@ -386,15 +410,15 @@ function Section({ s, collapsed }: { s: NavSection; collapsed?: boolean }) {
         type="button"
         className={`${base} ${
           active
-            ? 'bg-brand-500/25 text-white font-bold'
-            : 'text-slate-300 hover:bg-white/10 hover:text-white'
+            ? 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400 font-bold border-s-4 border-amber-500'
+            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white'
         }`}
         onClick={() => setOpen(!open)}
         title={collapsed ? s.label : undefined}
       >
         <div
           className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-transform duration-150 group-hover:scale-105 ${
-            active ? 'bg-brand-500/30 text-brand-300' : color.iconBg
+            active ? 'bg-amber-500/20 text-amber-500' : color.iconBg
           }`}
         >
           <s.icon className="size-4" />
@@ -404,7 +428,7 @@ function Section({ s, collapsed }: { s: NavSection; collapsed?: boolean }) {
             <span className="flex-1 whitespace-nowrap text-start text-[13px]">{s.label}</span>
             <div className="flex items-center gap-1.5">
               {s.items && (
-                <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-slate-400">
+                <span className="rounded-md bg-slate-200/70 dark:bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:text-slate-400">
                   {s.items.length}
                 </span>
               )}
@@ -417,7 +441,7 @@ function Section({ s, collapsed }: { s: NavSection; collapsed?: boolean }) {
       </button>
 
       {!collapsed && open && s.items && (
-        <div className="ms-6.5 mt-1 space-y-0.5 border-s-2 border-white/15 ps-2.5">
+        <div className="ms-6 mt-1 space-y-0.5 border-s-2 border-slate-200 dark:border-white/15 ps-2.5">
           {s.items.map((i) => (
             <NavLink
               key={i.to}
@@ -426,8 +450,8 @@ function Section({ s, collapsed }: { s: NavSection; collapsed?: boolean }) {
               className={({ isActive }) =>
                 `group/sub flex items-center justify-between rounded-lg px-2.5 py-1.5 text-[12px] transition-all duration-150 ${
                   isActive
-                    ? 'bg-brand-500/30 font-bold text-white shadow-xs'
-                    : 'text-slate-400 hover:bg-white/10 hover:text-white font-medium'
+                    ? 'bg-amber-500/15 font-bold text-amber-600 dark:text-amber-300 shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white font-medium'
                 }`
               }
             >
@@ -437,13 +461,13 @@ function Section({ s, collapsed }: { s: NavSection; collapsed?: boolean }) {
                     <span
                       className={`size-1.5 rounded-full transition-transform duration-150 ${
                         isActive
-                          ? 'bg-brand-400 scale-125'
-                          : 'bg-slate-500 group-hover/sub:bg-slate-300'
+                          ? 'bg-amber-500 scale-125'
+                          : 'bg-slate-400 dark:bg-slate-500 group-hover/sub:bg-slate-600 dark:group-hover/sub:bg-slate-300'
                       }`}
                     />
                     {i.label}
                   </span>
-                  {isActive && <span className="size-1 rounded-full bg-brand-400" />}
+                  {isActive && <span className="size-1 rounded-full bg-amber-500" />}
                 </>
               )}
             </NavLink>
@@ -457,6 +481,7 @@ function Section({ s, collapsed }: { s: NavSection; collapsed?: boolean }) {
 export function AppShell({ children }: { children?: ReactNode }) {
   const { me, company, switchCompany, logout } = useAuth();
   const { dark, toggle } = useTheme();
+  const { meccaTime, cairoTime } = useDualClock();
   const qc = useQueryClient();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('idham.sidebar.collapsed') === 'true');
 
@@ -469,32 +494,27 @@ export function AppShell({ children }: { children?: ReactNode }) {
   };
 
   return (
-    <div className="flex h-full bg-slate-100 dark:bg-gray-950">
-      {/* ─────────── Sidebar ─────────── */}
+    <div className="flex h-full bg-slate-100 dark:bg-[#070b14] text-slate-900 dark:text-slate-100">
+      {/* ─────────── Sidebar (Dark Obsidian in Dark, Clean Crisp in Light) ─────────── */}
       <aside
-        className={`flex shrink-0 flex-col border-e border-white/5 shadow-2xl transition-all duration-300 ${
+        className={`flex shrink-0 flex-col border-e border-slate-200 bg-white shadow-xl transition-all duration-300 dark:border-slate-800/80 dark:bg-[#0b1120] ${
           collapsed ? 'w-18' : 'w-72'
         }`}
-        style={{ background: 'linear-gradient(180deg, #0f172a 0%, #1e1b4b 30%, #0f172a 70%, #1a1a2e 100%)' }}
       >
-        {/* Brand Logo Header */}
-        <div className="flex h-16 items-center justify-between border-b border-white/10 px-4"
-          style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%)' }}
-        >
+        {/* Brand Logo Header with Hazard Stripes Badge */}
+        <div className="flex h-16 items-center justify-between border-b border-slate-200 bg-slate-50/75 px-4 dark:border-slate-800/80 dark:bg-[#0f172a]">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-brand-600 via-brand-500 to-indigo-400 font-black text-white shadow-lg shadow-brand-600/40 text-lg">
-              إ
-            </div>
+            <div className="hazard-badge flex size-9 shrink-0 items-center justify-center rounded-xl shadow-md border border-amber-500/40" />
             {!collapsed && (
               <div className="leading-tight break-words animate-fade-in">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-base font-black tracking-tight text-white">إدهـام</span>
-                  <span className="rounded-md bg-brand-500/20 px-1.5 py-0.5 text-[10px] font-black text-brand-300 border border-brand-500/30">
-                    ERP
+                  <span className="text-base font-black tracking-tight text-slate-900 dark:text-white">IDHAM ERP</span>
+                  <span className="rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-black text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                    PRO
                   </span>
                 </div>
-                <div className="text-[11px] font-semibold text-slate-400">
-                  الموارد البشرية والمحاسبي
+                <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 truncate max-w-[170px]">
+                  نظام الموارد البشرية والمحاسبة المتكامل
                 </div>
               </div>
             )}
@@ -502,7 +522,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <button
             type="button"
             onClick={toggleCollapse}
-            className="flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+            className="flex size-8 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-200/60 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white transition-colors"
             title={collapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
           >
             <PanelRightClose className={`size-4 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
@@ -526,28 +546,31 @@ export function AppShell({ children }: { children?: ReactNode }) {
         </nav>
 
         {/* User Card at Sidebar Bottom */}
-        <div className="border-t border-white/10 p-3">
-          <div className="flex items-center gap-2.5 rounded-xl p-2 transition-colors hover:bg-white/5"
-            style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(79,70,229,0.05) 100%)' }}>
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-brand-500 to-purple-600 font-bold text-sm text-white shadow-lg shadow-brand-500/30">
-              {me?.user.fullName ? me.user.fullName[0] : 'أ'}
-            </div>
-            {!collapsed && (
-              <div className="min-w-0 flex-1 text-xs animate-fade-in">
-                <div className="font-bold text-white leading-tight break-words">{me?.user.fullName}</div>
-                <div className="text-[10px] font-semibold text-brand-400 break-words mt-0.5">
-                  {me?.user.username === 'admin' ? '👑 مدير النظام التنفيذي' : `@${me?.user.username}`}
-                </div>
+        <div className="border-t border-slate-200 p-3 dark:border-slate-800/80">
+          <div className="rounded-2xl border border-slate-200/90 bg-slate-50 p-2.5 transition-colors dark:border-slate-800/90 dark:bg-[#0f172a]/90">
+            <div className="flex items-center gap-2.5 mb-2.5">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 font-bold text-sm text-slate-950 shadow-md">
+                {me?.user.fullName ? me.user.fullName[0] : 'أ'}
               </div>
-            )}
+              {!collapsed && (
+                <div className="min-w-0 flex-1 text-xs animate-fade-in">
+                  <div className="font-bold text-slate-900 dark:text-white leading-tight truncate">
+                    {me?.user.fullName || 'م. أحمد العتيبي'}
+                  </div>
+                  <div className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 truncate mt-0.5">
+                    {me?.user.username === 'admin' ? '👑 مدير المنظومة التنفيذي' : `@${me?.user.username}`}
+                  </div>
+                </div>
+              )}
+            </div>
             {!collapsed && (
               <button
                 type="button"
-                className="flex size-7 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-500/15 hover:text-rose-400 transition-colors"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-500/20 dark:text-rose-400 transition-colors"
                 onClick={() => void logout()}
-                title="تسجيل الخروج"
               >
                 <LogOut className="size-3.5" />
+                <span>تسجيل الخروج من النظام</span>
               </button>
             )}
           </div>
@@ -556,98 +579,125 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
       {/* ─────────── Main Content ─────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Dark Executive Top Bar */}
-        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-300/40 bg-slate-900 px-5 shadow-lg dark:border-slate-700/40 dark:bg-gray-950">
-          {/* Company Picker */}
-          <div className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/8 px-3 py-1.5 hover:bg-white/12 transition-colors">
-            <Building2 className="size-4 text-brand-400 shrink-0" />
+        {/* Top Header Bar (Dual Mode: Clean Light / Dark Obsidian) */}
+        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2.5 border-b border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-[#0b1120]">
+          {/* Active Branch Selector (Exact match to screenshot) */}
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs dark:border-slate-800 dark:bg-slate-900">
+            <Globe className="size-3.5 text-amber-500 shrink-0" />
+            <span className="hidden sm:inline font-bold text-slate-600 dark:text-slate-400 text-[11px]">الفرع النشط:</span>
             <select
-              className="bg-transparent text-xs font-bold text-white outline-none cursor-pointer"
+              className="bg-transparent text-xs font-bold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[140px] truncate"
               value={company?.id ?? ''}
               onChange={(e) => {
                 switchCompany(e.target.value);
                 qc.clear();
               }}
             >
+              <option value="" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-white">
+                جميع الفروع (عرض مجمع)
+              </option>
               {me?.companies.map((c) => (
-                <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                <option key={c.id} value={c.id} className="bg-white text-slate-900 dark:bg-slate-900 dark:text-white">
                   {c.nameAr} ({c.code})
                 </option>
               ))}
             </select>
-            <span className="rounded-md bg-brand-500/20 px-1.5 py-0.5 text-[10px] font-black text-brand-300 border border-brand-500/30">
-              {company?.baseCurrency ?? 'EGP'}
-            </span>
           </div>
 
-          {/* Active Period Badge */}
-          <div className="hidden sm:flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs">
-            <Calendar className="size-3.5 text-emerald-400" />
-            <span className="font-semibold text-emerald-300 text-[11px]">الفترة المالية:</span>
-            <span className="font-bold text-white font-mono">FY2026-10</span>
-            <span className="flex size-2 rounded-full bg-emerald-400 animate-pulse" title="فترة مفتوحة" />
+          {/* Online Status Pill */}
+          <div className="hidden lg:flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>متصل أونلاين</span>
           </div>
 
-          {/* Executive Date Display */}
-          <div className="hidden lg:flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300">
-            <Clock className="size-3.5 text-brand-400" />
-            <span className="font-semibold text-slate-200">
-              {new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
-                weekday: 'short',
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-              }).format(new Date())}
-            </span>
-          </div>
-
-          {/* Live Connectivity */}
-          <div className="hidden md:flex items-center gap-1.5 text-[11px] font-bold text-slate-400 me-auto">
-            <span className="size-2 rounded-full bg-emerald-400 animate-pulse-glow" />
-            <span>النظام متصل ومتزامن</span>
-          </div>
-
-          <div className="flex-1 md:hidden" />
-
-          {/* Right Controls */}
-          <div className="flex items-center gap-2">
-            <JobsCenterButton />
-
-            <button
-              type="button"
-              className="flex size-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
-              onClick={toggle}
-              title={dark ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'}
-            >
-              {dark ? <Sun className="size-4.5 text-amber-400" /> : <Moon className="size-4.5" />}
-            </button>
-
-            <div className="h-5 w-px bg-white/15" />
-
-            {/* User Profile Pill */}
-            <div className="flex items-center gap-2.5 rounded-xl border border-white/15 bg-white/8 px-2.5 py-1.5">
-              <div className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-tr from-brand-500 to-indigo-500 text-xs font-bold text-white shadow-xs">
-                {me?.user.fullName ? me.user.fullName[0] : 'أ'}
-              </div>
-              <div className="text-end text-xs leading-tight hidden sm:block">
-                <div className="font-bold text-white">{me?.user.fullName}</div>
-                <div className="text-[10px] text-slate-400" dir="ltr">@{me?.user.username}</div>
-              </div>
+          {/* Dual Live Clocks: Mecca 🕋 & Cairo 🇪🇬 */}
+          <div className="hidden xl:flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+            <div className="flex items-center gap-1.5 font-bold">
+              <span className="font-mono text-slate-900 dark:text-white font-bold">{meccaTime}</span>
+              <span className="text-[11px]">مكة المكرمة 🕋</span>
             </div>
+            <span className="text-slate-300 dark:text-slate-700">|</span>
+            <div className="flex items-center gap-1.5 font-bold">
+              <span className="font-mono text-slate-900 dark:text-white font-bold">{cairoTime}</span>
+              <span className="text-[11px]">القاهرة 🇪🇬</span>
+            </div>
+          </div>
 
+          <div className="flex-1" />
+
+          {/* Fast Command & Action Buttons (Exact colors from reference screenshots!) */}
+          <div className="flex items-center gap-1.5">
+            {/* Amber Pill: + فاتورة تأجير */}
+            <NavLink
+              to="/sal/invoices"
+              className="flex items-center gap-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-2.5 py-1.5 text-xs shadow-sm transition-all active:scale-95"
+              title="إنشاء فاتورة جديدة"
+            >
+              <Plus className="size-3.5 stroke-[3]" />
+              <span className="hidden sm:inline">فاتورة تأجير</span>
+            </NavLink>
+
+            {/* Emerald Pill: الخزينة والسندات */}
+            <NavLink
+              to="/fin/custodies"
+              className="hidden md:flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1.5 text-xs shadow-sm transition-all active:scale-95"
+              title="الخزينة والعهد النقدية"
+            >
+              <Coins className="size-3.5" />
+              <span>الخزينة والسندات</span>
+            </NavLink>
+
+            {/* Teal Pill: دفتر القيود واليومية */}
+            <NavLink
+              to="/acc/journals"
+              className="hidden lg:flex items-center gap-1.5 rounded-xl bg-teal-700 hover:bg-teal-600 text-white font-bold px-2.5 py-1.5 text-xs shadow-sm transition-all active:scale-95"
+              title="دفتر قيود اليومية"
+            >
+              <FileText className="size-3.5" />
+              <span>دفتر القيود واليومية</span>
+            </NavLink>
+
+            {/* Green Pill: شجرة الحسابات */}
+            <NavLink
+              to="/acc/accounts"
+              className="hidden xl:flex items-center gap-1.5 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white font-bold px-2.5 py-1.5 text-xs shadow-sm transition-all active:scale-95"
+              title="دليل الحسابات المحاسبية"
+            >
+              <BookOpen className="size-3.5" />
+              <span>شجرة الحسابات</span>
+            </NavLink>
+
+            {/* Theme Toggle Pill Button (Matches screenshot pill) */}
             <button
               type="button"
-              className="flex size-9 items-center justify-center rounded-xl text-slate-400 hover:bg-rose-500/15 hover:text-rose-400 transition-colors"
-              onClick={() => void logout()}
-              title="تسجيل الخروج"
+              onClick={toggle}
+              className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-bold transition-all shadow-xs border ${
+                dark
+                  ? 'bg-slate-800/90 text-amber-400 border-slate-700 hover:bg-slate-700'
+                  : 'bg-amber-50 text-slate-800 border-amber-200 hover:bg-amber-100'
+              }`}
+              title={dark ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'}
             >
-              <LogOut className="size-4.5" />
+              {dark ? (
+                <>
+                  <Sun className="size-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">الوضع النهاري</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="size-3.5 text-amber-600" />
+                  <span className="hidden sm:inline">الوضع الليلي</span>
+                </>
+              )}
             </button>
+
+            {/* Jobs Center Queue Modal Trigger */}
+            <JobsCenterButton />
           </div>
         </header>
 
         {/* Main Body */}
-        <main className="min-w-0 flex-1 overflow-y-auto p-6">
+        <main className="min-w-0 flex-1 overflow-y-auto p-5 md:p-6">
           <ErrorBoundary>
             {children ?? <Outlet />}
           </ErrorBoundary>
