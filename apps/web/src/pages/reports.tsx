@@ -13,6 +13,7 @@ import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, downloadCsv, money, monthStart, today, yearStart } from '../lib/format';
 import { ACCOUNT_CLASS, CHECK_STATUS } from '../lib/labels';
 import { PeriodSelect } from '../components/forms';
+import { ExportMenu } from '../components/ExportMenu';
 import { AccountSelect, useAccounts, useQueryParam } from './accounting';
 import { PERIOD_STATUS } from './org';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, Stat, useToast } from '../components/ui';
@@ -77,22 +78,23 @@ export function TrialBalancePage() {
         subtitle={`المبالغ بالعملة الأساسية (${base}) من القيود المرحّلة فقط. اضغط على حساب لعرض كشفه.`}
         actions={
           <div className="flex items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            {q.data && (
-              <button
-                className="btn-secondary text-xs flex items-center gap-1.5"
-                onClick={() =>
-                  downloadCsv(`trial-balance-${from}-${to}.csv`, [
-                    ['الرمز', 'الحساب', 'مدين افتتاحي', 'دائن افتتاحي', 'مدين الفترة', 'دائن الفترة', 'مدين ختامي', 'دائن ختامي'],
-                    ...rows.map((r: any) => [r.code, r.nameAr, ...cols.map((c) => r[c])]),
-                  ])
-                }
-              >
-                <Download className="size-3.5" /> تصدير CSV
-              </button>
-            )}
+            <ExportMenu
+              title="ميزان المراجعة"
+              filename={`trial-balance-${from}-${to}`}
+              periodLabel={`${from} إلى ${to}`}
+              currency={base}
+              columns={[
+                { key: 'code', header: 'الرمز', type: 'text' },
+                { key: 'nameAr', header: 'الحساب', type: 'text' },
+                { key: 'openingDebit', header: 'مدين افتتاحي', type: 'currency' },
+                { key: 'openingCredit', header: 'دائن افتتاحي', type: 'currency' },
+                { key: 'periodDebit', header: 'مدين الفترة', type: 'currency' },
+                { key: 'periodCredit', header: 'دائن الفترة', type: 'currency' },
+                { key: 'closingDebit', header: 'مدين ختامي', type: 'currency' },
+                { key: 'closingCredit', header: 'دائن ختامي', type: 'currency' },
+              ]}
+              data={rows}
+            />
           </div>
         }
       />
@@ -1089,21 +1091,21 @@ export function ExecutiveIntelligencePage() {
           {activeTab === 'kpis' && (
             <div className="space-y-6">
               {/* Top Banner */}
-              <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-brand-950 to-indigo-950 text-white p-6 shadow-md border border-brand-800/40">
+              <div className="card cyber-card-cyan p-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-xs font-black tracking-widest text-brand-400 uppercase">
+                    <div className="flex items-center gap-2 text-xs font-black tracking-wide text-amber-600 dark:text-amber-400">
                       <Sparkles className="size-4" /> الرقابة المالية الإستراتيجية
                     </div>
-                    <h2 className="text-xl font-black">مصفوفة الرقابة التنفيذية ومؤشرات الأداء المالي</h2>
-                    <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                    <h2 className="text-xl font-black text-slate-900 dark:text-white">مصفوفة الرقابة التنفيذية ومؤشرات الأداء المالي</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
                       منظومة محاسبية متقدمة تربط التكلفة المحملة للكوادر والمطورين مع إيرادات المشاريع وهوامش الربحية التعاقدية بدقة تامة.
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="text-end bg-white/10 p-3 rounded-xl backdrop-blur-sm border border-white/10">
-                      <div className="text-[11px] text-slate-300">معدل العائد على تكلفة الموظف</div>
-                      <div className="text-2xl font-black text-emerald-400 font-mono">{costRevenueRatio}x</div>
+                    <div className="text-end bg-emerald-500/10 p-3.5 rounded-xl border border-emerald-500/25">
+                      <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300">معدل العائد على تكلفة الموظف</div>
+                      <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">{costRevenueRatio}x</div>
                     </div>
                   </div>
                 </div>
@@ -1303,19 +1305,19 @@ export function ExecutiveIntelligencePage() {
           {/* ================================================================== TAB 2: SERVICE PRICE FEASIBILITY */}
           {activeTab === 'feasibility' && (
             <div className="space-y-4">
-              <div className="rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="card cyber-card-cyan p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div>
-                  <h4 className="font-bold text-indigo-950 dark:text-indigo-200 text-sm">تحليل كفاءة وجدوى أسعار الخدمات ومقارنة التكلفة المباشرة بالأسعار البيعية</h4>
-                  <p className="text-indigo-800 dark:text-indigo-300 mt-0.5">
+                  <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">تحليل كفاءة وجدوى أسعار الخدمات ومقارنة التكلفة المباشرة بالأسعار البيعية</h4>
+                  <p className="text-slate-500 dark:text-slate-400 mt-0.5">
                     يقارن هذا التقرير التكلفة الشهرية الكاملة لكل مطور مع سعر بيع خدمته للعميل (شهري، يومي، أو ساعي) لتحديد ما إذا كان السعر يغطي التكلفة ويحقق هامش ربح مقبول.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 px-2 py-0.5 rounded font-bold">
+                  <span className="bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 px-2.5 py-1 rounded-lg font-extrabold">
                     {healthyEmployees.length} رابح
                   </span>
                   {losingEmployees.length > 0 && (
-                    <span className="bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-200 px-2 py-0.5 rounded font-bold">
+                    <span className="bg-rose-500/12 text-rose-700 dark:text-rose-300 border border-rose-500/25 px-2.5 py-1 rounded-lg font-extrabold">
                       {losingEmployees.length} خاسر!
                     </span>
                   )}

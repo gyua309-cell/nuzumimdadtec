@@ -143,13 +143,13 @@ export function MultiCurrencyPayrollReportPage() {
               <Download className="size-3.5" /> تصدير شامل (Excel)
             </button>
             <button
-              className="btn-primary text-xs flex items-center gap-1.5 bg-blue-700 hover:bg-blue-800"
+              className="btn-primary text-xs flex items-center gap-1.5"
               onClick={() => handleExportBankFile('SAR')}
             >
               <Banknote className="size-3.5" /> ملف بنك الرياض/الراجحي (SAR)
             </button>
             <button
-              className="btn-primary text-xs flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800"
+              className="btn bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5"
               onClick={() => handleExportBankFile('EGP')}
             >
               <Banknote className="size-3.5" /> ملف بنك مصر/CIB (EGP)
@@ -159,10 +159,10 @@ export function MultiCurrencyPayrollReportPage() {
       />
 
       {/* Period Selection & Filter Strip */}
-      <div className="card p-4 bg-white border border-slate-200 shadow-sm rounded-xl flex flex-wrap items-center justify-between gap-4">
+      <div className="card p-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Calendar className="size-4 text-slate-500" />
-          <span className="text-xs font-bold text-slate-800">فترة مسيّر الرواتب:</span>
+          <Calendar className="size-4 text-amber-500" />
+          <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200">فترة مسيّر الرواتب:</span>
           <select
             className="input text-xs py-1.5 w-64 font-bold"
             value={activePeriodId}
@@ -183,8 +183,8 @@ export function MultiCurrencyPayrollReportPage() {
         </div>
 
         {/* Currency Filter Tabs */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-semibold text-slate-500 me-2">تصفية حسب عملة الصرف:</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 me-2">تصفية حسب عملة الصرف:</span>
           {[
             { id: 'ALL', label: `كافة الرواتب (${totals.totalCount})` },
             { id: 'SAR', label: `صرف بالريال (${totals.sarCount})` },
@@ -193,10 +193,10 @@ export function MultiCurrencyPayrollReportPage() {
             <button
               key={tab.id}
               onClick={() => setCurrencyFilter(tab.id as any)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
                 currencyFilter === tab.id
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  ? 'bg-amber-500 text-slate-950 shadow-2xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#080d1a] dark:text-slate-300 dark:hover:bg-slate-800'
               }`}
             >
               {tab.label}
@@ -210,7 +210,7 @@ export function MultiCurrencyPayrollReportPage() {
       ) : error ? (
         <div className="p-8"><ErrorState error={error} /></div>
       ) : lines.length === 0 ? (
-        <div className="p-12 text-center card bg-white border border-slate-200 shadow-sm rounded-xl">
+        <div className="p-12 text-center card">
           <EmptyState text="لا يوجد مسيّر رواتب أو بيانات موظفين لهذه الفترة." />
         </div>
       ) : (
@@ -218,51 +218,51 @@ export function MultiCurrencyPayrollReportPage() {
           {/* 3 Executive Financial Disbursal Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Card 1: SAR Bank Wires */}
-            <div className="card p-5 bg-gradient-to-br from-blue-50 to-white border border-blue-200 shadow-sm rounded-xl">
+            <div className="card cyber-card-blue p-5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-blue-900">إجمالي الرواتب المصروفة بالريال (SAR)</span>
-                <span className="p-2 bg-blue-100 text-blue-700 rounded-lg font-bold text-xs">SAR</span>
+                <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">إجمالي الرواتب المصروفة بالريال (SAR)</span>
+                <span className="px-2.5 py-1 bg-blue-500/12 text-blue-700 dark:text-blue-400 ring-1 ring-blue-500/25 rounded-lg font-extrabold text-xs">SAR</span>
               </div>
               <div className="mt-3">
-                <div className="text-2xl font-black text-blue-950 tracking-tight font-mono">
-                  {money(totals.sarPayoutTotal)} SAR
+                <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
+                  {money(totals.sarPayoutTotal)} <span className="text-xs font-bold text-slate-500">SAR</span>
                 </div>
-                <div className="text-xs text-blue-700 mt-1 flex items-center justify-between">
-                  <span>عدد الموظفين: <strong>{totals.sarCount}</strong> كادر</span>
-                  <span>التحويل: حساب مصرف الراجحي / الرياض</span>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center justify-between">
+                  <span>عدد الموظفين: <strong className="text-slate-800 dark:text-slate-200">{totals.sarCount}</strong> كادر</span>
+                  <span>حساب مصرف الراجحي / الرياض</span>
                 </div>
               </div>
             </div>
 
             {/* Card 2: EGP Bank Transfers */}
-            <div className="card p-5 bg-gradient-to-br from-emerald-50 to-white border border-emerald-200 shadow-sm rounded-xl">
+            <div className="card cyber-card-emerald p-5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-emerald-900">إجمالي الرواتب المصروفة بالجنيه (EGP)</span>
-                <span className="p-2 bg-emerald-100 text-emerald-700 rounded-lg font-bold text-xs">EGP</span>
+                <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">إجمالي الرواتب المصروفة بالجنيه (EGP)</span>
+                <span className="px-2.5 py-1 bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-500/25 rounded-lg font-extrabold text-xs">EGP</span>
               </div>
               <div className="mt-3">
-                <div className="text-2xl font-black text-emerald-950 tracking-tight font-mono">
-                  {money(totals.egpPayoutTotal)} EGP
+                <div className="text-2xl font-black text-emerald-700 dark:text-emerald-400 tracking-tight font-mono">
+                  {money(totals.egpPayoutTotal)} <span className="text-xs font-bold text-slate-500">EGP</span>
                 </div>
-                <div className="text-xs text-emerald-700 mt-1 flex items-center justify-between">
-                  <span>عدد الموظفين: <strong>{totals.egpCount}</strong> مطور</span>
-                  <span>التحويل: البنك التجاري الدولي CIB / الأهلي</span>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center justify-between">
+                  <span>عدد الموظفين: <strong className="text-slate-800 dark:text-slate-200">{totals.egpCount}</strong> كادر</span>
+                  <span>البنك التجاري الدولي CIB / الأهلي</span>
                 </div>
               </div>
             </div>
 
             {/* Card 3: Total Equivalent Base */}
-            <div className="card p-5 bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-sm rounded-xl">
+            <div className="card cyber-card-amber p-5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-300">إجمالي عبء الرواتب بدفاتر الشركة (الأساس)</span>
-                <span className="p-2 bg-slate-800 text-cyan-400 rounded-lg font-bold text-xs">GL BASE</span>
+                <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">إجمالي عبء الرواتب بدفاتر الشركة (الأساس)</span>
+                <span className="px-2.5 py-1 bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-1 ring-amber-500/25 rounded-lg font-extrabold text-xs">GL BASE</span>
               </div>
               <div className="mt-3">
-                <div className="text-2xl font-black text-white tracking-tight font-mono">
-                  {money(totals.baseNetTotal)} EGP
+                <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
+                  {money(totals.baseNetTotal)} <span className="text-xs font-bold text-slate-500">EGP</span>
                 </div>
-                <div className="text-xs text-slate-400 mt-1 flex items-center justify-between">
-                  <span>إجمالي الكوادر: <strong>{totals.totalCount}</strong> موظف</span>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center justify-between">
+                  <span>إجمالي الكوادر: <strong className="text-slate-800 dark:text-slate-200">{totals.totalCount}</strong> موظف</span>
                   <span>القيد: حـ/ 5100 و حـ/ 2100</span>
                 </div>
               </div>
@@ -270,15 +270,17 @@ export function MultiCurrencyPayrollReportPage() {
           </div>
 
           {/* Section: Detailed Payroll Table */}
-          <div className="card bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden p-6">
-            <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <Users className="size-4 text-blue-600" />
-              تفاصيل مسيّر الرواتب بالعملات المحلية والمحولة
-            </h3>
+          <div className="card overflow-hidden">
+            <div className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-[#080d1a] px-5 py-3.5">
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <Users className="size-4 text-cyan-600 dark:text-cyan-400" />
+                تفاصيل مسيّر الرواتب بالعملات المحلية والمحولة
+              </h3>
+            </div>
 
             <div className="overflow-x-auto custom-scrollbar">
               <table className="table w-full text-right text-xs">
-                <thead className="bg-slate-50/80 border-b border-slate-200 font-bold text-slate-700">
+                <thead>
                   <tr>
                     <th className="py-3 px-4">كود</th>
                     <th className="py-3 px-4">الموظف / المطور</th>
@@ -287,109 +289,82 @@ export function MultiCurrencyPayrollReportPage() {
                     <th className="py-3 px-4 text-center">البدلات والمكافآت</th>
                     <th className="py-3 px-4 text-center">الاستقطاعات والسلف</th>
                     <th className="py-3 px-4 text-center">الصافي (بالأساس)</th>
-                    <th className="py-3 px-4 text-center bg-blue-50/30">عملة الصرف المنفذة</th>
-                    <th className="py-3 px-4 text-center bg-blue-50/30">سعر الصرف المطبق</th>
-                    <th className="py-3 px-4 text-center font-bold bg-blue-50/40">صافي الصرف بالعملة</th>
+                    <th className="py-3 px-4 text-center">عملة الصرف المنفذة</th>
+                    <th className="py-3 px-4 text-center">سعر الصرف المطبق</th>
+                    <th className="py-3 px-4 text-center font-bold">صافي الصرف بالعملة</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody>
                   {filteredLines.map((l: any) => {
                     const payoutCur = (l.payoutCurrency || 'EGP').toUpperCase();
                     const isSar = payoutCur === 'SAR';
                     const contractCur = (l.contractCurrency || 'EGP').toUpperCase();
 
                     return (
-                      <tr key={l.employeeId} className="hover:bg-slate-50/60">
-                        {/* Employee Code */}
-                        <td className="py-3 px-4 font-mono font-bold text-slate-600">
+                      <tr key={l.employeeId}>
+                        <td className="py-3 px-4 font-mono font-bold text-slate-600 dark:text-slate-300">
                           {l.employeeCode || '—'}
                         </td>
-
-                        {/* Name and Job Title */}
                         <td className="py-3 px-4">
-                          <div className="font-bold text-slate-900">{l.employeeName}</div>
-                          <div className="text-[11px] text-slate-500">{l.jobTitle || l.departmentName || 'تقنية المعلومات'}</div>
+                          <div className="font-bold text-slate-900 dark:text-white">{l.employeeName}</div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">{l.jobTitle || l.departmentName || 'تقنية المعلومات'}</div>
                         </td>
-
-                        {/* Contract Currency */}
                         <td className="py-3 px-4 text-center">
-                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                             {contractCur}
                           </span>
                         </td>
-
-                        {/* Basic Salary */}
-                        <td className="py-3 px-4 text-center font-mono">
-                          <span className="font-semibold text-slate-800">
-                            {money(l.salaryBase)}
-                          </span>
+                        <td className="py-3 px-4 text-center font-mono font-semibold">
+                          {money(l.salaryBase)}
                         </td>
-
-                        {/* Allowances */}
-                        <td className="py-3 px-4 text-center font-mono text-emerald-700">
+                        <td className="py-3 px-4 text-center font-mono text-emerald-700 dark:text-emerald-400">
                           {Number(l.bonusesBase || 0) + Number(l.allowancesBase || 0) + Number(l.overtimeBase || 0) > 0 ? (
                             `+${money(Number(l.bonusesBase || 0) + Number(l.allowancesBase || 0) + Number(l.overtimeBase || 0))}`
                           ) : (
                             '0'
                           )}
                         </td>
-
-                        {/* Deductions & Loans */}
-                        <td className="py-3 px-4 text-center font-mono text-rose-600">
+                        <td className="py-3 px-4 text-center font-mono text-rose-600 dark:text-rose-400">
                           {Number(l.deductionsBase || 0) + Number(l.loanDeductionsBase || 0) > 0 ? (
                             `-${money(Number(l.deductionsBase || 0) + Number(l.loanDeductionsBase || 0))}`
                           ) : (
                             '0'
                           )}
                         </td>
-
-                        {/* Base Net */}
-                        <td className="py-3 px-4 text-center font-mono font-semibold text-slate-700">
+                        <td className="py-3 px-4 text-center font-mono font-semibold">
                           {money(l.netPayableBase)} EGP
                         </td>
-
-                        {/* Payout Currency Pill */}
-                        <td className="py-3 px-4 text-center bg-blue-50/20">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                              isSar
-                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            }`}
-                          >
+                        <td className="py-3 px-4 text-center">
+                          <Badge color={isSar ? 'blue' : 'green'}>
                             {payoutCur} {isSar ? '(تحويل الرياض)' : '(تحويل القاهرة)'}
-                          </span>
+                          </Badge>
                         </td>
-
-                        {/* FX Rate */}
-                        <td className="py-3 px-4 text-center font-mono text-slate-600 bg-blue-50/20">
+                        <td className="py-3 px-4 text-center font-mono">
                           {l.payoutExchangeRate && Number(l.payoutExchangeRate) !== 1 ? (
-                            <span className="font-bold text-cyan-800">{l.payoutExchangeRate}</span>
+                            <span className="font-bold text-cyan-700 dark:text-cyan-400">{l.payoutExchangeRate}</span>
                           ) : (
                             '1.0000'
                           )}
                         </td>
-
-                        {/* Net Payout Amount in Target Currency */}
-                        <td className="py-3 px-4 text-center font-mono font-black text-slate-900 text-sm bg-blue-50/30">
+                        <td className="py-3 px-4 text-center font-mono font-black text-slate-900 dark:text-amber-400 text-sm">
                           {money(l.payoutAmount || l.netPayableBase)} {payoutCur}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
-                <tfoot className="bg-slate-100/80 border-t-2 border-slate-900 font-bold text-xs">
+                <tfoot>
                   <tr>
-                    <td colSpan={6} className="py-3 px-4 text-left font-bold text-slate-800">
+                    <td colSpan={6} className="py-3 px-4 text-start font-extrabold">
                       إجمالي المسير المعتمد للفترة:
                     </td>
-                    <td className="py-3 px-4 text-center font-mono font-black text-slate-900">
+                    <td className="py-3 px-4 text-center font-mono font-black">
                       {money(totals.baseNetTotal)} EGP
                     </td>
-                    <td colSpan={2} className="py-3 px-4 text-center text-slate-600">
+                    <td colSpan={2} className="py-3 px-4 text-center">
                       SAR {money(totals.sarPayoutTotal)} + EGP {money(totals.egpPayoutTotal)}
                     </td>
-                    <td className="py-3 px-4 text-center font-mono font-black text-blue-900">
+                    <td className="py-3 px-4 text-center font-mono font-black text-cyan-700 dark:text-amber-400">
                       مجمع بالعملتين
                     </td>
                   </tr>

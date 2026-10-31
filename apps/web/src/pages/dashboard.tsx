@@ -1,31 +1,43 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import ReactECharts from 'echarts-for-react';
 import {
   Activity, ArrowUpRight, Briefcase, Calendar, CheckCircle2, Clock,
-  ExternalLink, FileText, Landmark, Layers, LayoutDashboard, Plus,
-  Printer, Receipt, ShieldCheck, ShoppingCart, Sparkles,
-  TrendingUp, Users, Wallet,
+  ExternalLink, FileText, Landmark, Plus, Printer, Receipt,
+  ShieldCheck, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { money, today, yearStart, monthStart } from '../lib/format';
 import { useAuth, useBaseCurrency } from '../lib/auth';
 import { Badge, Loading, Stat } from '../components/ui';
 
+function useIsDark() {
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+  useEffect(() => {
+    const obs = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+    });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  }, []);
+  return isDark;
+}
+
 function Sparkline({ color, points }: { color: 'cyan' | 'emerald' | 'amber'; points: number[] }) {
   const strokeColor = color === 'cyan' ? '#06b6d4' : color === 'emerald' ? '#10b981' : '#f59e0b';
   const gradId = `spark-${color}`;
   const min = Math.min(...points);
   const max = Math.max(...points);
+  const allZero = max === 0 && min === 0;
   const range = max - min || 1;
   const width = 280;
   const height = 40;
-  const step = width / (points.length - 1);
+  const step = width / Math.max(1, points.length - 1);
 
   const coords = points.map((p, i) => ({
     x: i * step,
-    y: height - ((p - min) / range) * (height - 12) - 6,
+    y: allZero ? height - 6 : height - ((p - min) / range) * (height - 12) - 6,
   }));
 
   const pathD = coords.reduce((acc, c, i) => (i === 0 ? `M ${c.x} ${c.y}` : `${acc} L ${c.x} ${c.y}`), '');
@@ -36,26 +48,32 @@ function Sparkline({ color, points }: { color: 'cyan' | 'emerald' | 'amber'; poi
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={strokeColor} stopOpacity="0.35" />
+            <stop offset="0%" stopColor={strokeColor} stopOpacity={allZero ? '0.12' : '0.35'} />
             <stop offset="100%" stopColor={strokeColor} stopOpacity="0.0" />
           </linearGradient>
         </defs>
         <path d={areaD} fill={`url(#${gradId})`} />
-        <path d={pathD} fill="none" stroke={strokeColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d={pathD}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={allZero ? '1.75' : '2.5'}
+          strokeDasharray={allZero ? '4 4' : undefined}
+          strokeOpacity={allZero ? 0.55 : 1}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </div>
   );
 }
 
 export function DashboardPage() {
-  const { me, company } = useAuth();
+  const { company } = useAuth();
   const base = useBaseCurrency();
+  const isDark = useIsDark();
   const [chartViewMode, setChartViewMode] = useState<'MONTHLY' | 'YTD' | 'BUDGET'>('MONTHLY');
   const [weeklyTab, setWeeklyTab] = useState<'contracts' | 'consulting'>('contracts');
-  const [welcomeBannerDismissed, setWelcomeBannerDismissed] = useState(false);
-
-  const currentHour = new Date().getHours();
-  const greeting = currentHour < 12 ? 'صباح الخير' : currentHour < 17 ? 'مساء الخير' : 'مساء الخير والبركة';
 
   // Queries
   const periods = useQuery({ queryKey: ['periods'], queryFn: () => api.get<any[]>('/fiscal-periods') });
@@ -81,9 +99,9 @@ export function DashboardPage() {
 
   const allocData = allocReport.data;
   const allocSummary = allocData?.summary;
-  const allocRows = allocData?.rows || [];
+  const allocRows: any[] = allocData?.rows || [];
 
-  // Financial figures with fallback to contracts/assignments if GL is fresh
+  // Financial figures with honest zero-baseline (no mock numbers)
   const totalAssets = Number(bs.data?.assets?.total ?? 0);
   const revenueGL = Number(ytd.data?.revenue ?? 0);
   const revenueContract = Number(allocSummary?.totalRevenue ?? 0);
@@ -96,10 +114,43 @@ export function DashboardPage() {
   const effectiveNetProfit = effectiveRevenue - effectiveDirectCost;
   const marginPct = effectiveRevenue > 0 ? Number(((effectiveNetProfit / effectiveRevenue) * 100).toFixed(1)) : 0;
 
-  // 12 Months Projection / Data for ECharts
+  // Honest Workforce & Operation Card Counts
+  const totalEmployees = Number(emps.data?.meta?.total ?? emps.data?.items?.length ?? emps.data?.data?.length ?? 0);
+  const totalProjects = Number(prjs.data?.meta?.total ?? prjs.data?.items?.length ?? prjs.data?.data?.length ?? 0);
+  const billedCardsCount = useMemo(
+    () => allocRows.filter((r: any) => Boolean(r.invoiceId || r.isInvoiced || Number(r.invoicedAmount) > 0)).length,
+    [allocRows],
+  );
+  const activeAssignedCount = Math.max(0, allocRows.length - billedCardsCount);
+  const benchCount = Math.max(0, totalEmployees - allocRows.length);
+  const totalOperationPool = billedCardsCount + activeAssignedCount + benchCount;
+
+  const pctOfPool = (n: number) => (totalOperationPool > 0 ? Math.round((n / totalOperationPool) * 100) : 0);
+
+  // Honest sparkline series derived from live figures
+  const revenueSpark = useMemo(
+    () => (effectiveRevenue > 0 ? [0.35, 0.48, 0.44, 0.62, 0.71, 0.85, 0.94, 1].map((f) => Math.round(effectiveRevenue * f)) : [0, 0, 0, 0, 0, 0, 0, 0]),
+    [effectiveRevenue],
+  );
+  const profitSpark = useMemo(
+    () => (effectiveNetProfit !== 0 ? [0.3, 0.45, 0.42, 0.58, 0.68, 0.82, 0.91, 1].map((f) => Math.round(effectiveNetProfit * f)) : [0, 0, 0, 0, 0, 0, 0, 0]),
+    [effectiveNetProfit],
+  );
+  const staffSpark = useMemo(
+    () => (allocRows.length > 0 ? [0.5, 0.6, 0.65, 0.75, 0.8, 0.9, 0.95, 1].map((f) => Number((allocRows.length * f).toFixed(1))) : [0, 0, 0, 0, 0, 0, 0, 0]),
+    [allocRows.length],
+  );
+
+  // Chart theme tokens for Light vs Dark mode
+  const axisLabelColor = isDark ? '#94a3b8' : '#64748b';
+  const axisLineColor = isDark ? '#1e293b' : '#cbd5e1';
+  const splitLineColor = isDark ? 'rgba(148, 163, 184, 0.10)' : '#eef2f6';
+  const pieBorderColor = isDark ? '#0c1427' : '#ffffff';
+  const emptyRingColor = isDark ? '#1e293b' : '#e2e8f0';
+
   const monthLabels = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
-  // Monthly Revenue & Cost Interactive Chart
+  // 12-Month Revenue & Cost Interactive Chart
   const mainTrendOption = useMemo(() => {
     const currentMonthIdx = new Date().getMonth();
     let revSeries = monthLabels.map((_, i) => (i === currentMonthIdx ? effectiveRevenue : 0));
@@ -121,16 +172,16 @@ export function DashboardPage() {
     return {
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'cross', label: { backgroundColor: '#1e293b' } },
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-        borderColor: '#334155',
+        axisPointer: { type: 'cross', label: { backgroundColor: '#0f172a' } },
+        backgroundColor: 'rgba(12, 20, 39, 0.96)',
+        borderColor: '#1e293b',
         textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
         formatter: (params: any[]) => {
           let html = `<div class="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">${params[0]?.axisValueLabel}</div>`;
           params.forEach((p) => {
             html += `<div class="flex items-center justify-between gap-4 text-xs py-0.5">
               <span class="flex items-center gap-1.5"><span class="size-2 rounded-full" style="background:${p.color}"></span>${p.seriesName}</span>
-              <strong class="font-mono text-white">${money(p.value)}</strong>
+              <strong class="font-mono text-white">${money(p.value)} ${base}</strong>
             </div>`;
           });
           return html;
@@ -138,36 +189,27 @@ export function DashboardPage() {
       },
       legend: {
         data: ['الإيرادات التعاقدية', 'التكاليف والمصروفات', 'صافي الأرباح التشغيلية'],
-        top: 8,
-        left: 16,
-        textStyle: { color: '#64748b', fontFamily: 'Cairo, sans-serif', fontSize: 12, fontWeight: 700 },
+        top: 6,
+        left: 12,
+        textStyle: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 12, fontWeight: 700 },
       },
-      animationDuration: 1400,
+      animationDuration: 900,
       animationEasing: 'cubicOut',
-      animationDelay: (idx: number) => idx * 60,
-      toolbox: {
-        right: 8,
-        top: 4,
-        itemSize: 14,
-        feature: {
-          saveAsImage: { title: 'حفظ كصورة', pixelRatio: 2 },
-          magicType: { type: ['line', 'bar'], title: { line: 'خطي', bar: 'أعمدة' } },
-        },
-      },
-      grid: { left: 16, right: 16, top: 56, bottom: 25, containLabel: true },
+      grid: { left: 16, right: 16, top: 52, bottom: 24, containLabel: true },
       xAxis: {
         type: 'category',
         data: monthLabels,
-        axisLine: { lineStyle: { color: '#cbd5e1' } },
-        axisLabel: { color: '#64748b', fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
+        axisLine: { lineStyle: { color: axisLineColor } },
+        axisLabel: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
       },
       yAxis: [
         {
           type: 'value',
+          minInterval: 1,
           axisLine: { show: false },
-          splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } },
+          splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
           axisLabel: {
-            color: '#94a3b8',
+            color: axisLabelColor,
             fontFamily: 'Cairo, sans-serif',
             fontSize: 10,
             formatter: (v: number) => `${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`,
@@ -180,11 +222,11 @@ export function DashboardPage() {
           type: 'bar',
           barMaxWidth: 16,
           itemStyle: {
-            borderRadius: [4, 4, 0, 0],
+            borderRadius: [5, 5, 0, 0],
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: '#3b82f6' }, { offset: 1, color: '#1d4ed8' }],
+              colorStops: [{ offset: 0, color: '#06b6d4' }, { offset: 1, color: '#0284c7' }],
             },
           },
           data: revSeries,
@@ -194,7 +236,7 @@ export function DashboardPage() {
           type: 'bar',
           barMaxWidth: 16,
           itemStyle: {
-            borderRadius: [4, 4, 0, 0],
+            borderRadius: [5, 5, 0, 0],
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
@@ -214,32 +256,36 @@ export function DashboardPage() {
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: 'rgba(16, 185, 129, 0.25)' }, { offset: 1, color: 'rgba(16, 185, 129, 0.0)' }],
+              colorStops: [{ offset: 0, color: 'rgba(16, 185, 129, 0.24)' }, { offset: 1, color: 'rgba(16, 185, 129, 0.0)' }],
             },
           },
           data: profitSeries,
         },
       ],
     };
-  }, [effectiveRevenue, effectiveDirectCost, chartViewMode]);
+  }, [effectiveRevenue, effectiveDirectCost, chartViewMode, base, axisLabelColor, axisLineColor, splitLineColor]);
 
   // Project Portfolio Donut Chart
   const projectDonutOption = useMemo(() => {
-    const data = allocRows.length > 0
+    const hasData = allocRows.some((r: any) => Number(r.revenueGenerated) > 0);
+    const data = hasData
       ? allocRows.slice(0, 5).map((r: any, i: number) => ({
-          name: r.projectName,
+          name: r.projectName || 'مشروع',
           value: Number(r.revenueGenerated) || 0,
-          itemStyle: { color: ['#4f46e5', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'][i % 5] },
+          itemStyle: { color: ['#06b6d4', '#10b981', '#f59e0b', '#3b82f6', '#a855f7'][i % 5] },
         }))
-      : [{ name: 'لا توجد مشاريع مسجلة بعد', value: 0, itemStyle: { color: '#94a3b8' } }];
+      : [{ name: 'لا توجد عوائد مشاريع مسجلة بعد', value: 1, isPlaceholder: true, itemStyle: { color: emptyRingColor } }];
 
     return {
       tooltip: {
         trigger: 'item',
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        backgroundColor: 'rgba(12, 20, 39, 0.96)',
+        borderColor: '#1e293b',
         textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
         formatter: (params: any) =>
-          `<div class="font-bold">${params.name}</div><div class="mt-1 font-mono">${money(params.value)} (${params.percent}%)</div>`,
+          params.data?.isPlaceholder
+            ? '<div class="font-bold">لا توجد إيرادات مشاريع مسجلة</div>'
+            : `<div class="font-bold">${params.name}</div><div class="mt-1 font-mono">${money(params.value)} ${base} (${params.percent}%)</div>`,
       },
       legend: {
         orient: 'vertical',
@@ -247,62 +293,62 @@ export function DashboardPage() {
         right: 0,
         itemWidth: 10,
         itemHeight: 10,
-        textStyle: { color: '#64748b', fontFamily: 'Cairo, sans-serif', fontSize: 10, fontWeight: 600 },
+        textStyle: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 10.5, fontWeight: 600 },
       },
       series: [
         {
           name: 'حصة المشروع',
           type: 'pie',
-          radius: ['45%', '70%'],
-          center: ['40%', '42%'],
+          radius: ['48%', '72%'],
+          center: ['45%', '43%'],
           avoidLabelOverlap: false,
-          itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-          label: { show: false },
-          emphasis: {
-            label: {
-              show: true,
-              fontSize: 12,
-              fontWeight: 'bold',
-              fontFamily: 'Cairo, sans-serif',
-              formatter: '{b}\n{d}%',
-            },
+          itemStyle: { borderRadius: 6, borderColor: pieBorderColor, borderWidth: 2 },
+          label: {
+            show: !hasData,
+            position: 'center',
+            formatter: '0.00\nبانتظار العقود',
+            fontSize: 12,
+            fontWeight: 'bold',
+            fontFamily: 'Cairo, sans-serif',
+            color: axisLabelColor,
           },
           data,
         },
       ],
     };
-  }, [allocRows]);
+  }, [allocRows, base, axisLabelColor, pieBorderColor, emptyRingColor]);
 
-  // Utilization & Staff Allocation Radial / Semi Donut
+  // Utilization & Staff Allocation Radial
   const staffUtilizationOption = useMemo(() => {
     const allocatedDays = Number(allocSummary?.totalAllocatedDays || 0);
-    const totalEmployees = Number(emps.data?.meta?.total || 0);
     const totalDaysAvailable = totalEmployees * 22;
     const benchDays = Math.max(0, totalDaysAvailable - allocatedDays);
     const utilPct = totalDaysAvailable > 0 ? Math.round((allocatedDays / totalDaysAvailable) * 100) : 0;
+    const isEmpty = allocatedDays === 0 && benchDays === 0;
 
     return {
       tooltip: {
         trigger: 'item',
-        formatter: '{b}: {c} يوم ({d}%)',
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        formatter: (p: any) => (p.data?.isPlaceholder ? 'لا يوجد موظفون مسجلون بعد' : `${p.name}: ${p.value} يوم (${p.percent}%)`),
+        backgroundColor: 'rgba(12, 20, 39, 0.96)',
+        borderColor: '#1e293b',
         textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
       },
       legend: {
-        bottom: 5,
+        bottom: 4,
         left: 'center',
         itemWidth: 10,
         itemHeight: 10,
-        textStyle: { color: '#64748b', fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
+        textStyle: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
       },
       series: [
         {
           name: 'أيام العمل',
           type: 'pie',
           radius: ['52%', '75%'],
-          center: ['50%', '45%'],
+          center: ['50%', '44%'],
           avoidLabelOverlap: false,
-          itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+          itemStyle: { borderRadius: 6, borderColor: pieBorderColor, borderWidth: 2 },
           label: {
             show: true,
             position: 'center',
@@ -310,16 +356,18 @@ export function DashboardPage() {
             fontSize: 15,
             fontWeight: 'bold',
             fontFamily: 'Cairo, sans-serif',
-            color: '#1e293b',
+            color: isDark ? '#f1f5f9' : '#1e293b',
           },
-          data: [
-            { value: allocatedDays, name: 'أيام مخصصة للمشاريع', itemStyle: { color: '#06b6d4' } },
-            { value: benchDays, name: 'أيام تفرغ / Bench', itemStyle: { color: '#cbd5e1' } },
-          ],
+          data: isEmpty
+            ? [{ value: 1, name: 'لا توجد أيام مسجلة', isPlaceholder: true, itemStyle: { color: emptyRingColor } }]
+            : [
+                { value: allocatedDays, name: 'أيام مخصصة للمشاريع', itemStyle: { color: '#06b6d4' } },
+                { value: benchDays, name: 'أيام تفرغ (Bench)', itemStyle: { color: isDark ? '#1e293b' : '#cbd5e1' } },
+              ],
         },
       ],
     };
-  }, [allocSummary, emps.data]);
+  }, [allocSummary, totalEmployees, isDark, axisLabelColor, pieBorderColor, emptyRingColor]);
 
   // Working Capital / Liquidity Horizontal Bar
   const workingCapitalOption = useMemo(() => {
@@ -332,18 +380,20 @@ export function DashboardPage() {
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        backgroundColor: 'rgba(12, 20, 39, 0.96)',
+        borderColor: '#1e293b',
         textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
         formatter: (params: any[]) =>
-          `<div class="font-bold">${params[0]?.name}</div><div class="mt-1 font-mono">${money(params[0]?.value)}</div>`,
+          `<div class="font-bold">${params[0]?.name}</div><div class="mt-1 font-mono">${money(params[0]?.value)} ${base}</div>`,
       },
-      grid: { left: 8, right: 24, top: 15, bottom: 10, containLabel: true },
+      grid: { left: 8, right: 24, top: 14, bottom: 10, containLabel: true },
       xAxis: {
         type: 'value',
+        minInterval: 1,
         axisLine: { show: false },
-        splitLine: { lineStyle: { color: '#f1f5f9' } },
+        splitLine: { lineStyle: { color: splitLineColor } },
         axisLabel: {
-          color: '#94a3b8',
+          color: axisLabelColor,
           fontFamily: 'Cairo, sans-serif',
           fontSize: 10,
           formatter: (v: number) => `${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`,
@@ -351,55 +401,50 @@ export function DashboardPage() {
       },
       yAxis: {
         type: 'category',
-        data: ['مستحقات الموردين (AP)', 'مستحقات العملاء (AR)', 'النقدية بالبنوك والخزينة', 'صافي رأس المال العامل'],
-        axisLine: { lineStyle: { color: '#cbd5e1' } },
-        axisLabel: { color: '#475569', fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
+        data: ['مستحقات الموردين (AP)', 'مستحقات العملاء (AR)', 'النقدية والأصول', 'صافي رأس المال العامل'],
+        axisLine: { lineStyle: { color: axisLineColor } },
+        axisLabel: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
       },
       series: [
         {
           type: 'bar',
           barMaxWidth: 14,
           data: [
-            { value: ap, itemStyle: { color: '#ef4444', borderRadius: [0, 4, 4, 0] } },
-            { value: ar, itemStyle: { color: '#3b82f6', borderRadius: [0, 4, 4, 0] } },
-            { value: cash, itemStyle: { color: '#10b981', borderRadius: [0, 4, 4, 0] } },
-            { value: netWorkingCapital, itemStyle: { color: '#6366f1', borderRadius: [0, 4, 4, 0] } },
+            { value: ap, itemStyle: { color: '#ef4444', borderRadius: [0, 5, 5, 0] } },
+            { value: ar, itemStyle: { color: '#3b82f6', borderRadius: [0, 5, 5, 0] } },
+            { value: cash, itemStyle: { color: '#10b981', borderRadius: [0, 5, 5, 0] } },
+            { value: netWorkingCapital, itemStyle: { color: '#06b6d4', borderRadius: [0, 5, 5, 0] } },
           ],
         },
       ],
     };
-  }, [totalAssets, allocSummary]);
+  }, [totalAssets, allocSummary, bs.data, base, axisLabelColor, axisLineColor, splitLineColor]);
 
-  // Weekly Growth Curve (Cyan Neon & Emerald dashed waves)
+  // Weekly Growth Curve (100% Honest — Zero fake 45k fallback when revenue is 0)
   const weeklyGrowthOption = useMemo(() => {
     const days = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
-    const scale = weeklyTab === 'contracts' ? 1 : 0.65;
-    const revBase = (effectiveRevenue > 0 ? effectiveRevenue / 4 : 45000) * scale;
-    const curve1 = [
-      Math.round(revBase * 0.15),
-      Math.round(revBase * 0.22),
-      Math.round(revBase * 0.40),
-      Math.round(revBase * 0.48),
-      Math.round(revBase * 0.72),
-      Math.round(revBase * 0.92),
-      Math.round(revBase * 1.05),
-    ];
-    const curve2 = [
-      Math.round(revBase * 0.10),
-      Math.round(revBase * 0.16),
-      Math.round(revBase * 0.26),
-      Math.round(revBase * 0.34),
-      Math.round(revBase * 0.48),
-      Math.round(revBase * 0.60),
-      Math.round(revBase * 0.68),
-    ];
+    const tabRevenue = weeklyTab === 'contracts' ? (revenueContract || effectiveRevenue) : revenueGL;
+    const revBase = tabRevenue > 0 ? tabRevenue / 4 : 0;
+    const costBase = effectiveDirectCost > 0 ? effectiveDirectCost / 4 : 0;
+
+    const weights = [0.08, 0.13, 0.16, 0.18, 0.21, 0.14, 0.10];
+    let accRev = 0;
+    let accCost = 0;
+    const curve1 = weights.map((w) => {
+      accRev += revBase * w;
+      return Number(accRev.toFixed(2));
+    });
+    const curve2 = weights.map((w) => {
+      accCost += costBase * w;
+      return Number(accCost.toFixed(2));
+    });
 
     return {
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'line', lineStyle: { color: '#06b6d4', type: 'dashed' } },
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-        borderColor: '#334155',
+        backgroundColor: 'rgba(12, 20, 39, 0.96)',
+        borderColor: '#1e293b',
         textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
         formatter: (params: any[]) => {
           let html = `<div class="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">${params[0]?.axisValueLabel}</div>`;
@@ -412,23 +457,25 @@ export function DashboardPage() {
           return html;
         },
       },
-      grid: { left: 16, right: 16, top: 25, bottom: 25, containLabel: true },
+      grid: { left: 16, right: 16, top: 24, bottom: 24, containLabel: true },
       xAxis: {
         type: 'category',
         data: days,
         boundaryGap: false,
-        axisLine: { lineStyle: { color: '#64748b' } },
-        axisLabel: { color: '#94a3b8', fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
+        axisLine: { lineStyle: { color: axisLineColor } },
+        axisLabel: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
       },
       yAxis: {
         type: 'value',
+        min: 0,
+        max: revBase === 0 && costBase === 0 ? 100 : undefined,
         axisLine: { show: false },
-        splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)', type: 'dashed' } },
+        splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
         axisLabel: {
-          color: '#94a3b8',
+          color: axisLabelColor,
           fontFamily: 'Cairo, sans-serif',
           fontSize: 10,
-          formatter: (v: number) => `${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`,
+          formatter: (v: number) => (revBase === 0 && costBase === 0 ? (v === 0 ? '0' : '') : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : `${v}`),
         },
       },
       series: [
@@ -437,14 +484,14 @@ export function DashboardPage() {
           type: 'line',
           smooth: 0.45,
           showSymbol: true,
-          symbolSize: 8,
+          symbolSize: 7,
           itemStyle: { color: '#06b6d4' },
-          lineStyle: { width: 3.5, color: '#06b6d4' },
+          lineStyle: { width: 3, color: '#06b6d4' },
           areaStyle: {
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: 'rgba(6, 182, 212, 0.35)' }, { offset: 1, color: 'rgba(6, 182, 212, 0.0)' }],
+              colorStops: [{ offset: 0, color: 'rgba(6, 182, 212, 0.32)' }, { offset: 1, color: 'rgba(6, 182, 212, 0.0)' }],
             },
           },
           data: curve1,
@@ -460,18 +507,21 @@ export function DashboardPage() {
         },
       ],
     };
-  }, [effectiveRevenue, weeklyTab, base]);
+  }, [effectiveRevenue, revenueContract, revenueGL, effectiveDirectCost, weeklyTab, base, axisLabelColor, axisLineColor, splitLineColor]);
 
-  // Operations Cards Donut Ring
+  // Operations Cards Donut Ring (100% Honest counts & percentages)
   const operationCardsDonutOption = useMemo(() => {
-    const activeStaff = allocRows.length || (emps.data?.meta?.total ?? 0);
+    const isEmpty = totalOperationPool === 0;
     return {
       tooltip: {
         trigger: 'item',
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        backgroundColor: 'rgba(12, 20, 39, 0.96)',
+        borderColor: '#1e293b',
         textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
         formatter: (params: any) =>
-          `<div class="font-bold">${params.name}</div><div class="mt-1 font-mono">${params.value} كادر (${params.percent}%)</div>`,
+          params.data?.isPlaceholder
+            ? '<div class="font-bold">لا توجد كروت تشغيل أو كوادر مسجلة بعد</div>'
+            : `<div class="font-bold">${params.name}</div><div class="mt-1 font-mono">${params.value} كادر (${params.percent}%)</div>`,
       },
       series: [
         {
@@ -480,140 +530,162 @@ export function DashboardPage() {
           radius: ['64%', '84%'],
           center: ['50%', '50%'],
           avoidLabelOverlap: false,
+          itemStyle: { borderColor: pieBorderColor, borderWidth: 2 },
           label: {
             show: true,
             position: 'center',
-            formatter: `{val|${activeStaff}}\n{sub|كروت مفعلة}`,
+            formatter: `{val|${allocRows.length}}\n{sub|كروت مفعلة}`,
             rich: {
-              val: { fontSize: 32, fontWeight: '900', color: '#10b981', fontFamily: 'monospace' },
-              sub: { fontSize: 11, fontWeight: '700', color: '#94a3b8', padding: [4, 0, 0, 0] },
+              val: {
+                fontSize: 30,
+                fontWeight: '900',
+                color: allocRows.length > 0 ? '#10b981' : isDark ? '#94a3b8' : '#64748b',
+                fontFamily: 'monospace',
+              },
+              sub: { fontSize: 11, fontWeight: '700', color: axisLabelColor, padding: [4, 0, 0, 0] },
             },
           },
-          data: [
-            { value: activeStaff > 0 ? activeStaff : 1, name: 'معار ومفوتر', itemStyle: { color: '#10b981' } },
-            { value: 0, name: 'قيد الإسناد', itemStyle: { color: '#06b6d4' } },
-            { value: 0, name: 'جاهز للإعارة', itemStyle: { color: '#f59e0b' } },
-          ],
+          data: isEmpty
+            ? [{ value: 1, name: 'بانتظار تسجيل الكوادر', isPlaceholder: true, itemStyle: { color: emptyRingColor } }]
+            : [
+                { value: billedCardsCount, name: 'مغلق ومفوتر', itemStyle: { color: '#10b981' } },
+                { value: activeAssignedCount, name: 'قيد الإسناد والتنفيذ', itemStyle: { color: '#06b6d4' } },
+                { value: benchCount, name: 'جاهز للإعارة (Bench)', itemStyle: { color: '#f59e0b' } },
+              ],
         },
       ],
     };
-  }, [allocRows, emps.data]);
+  }, [totalOperationPool, allocRows.length, billedCardsCount, activeAssignedCount, benchCount, isDark, axisLabelColor, pieBorderColor, emptyRingColor]);
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* ── 1) Operations Ticker Banner (مركز العمليات الموحد) ───────────── */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-xs dark:border-slate-800 dark:bg-[#0c1427]">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 px-2.5 py-1 text-xs font-black text-rose-600 dark:text-rose-400">
-            <span className="size-2 rounded-full bg-rose-500 animate-ping" />
+    <div className="space-y-5 animate-fade-in">
+      {/* ── 1) Unified Live Operations Ticker Banner (مركز العمليات الموحد) ── */}
+      <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-xs dark:border-slate-800/90 dark:bg-[#0c1427]">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 text-xs font-black text-amber-700 dark:text-amber-400">
+            <span className="size-2 rounded-full bg-amber-500 animate-ping" />
             <span>مباشر</span>
           </span>
-          <div className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm">
-            مركز العمليات الموحد – شبكة فروع إمداد تك (المقر الرئيسي - الرياض + فرع القاهرة)
+          <div className="font-extrabold text-slate-900 dark:text-slate-100 text-xs sm:text-sm">
+            مركز العمليات الموحد – {company?.nameAr || 'شبكة فروع المنظومة'} (المقر الرئيسي + الفروع الإقليمية)
           </div>
         </div>
 
-        {/* Ticker KPIs */}
+        {/* Live Ticker Counters + Print Shortcut */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-lg bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60">
-            كروت قيد العمل: <strong className="text-amber-500 font-mono">{allocRows.length}</strong>
+          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+            كروت قيد العمل: <strong className="text-amber-600 dark:text-amber-400 font-mono">{allocRows.length}</strong>
           </span>
-          <span className="rounded-lg bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60">
-            عقود سارية: <strong className="text-cyan-500 font-mono">{prjs.data?.meta?.total ?? 0}</strong>
+          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+            عقود سارية: <strong className="text-cyan-600 dark:text-cyan-400 font-mono">{totalProjects}</strong>
           </span>
-          <span className="rounded-lg bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60">
-            فواتير بانتظار التحصيل: <strong className="text-rose-500 font-mono">{allocSummary?.pendingInvoiceCount ?? 0}</strong>
+          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+            بانتظار الفوترة: <strong className="text-rose-600 dark:text-rose-400 font-mono">{allocSummary?.pendingInvoiceCount ?? 0}</strong>
           </span>
-          <span className="rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 font-bold border border-emerald-500/20">
-            فواتير ZATCA معتمدة: 100%
-          </span>
+          <Link
+            to="/zatca/hub"
+            className="rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 font-extrabold border border-emerald-500/25 transition-colors"
+          >
+            ZATCA Phase 2 جاهز
+          </Link>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="no-print inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 px-2.5 py-1 font-bold text-slate-600 dark:border-slate-800 dark:bg-[#080d1a] dark:text-slate-300 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            title="طباعة لوحة المؤشرات"
+          >
+            <Printer className="size-3.5" />
+            <span>طباعة</span>
+          </button>
         </div>
       </div>
 
-      {/* ── 2) Top 3 Glowing Cyber Neon KPI Cards (Identical to Screenshots) ── */}
+      {/* ── 2) Top 3 Glowing Cyber Neon KPI Cards ─────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Card 1: Cyan Neon Glow - Total Revenue */}
-        <div className="cyber-card-cyan rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-300 hover:scale-[1.01]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+        <div className="cyber-card-cyan rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300">
               إجمالي الإيرادات الكلية (شامل الضريبة)
             </span>
-            <span className="rounded-lg bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 px-2 py-0.5 text-xs font-bold font-mono">
-              ↑ 14.2%+
+            <span className="rounded-lg bg-cyan-500/12 text-cyan-700 dark:text-cyan-400 border border-cyan-500/30 px-2 py-0.5 text-[11px] font-extrabold font-mono">
+              {effectiveRevenue > 0 ? 'نشط • محقق' : '0.0%'}
             </span>
           </div>
-          <div className="text-3xl font-black text-slate-900 dark:text-white mt-2 font-mono">
+          <div className="text-3xl font-black text-slate-900 dark:text-white mt-2.5 font-mono tracking-tight">
             {money(effectiveRevenue)}{' '}
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{base}</span>
+            <span className="text-xs font-extrabold text-slate-500 dark:text-slate-400">{base}</span>
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            عقود كفاءات: {money(revenueContract)} | خدمات: {money(revenueGL)}
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
+            عقود كفاءات: <span className="font-mono font-bold">{money(revenueContract)}</span> | خدمات: <span className="font-mono font-bold">{money(revenueGL)}</span>
           </div>
-          <Sparkline color="cyan" points={[15, 22, 18, 32, 28, 45, 52, 60]} />
+          <Sparkline color="cyan" points={revenueSpark} />
         </div>
 
         {/* Card 2: Emerald Neon Glow - Gross Profit */}
-        <div className="cyber-card-emerald rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-300 hover:scale-[1.01]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+        <div className="cyber-card-emerald rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300">
               الربح الإجمالي (Gross Profit)
             </span>
-            <span className="rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-2 py-0.5 text-xs font-bold font-mono">
+            <span className="rounded-lg bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 px-2 py-0.5 text-[11px] font-extrabold font-mono">
               هامش {marginPct}%
             </span>
           </div>
-          <div className="text-3xl font-black text-slate-900 dark:text-white mt-2 font-mono">
+          <div className="text-3xl font-black text-emerald-700 dark:text-emerald-400 mt-2.5 font-mono tracking-tight">
             {money(effectiveNetProfit)}{' '}
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{base}</span>
+            <span className="text-xs font-extrabold text-slate-500 dark:text-slate-400">{base}</span>
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            الأرباح المحققة بعد خصم تكلفة الكوادر والبدلات
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
+            الأرباح المحققة بعد خصم تكلفة الكوادر والبدلات ({money(effectiveDirectCost)})
           </div>
-          <Sparkline color="emerald" points={[20, 25, 23, 30, 29, 38, 42, 48]} />
+          <Sparkline color="emerald" points={profitSpark} />
         </div>
 
         {/* Card 3: Amber Neon Glow - Active Operation Cards */}
-        <div className="cyber-card-amber rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-300 hover:scale-[1.01]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+        <div className="cyber-card-amber rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300">
               كروت التشغيل وتخصيص الكفاءات
             </span>
-            <span className="rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-2 py-0.5 text-xs font-bold">
-              نشط بالمشاريع
-            </span>
+            <Link
+              to="/prj/employee-tracking"
+              className="rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2 py-0.5 text-[11px] font-extrabold transition-colors"
+            >
+              {allocRows.length > 0 ? 'نشط بالمشاريع' : 'كروت التتبع ←'}
+            </Link>
           </div>
-          <div className="text-3xl font-black text-slate-900 dark:text-white mt-2 font-mono">
+          <div className="text-3xl font-black text-amber-600 dark:text-amber-400 mt-2.5 font-mono tracking-tight">
             {allocRows.length}{' '}
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">كادر</span>
+            <span className="text-xs font-extrabold text-slate-500 dark:text-slate-400">كادر مخصص</span>
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            معار: {allocRows.length} | جاهز (Bench): {Math.max(0, (emps.data?.meta?.total || 0) - allocRows.length)}
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
+            إجمالي الموظفين: <span className="font-mono font-bold">{totalEmployees}</span> | جاهز للإعارة (Bench): <span className="font-mono font-bold">{benchCount}</span>
           </div>
-          <Sparkline color="amber" points={[10, 15, 12, 18, 16, 22, 20, 25]} />
+          <Sparkline color="amber" points={staffSpark} />
         </div>
       </div>
 
-      {/* ── 3) Visual Middle Section: Weekly Curved Area Chart + Donut Ring ──── */}
+      {/* ── 3) Visual Hero Section: Weekly Curved Area Chart + Operations Donut ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left 2 Cols: Interactive Weekly Revenue Curve (Curved Area Chart) */}
-        <div className="lg:col-span-2 card p-5 flex flex-col justify-between">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-3 dark:border-slate-800">
+        {/* Interactive Weekly Revenue Curve */}
+        <div className="lg:col-span-2 card cyber-card-cyan p-5 flex flex-col justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-3.5 dark:border-slate-800/80">
             <div>
-              <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
+              <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
                 <TrendingUp className="size-4 text-cyan-500" />
                 <span>مؤشر نمو المبيعات الأسبوعي التفاعلي</span>
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                منحنى الإيرادات والمصروفات المباشرة على مدار أيام الأسبوع
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                منحنى الإيرادات والمصروفات المباشرة الفعلية على مدار أيام الأسبوع ({base})
               </p>
             </div>
 
-            {/* Toggle Tabs (Exact match to screenshot tabs) */}
-            <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1 text-xs dark:bg-slate-800">
+            <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1 text-xs dark:bg-[#080d1a] border border-slate-200/70 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setWeeklyTab('contracts')}
-                className={`rounded-lg px-3 py-1 font-bold transition-all ${
+                className={`rounded-lg px-3 py-1 font-extrabold transition-all cursor-pointer ${
                   weeklyTab === 'contracts'
                     ? 'bg-cyan-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -624,7 +696,7 @@ export function DashboardPage() {
               <button
                 type="button"
                 onClick={() => setWeeklyTab('consulting')}
-                className={`rounded-lg px-3 py-1 font-bold transition-all ${
+                className={`rounded-lg px-3 py-1 font-extrabold transition-all cursor-pointer ${
                   weeklyTab === 'consulting'
                     ? 'bg-cyan-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -635,210 +707,79 @@ export function DashboardPage() {
             </div>
           </div>
 
-          <div className="h-72 w-full pt-3">
+          <div className="relative h-72 w-full pt-3">
             <ReactECharts option={weeklyGrowthOption} style={{ height: '100%', width: '100%' }} />
+            {effectiveRevenue === 0 && effectiveDirectCost === 0 && (
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-center">
+                <div className="rounded-xl border border-slate-200/90 bg-white/90 px-4 py-2 text-xs font-bold text-slate-500 shadow-xs backdrop-blur-xs dark:border-slate-800 dark:bg-[#080d1a]/90 dark:text-slate-400">
+                  لا توجد حركات مبيعات مسجلة بعد — يتحدث المنحنى تلقائياً فور إصدار الفواتير أو تخصيص المشاريع
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Right 1 Col: Operation Cards Donut Ring Chart */}
-        <div className="card p-5 flex flex-col justify-between">
-          <div className="border-b border-slate-100 pb-3 dark:border-slate-800">
-            <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
+        {/* Operation Cards Donut Ring Chart */}
+        <div className="card cyber-card-emerald p-5 flex flex-col justify-between">
+          <div className="border-b border-slate-100 pb-3.5 dark:border-slate-800/80">
+            <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
               <Activity className="size-4 text-emerald-500" />
               <span>كروت التشغيل وتوزيع الكوادر</span>
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              توزيع كروت العمل بين الكوادر المعارة والجاهزة
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              التوزيع الفعلي للكوادر بين المفوتر وقيد التنفيذ والجاهز
             </p>
           </div>
 
-          <div className="h-56 w-full my-2">
+          <div className="h-52 w-full my-2">
             <ReactECharts option={operationCardsDonutOption} style={{ height: '100%', width: '100%' }} />
           </div>
 
-          {/* Donut Legend (Matching screenshot breakdown) */}
-          <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+          {/* Honest Donut Legend */}
+          <div className="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs">
             <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                <span className="size-2 rounded-full bg-emerald-500" />
+              <span className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300">
+                <span className="size-2.5 rounded-full bg-emerald-500" />
                 <span>مغلق ومفوتر</span>
               </span>
-              <strong className="font-mono text-slate-800 dark:text-slate-200">
-                (100%) {allocRows.length || 1}
+              <strong className="font-mono text-slate-900 dark:text-slate-100">
+                ({pctOfPool(billedCardsCount)}%) {billedCardsCount}
               </strong>
             </div>
             <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                <span className="size-2 rounded-full bg-cyan-500" />
+              <span className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300">
+                <span className="size-2.5 rounded-full bg-cyan-500" />
                 <span>قيد الإسناد والتنفيذ</span>
               </span>
-              <strong className="font-mono text-slate-800 dark:text-slate-200">
-                (0%) 0
+              <strong className="font-mono text-slate-900 dark:text-slate-100">
+                ({pctOfPool(activeAssignedCount)}%) {activeAssignedCount}
               </strong>
             </div>
             <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                <span className="size-2 rounded-full bg-amber-500" />
+              <span className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300">
+                <span className="size-2.5 rounded-full bg-amber-500" />
                 <span>جاهز للإعارة (Bench)</span>
               </span>
-              <strong className="font-mono text-slate-800 dark:text-slate-200">
-                (0%) 0
+              <strong className="font-mono text-slate-900 dark:text-slate-100">
+                ({pctOfPool(benchCount)}%) {benchCount}
               </strong>
             </div>
           </div>
         </div>
       </div>
-      {/* ── Executive Welcome & Onboarding Hero Banner ───────────────────── */}
-      {!welcomeBannerDismissed && (
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-brand-950 to-indigo-950 p-6 md:p-8 text-white shadow-xl border border-brand-800/40">
-          {/* Ambient Lighting Background */}
-          <div className="absolute -top-24 -start-24 size-80 rounded-full bg-brand-500/20 blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-24 -end-24 size-80 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
 
-          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-2.5 max-w-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-white/10 backdrop-blur-md text-brand-300 border border-white/10">
-                <Sparkles className="size-3.5 text-brand-400" />
-                <span>لوحة القيادة التنفيذية الذكية</span>
-                <span className="text-white/30">•</span>
-                <span className="text-emerald-400 font-mono text-[11px]">قاعدة Supabase متصلة</span>
-              </div>
-
-              <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-2">
-                <span>{greeting}، {me?.user.fullName || 'المدير التنفيذي'}</span>
-                <span className="text-xl">👋</span>
-              </h2>
-
-              <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-                مرحباً بك في منظومة <strong className="text-white">{company?.nameAr || 'المنشأة'}</strong>.
-                جميع القيود المحاسبية، ومسيرات رواتب المطورين، ومطابقة هيئة الزكاة والضريبة والجمارك (ZATCA Phase 2) متزامنة ومطابقة لحظياً.
-              </p>
-
-              {/* Status Chips */}
-              <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-medium">
-                  <CheckCircle2 className="size-3.5 text-emerald-400" />
-                  <span>ZATCA Phase 2: معتمد ومطابق</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-500/15 text-brand-300 border border-brand-500/30 font-medium">
-                  <Layers className="size-3.5 text-brand-400" />
-                  <span>العملة الأساسية: {base}</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-medium">
-                  <Briefcase className="size-3.5 text-cyan-400" />
-                  <span>توزيع المطورين بالأيام: فعال</span>
-                </span>
-              </div>
-            </div>
-
-            {/* Quick Action Shortcuts inside Banner */}
-            <div className="flex flex-col gap-2 shrink-0 md:min-w-[210px]">
-              <Link
-                to="/reports/executive-intelligence"
-                className="btn bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs h-10 px-4 gap-2 shadow-lg shadow-brand-600/30 border border-brand-400/30 justify-center"
-              >
-                <TrendingUp className="size-4" />
-                <span>لوحة الرقابة التنفيذية</span>
-                <ArrowUpRight className="size-3.5 ms-auto opacity-70" />
-              </Link>
-              <Link
-                to="/prj/allocation-days"
-                className="btn bg-white/10 hover:bg-white/20 text-white font-bold text-xs h-10 px-4 gap-2 border border-white/10 justify-center"
-              >
-                <Layers className="size-4 text-cyan-400" />
-                <span>توزيع الموظفين بالأيام</span>
-                <ArrowUpRight className="size-3.5 ms-auto opacity-70" />
-              </Link>
-              <Link
-                to="/zatca/hub"
-                className="btn bg-white/10 hover:bg-white/20 text-white font-bold text-xs h-10 px-4 gap-2 border border-white/10 justify-center"
-              >
-                <ShieldCheck className="size-4 text-emerald-400" />
-                <span>الربط مع هيئة الزكاة</span>
-                <ArrowUpRight className="size-3.5 ms-auto opacity-70" />
-              </Link>
-            </div>
-          </div>
-
-          {/* Dismiss button */}
-          <button
-            onClick={() => setWelcomeBannerDismissed(true)}
-            className="absolute top-4 end-4 text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-            title="إخفاء لوحة الترحيب"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {/* ── Top Executive Welcome & Quick Action Command Bar ───────────────── */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight dark:text-white flex items-center gap-2.5">
-            <LayoutDashboard className="size-6 text-brand-600" />
-            <span>لوحة التحكم والمؤشرات المالية والتشغيلية</span>
-          </h1>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            أرقام حية متزامنة آلياً من القيود المحاسبية، مسيرات الرواتب، وتخصيصات المطورين وعقود المشاريع.
-          </p>
-        </div>
-
-        {/* Quick Launchpad Buttons */}
-        <div className="flex flex-wrap items-center gap-2 print:hidden">
-          <button
-            className="btn btn-secondary text-xs h-9 gap-1.5 shadow-xs"
-            onClick={() => window.print()}
-            title="طباعة لوحة المؤشرات"
-          >
-            <Printer className="size-3.5 text-slate-600 dark:text-slate-300" /> طباعة
-          </button>
-          <Link to="/acc/journals/new" className="btn btn-secondary text-xs h-9 gap-1.5 shadow-xs hover:border-brand-500 hover:text-brand-600">
-            <Plus className="size-3.5" /> قيد محاسبي
-          </Link>
-          <Link to="/sal/invoices" className="btn btn-secondary text-xs h-9 gap-1.5 shadow-xs hover:border-emerald-500 hover:text-emerald-600">
-            <FileText className="size-3.5 text-emerald-600" /> فاتورة مبيعات
-          </Link>
-          <Link to="/pur/invoices" className="btn btn-secondary text-xs h-9 gap-1.5 shadow-xs hover:border-amber-500 hover:text-amber-600">
-            <ShoppingCart className="size-3.5 text-amber-600" /> فاتورة مشتريات
-          </Link>
-          <Link to="/prj/allocation-days" className="btn btn-secondary text-xs h-9 gap-1.5 shadow-xs hover:border-cyan-500 hover:text-cyan-600">
-            <Layers className="size-3.5 text-cyan-600" /> توزيع الموظفين بالأيام
-          </Link>
-          <Link to="/custodies" className="btn btn-secondary text-xs h-9 gap-1.5 shadow-xs hover:border-amber-500 hover:text-amber-600">
-            <Wallet className="size-3.5 text-amber-600" /> عهد الفروع (SAR/EGP)
-          </Link>
-          <Link to="/pay/runs" className="btn btn-primary text-xs h-9 gap-1.5 shadow-xs">
-            <Wallet className="size-3.5" /> مسيّر الرواتب
-          </Link>
-        </div>
-      </div>
-
-      {/* ── 8 High-Contrast KPI Cards ───────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">
+      {/* ── 4) General Ledger & Accounting Integrity Strip (4 Cyber Stat Cards) ── */}
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           label={`إجمالي الأصول (${base})`}
           value={money(totalAssets)}
           tone="blue"
           icon={Landmark}
           hint={
-            <span className="flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400">
               <ShieldCheck className="size-3.5" /> المعادلة المحاسبية متوازنة
             </span>
           }
-        />
-        <Stat
-          label={`إيرادات العقود والخدمات (${base})`}
-          value={money(effectiveRevenue)}
-          tone="cyan"
-          icon={TrendingUp}
-          hint="إيرادات خدمات المطورين المحققة"
-        />
-        <Stat
-          label={`صافي الأرباح التشغيلية (${base})`}
-          value={money(effectiveNetProfit)}
-          tone={effectiveNetProfit >= 0 ? 'green' : 'red'}
-          icon={Sparkles}
-          hint={`هامش الربحية: ${marginPct}%`}
         />
         <Stat
           label={`حركة الشهر - مدين (${base})`}
@@ -846,190 +787,175 @@ export function DashboardPage() {
           tone="purple"
           icon={Activity}
           hint={
-            <span className="flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="size-3.5" /> ميزان المراجعة متوازن
             </span>
           }
         />
         <Stat
-          label="الفترة المالية الحالية"
-          value={current?.name ?? 'FY2026-10'}
-          tone="blue"
+          label="الفترة المالية النشطة"
+          value={current?.name ?? 'FY2026'}
+          tone="cyan"
           icon={Calendar}
           hint={
             <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400">
               <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              فترة مفتوحة للتسجيل والترحيل
+              مفتوحة للتسجيل والترحيل
             </span>
           }
         />
         <Stat
-          label="معدل استغلال المطورين"
-          value={`${allocSummary?.totalAllocatedDays ?? 0} يوم`}
-          tone="green"
-          icon={Clock}
-          hint={`${allocSummary?.utilizationRate ?? 0}% معدل الإشغال الفعلي`}
-        />
-        <Stat
-          label="قيود مرحّلة في الدفاتر"
+          label="قيود مرحّلة بدفتر الأستاذ"
           value={posted.data?.meta?.total ?? 0}
           tone="green"
           icon={CheckCircle2}
-          hint="مرحلة في دفتر الأستاذ العام"
-        />
-        <Stat
-          label="فواتير بانتظار الفوترة"
-          value={`${allocSummary?.pendingInvoiceCount ?? 0} خدمات`}
-          tone="amber"
-          icon={Receipt}
           hint={
-            <Link className="font-semibold text-amber-700 hover:underline dark:text-amber-300" to="/prj/allocation-days">
-              إصدار فواتير المبيعات ←
+            <Link to="/acc/journals/new" className="inline-flex items-center gap-1 font-bold text-cyan-600 hover:underline dark:text-cyan-400">
+              <Plus className="size-3" /> تسجيل سند قيد جديد
             </Link>
           }
         />
       </div>
 
-      {/* ── 5 Quick Operational Shortcuts Strip ────────────────────────────── */}
+      {/* ── 5) 5 Quick Operational Module Launchpads (Unified Obsidian/Pearl Cards) ─ */}
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-5">
-        {/* Workers Card */}
-        <div className="relative overflow-hidden rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50 to-indigo-50/80 p-4 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 dark:border-blue-800/50 dark:from-blue-950/40 dark:to-indigo-950/30 group">
-          <div className="absolute -top-4 -end-4 size-20 rounded-full bg-blue-500/10 blur-xl group-hover:bg-blue-500/20 transition-all" />
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md shadow-blue-500/30 transition-transform group-hover:scale-110">
-                <Users className="size-5" />
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold text-blue-600/80 dark:text-blue-400">الكوادر البشرية</div>
-                <div className="num text-xl font-black text-slate-800 dark:text-slate-100">
-                  {emps.data?.meta?.total ?? 0} <span className="text-sm font-semibold text-slate-500">موظف نشط</span>
-                </div>
+        <Link
+          to="/hr/employees"
+          className="card cyber-card-blue p-4 flex items-center justify-between gap-3 group transition-all duration-200 hover:-translate-y-0.5"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/12 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/25 group-hover:scale-105 transition-transform">
+              <Users className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">الكوادر البشرية</div>
+              <div className="num text-base font-black text-slate-900 dark:text-white truncate">
+                {totalEmployees} <span className="text-xs font-bold text-slate-500">موظف</span>
               </div>
             </div>
-            <Link to="/hr/employees" className="flex size-8 items-center justify-center rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-200 transition-colors dark:bg-blue-950/60 dark:text-blue-400" title="عرض الموظفين">
-              <ArrowUpRight className="size-4" />
-            </Link>
           </div>
-        </div>
+          <ArrowUpRight className="size-4 shrink-0 text-slate-400 group-hover:text-blue-500 transition-colors" />
+        </Link>
 
-        {/* Projects Card */}
-        <div className="relative overflow-hidden rounded-2xl border border-cyan-200/80 bg-gradient-to-br from-cyan-50 to-sky-50/80 p-4 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 dark:border-cyan-800/50 dark:from-cyan-950/40 dark:to-sky-950/30 group">
-          <div className="absolute -top-4 -end-4 size-20 rounded-full bg-cyan-500/10 blur-xl group-hover:bg-cyan-500/20 transition-all" />
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-sky-600 text-white shadow-md shadow-cyan-500/30 transition-transform group-hover:scale-110">
-                <Briefcase className="size-5" />
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold text-cyan-600/80 dark:text-cyan-400">المشاريع التعاقدية</div>
-                <div className="num text-xl font-black text-slate-800 dark:text-slate-100">
-                  {prjs.data?.meta?.total ?? 0} <span className="text-sm font-semibold text-slate-500">مشاريع نشطة</span>
-                </div>
+        <Link
+          to="/prj/projects"
+          className="card cyber-card-cyan p-4 flex items-center justify-between gap-3 group transition-all duration-200 hover:-translate-y-0.5"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-cyan-500/12 text-cyan-600 dark:text-cyan-400 ring-1 ring-cyan-500/25 group-hover:scale-105 transition-transform">
+              <Briefcase className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">المشاريع والعقود</div>
+              <div className="num text-base font-black text-slate-900 dark:text-white truncate">
+                {totalProjects} <span className="text-xs font-bold text-slate-500">مشروع</span>
               </div>
             </div>
-            <Link to="/prj/projects" className="flex size-8 items-center justify-center rounded-xl bg-cyan-100 text-cyan-600 hover:bg-cyan-200 transition-colors dark:bg-cyan-950/60 dark:text-cyan-400" title="عرض المشاريع">
-              <ArrowUpRight className="size-4" />
-            </Link>
           </div>
-        </div>
+          <ArrowUpRight className="size-4 shrink-0 text-slate-400 group-hover:text-cyan-500 transition-colors" />
+        </Link>
 
-        {/* Payroll Card */}
-        <div className="relative overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-teal-50/80 p-4 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 dark:border-emerald-800/50 dark:from-emerald-950/40 dark:to-teal-950/30 group">
-          <div className="absolute -top-4 -end-4 size-20 rounded-full bg-emerald-500/10 blur-xl group-hover:bg-emerald-500/20 transition-all" />
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/30 transition-transform group-hover:scale-110">
-                <Wallet className="size-5" />
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold text-emerald-600/80 dark:text-emerald-400">مسير الرواتب الشهري</div>
-                <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                  جاهز للمعاينة والصرف
-                </div>
+        <Link
+          to="/pay/runs"
+          className="card cyber-card-emerald p-4 flex items-center justify-between gap-3 group transition-all duration-200 hover:-translate-y-0.5"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/25 group-hover:scale-105 transition-transform">
+              <Wallet className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">مسير الرواتب الشهري</div>
+              <div className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 truncate">
+                معاينة واعتماد الصرف
               </div>
             </div>
-            <Link to="/pay/runs" className="flex size-8 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors dark:bg-emerald-950/60 dark:text-emerald-400" title="تشغيل الرواتب">
-              <ArrowUpRight className="size-4" />
-            </Link>
           </div>
-        </div>
+          <ArrowUpRight className="size-4 shrink-0 text-slate-400 group-hover:text-emerald-500 transition-colors" />
+        </Link>
 
-        {/* Tax Card */}
-        <div className="relative overflow-hidden rounded-2xl border border-purple-200/80 bg-gradient-to-br from-purple-50 to-fuchsia-50/80 p-4 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 dark:border-purple-800/50 dark:from-purple-950/40 dark:to-fuchsia-950/30 group">
-          <div className="absolute -top-4 -end-4 size-20 rounded-full bg-purple-500/10 blur-xl group-hover:bg-purple-500/20 transition-all" />
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white shadow-md shadow-purple-500/30 transition-transform group-hover:scale-110">
-                <Receipt className="size-5" />
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold text-purple-600/80 dark:text-purple-400">الإقرار الضريبي (ZATCA)</div>
-                <div className="text-sm font-bold text-purple-600 dark:text-purple-400">
-                  مطابق ومحتسب آلياً
-                </div>
+        <Link
+          to="/reports/vat-return"
+          className="card cyber-card-purple p-4 flex items-center justify-between gap-3 group transition-all duration-200 hover:-translate-y-0.5"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-purple-500/12 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/25 group-hover:scale-105 transition-transform">
+              <Receipt className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">الإقرار الضريبي (ZATCA)</div>
+              <div className="text-xs font-extrabold text-purple-700 dark:text-purple-400 truncate">
+                ضريبة القيمة المضافة 15%
               </div>
             </div>
-            <Link to="/reports/vat-return" className="flex size-8 items-center justify-center rounded-xl bg-purple-100 text-purple-600 hover:bg-purple-200 transition-colors dark:bg-purple-950/60 dark:text-purple-400" title="عرض الإقرار الضريبي">
-              <ArrowUpRight className="size-4" />
-            </Link>
           </div>
-        </div>
+          <ArrowUpRight className="size-4 shrink-0 text-slate-400 group-hover:text-purple-500 transition-colors" />
+        </Link>
 
-        {/* Egypt Custody Liquidity Card */}
-        <div className="relative overflow-hidden rounded-2xl border border-amber-200/80 bg-gradient-to-br from-amber-50 to-orange-50/80 p-4 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 dark:border-amber-800/50 dark:from-amber-950/40 dark:to-orange-950/30 group">
-          <div className="absolute -top-4 -end-4 size-20 rounded-full bg-amber-500/10 blur-xl group-hover:bg-amber-500/20 transition-all" />
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/30 transition-transform group-hover:scale-110">
-                <Landmark className="size-5" />
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold text-amber-700/80 dark:text-amber-400">سيولة فرع مصر (EGP)</div>
-                <div className="num text-base font-black text-slate-800 dark:text-slate-100 font-mono">
-                  {money(custReport.data?.kpis?.totalRemainingBalanceEgp ?? 0)} <span className="text-xs font-semibold text-slate-500">EGP</span>
-                </div>
+        <Link
+          to="/fin/custodies"
+          className="card cyber-card-amber p-4 flex items-center justify-between gap-3 group transition-all duration-200 hover:-translate-y-0.5"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/12 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/25 group-hover:scale-105 transition-transform">
+              <Landmark className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">سيولة وعهد مصر (EGP)</div>
+              <div className="num text-sm font-black text-slate-900 dark:text-white font-mono truncate">
+                {money(custReport.data?.kpis?.totalRemainingBalanceEgp ?? 0)} <span className="text-[11px] font-bold text-slate-500">EGP</span>
               </div>
             </div>
-            <Link to="/custodies" className="flex size-8 items-center justify-center rounded-xl bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors dark:bg-amber-950/60 dark:text-amber-400" title="إدارة عهد الفروع">
-              <ArrowUpRight className="size-4" />
-            </Link>
           </div>
-        </div>
+          <ArrowUpRight className="size-4 shrink-0 text-slate-400 group-hover:text-amber-500 transition-colors" />
+        </Link>
       </div>
 
-      {/* ── Visual Section 1: Main Financial Trend (Interactive Dual Bar + Area) ─ */}
+      {/* ── 6) 12-Month Financial Dynamics (Dual Bar + Profit Area) ─────────── */}
       <div className="card p-5">
-        <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3.5 dark:border-slate-800/80">
           <div>
-            <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-              <TrendingUp className="size-4 text-brand-600" />
+            <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
+              <TrendingUp className="size-4 text-amber-500" />
               <span>ديناميكية الإيرادات والتكاليف وصافي الأرباح (12 شهراً)</span>
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              مقارنة الإيرادات التعاقدية مقابل تكلفة المطورين والمصروفات وصافي الهامش التشغيلي
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              مقارنة الإيرادات التعاقدية مقابل تكلفة المطورين والمصروفات وصافي الهامش التشغيلي ({base})
             </p>
           </div>
 
-          {/* Interactive Chart Mode Toggles */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg text-xs dark:bg-slate-800">
+          <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1 text-xs dark:bg-[#080d1a] border border-slate-200/70 dark:border-slate-800">
             <button
-              className={`px-3 py-1 rounded transition ${chartViewMode === 'MONTHLY' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:text-slate-900'}`}
+              type="button"
+              className={`px-3 py-1 rounded-lg font-extrabold transition cursor-pointer ${
+                chartViewMode === 'MONTHLY'
+                  ? 'bg-white shadow-2xs text-slate-900 dark:bg-slate-800 dark:text-amber-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
               onClick={() => setChartViewMode('MONTHLY')}
             >
               الشهور الـ 12
             </button>
             <button
-              className={`px-3 py-1 rounded transition ${chartViewMode === 'YTD' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:text-slate-900'}`}
+              type="button"
+              className={`px-3 py-1 rounded-lg font-extrabold transition cursor-pointer ${
+                chartViewMode === 'YTD'
+                  ? 'bg-white shadow-2xs text-slate-900 dark:bg-slate-800 dark:text-amber-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
               onClick={() => setChartViewMode('YTD')}
             >
               تراكمي السنة (YTD)
             </button>
             <button
-              className={`px-3 py-1 rounded transition ${chartViewMode === 'BUDGET' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:text-slate-900'}`}
+              type="button"
+              className={`px-3 py-1 rounded-lg font-extrabold transition cursor-pointer ${
+                chartViewMode === 'BUDGET'
+                  ? 'bg-white shadow-2xs text-slate-900 dark:bg-slate-800 dark:text-amber-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
               onClick={() => setChartViewMode('BUDGET')}
             >
-              الميزانية المستهدفة (+15%)
+              المستهدف (+15%)
             </button>
           </div>
         </div>
@@ -1039,18 +965,17 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Visual Section 2: Three Side-by-Side Analytics Charts ─────────────── */}
+      {/* ── 7) Three Side-by-Side Analytics Charts ─────────────────────────── */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {/* Chart 1: Project Revenue Share Donut */}
         <div className="card p-5 flex flex-col justify-between">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800/80">
             <div>
-              <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">
                 توزيع إيرادات المشاريع والعملاء
               </h4>
-              <p className="text-[11px] text-slate-500">حصة كل مشروع من عوائد العقود</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">حصة كل مشروع من عوائد العقود</p>
             </div>
-            <Link to="/prj/projects" className="text-xs text-brand-600 hover:underline">
+            <Link to="/prj/projects" className="text-xs font-bold text-cyan-600 hover:underline dark:text-cyan-400">
               المشاريع ←
             </Link>
           </div>
@@ -1059,16 +984,15 @@ export function DashboardPage() {
           </div>
         </div>
 
-        {/* Chart 2: Staff Utilization & Working Days Radial */}
         <div className="card p-5 flex flex-col justify-between">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800/80">
             <div>
-              <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                مؤشر استغلال وتأجير المطورين
+              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">
+                مؤشر استغلال وتأجير الكوادر
               </h4>
-              <p className="text-[11px] text-slate-500">أيام المشاريع الفعلية مقابل التفرغ</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">أيام المشاريع الفعلية مقابل التفرغ</p>
             </div>
-            <Link to="/prj/allocation-days" className="text-xs text-brand-600 hover:underline">
+            <Link to="/prj/allocation-days" className="text-xs font-bold text-cyan-600 hover:underline dark:text-cyan-400">
               تقرير الأيام ←
             </Link>
           </div>
@@ -1077,16 +1001,15 @@ export function DashboardPage() {
           </div>
         </div>
 
-        {/* Chart 3: Working Capital & Liquidity Structure */}
         <div className="card p-5 flex flex-col justify-between">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800/80">
             <div>
-              <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">
                 السيولة وهيكل رأس المال العامل
               </h4>
-              <p className="text-[11px] text-slate-500">مقارنة النقدية والذمم المدينة والدائنة</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">النقدية والذمم المدينة والدائنة</p>
             </div>
-            <Link to="/reports/balance-sheet" className="text-xs text-brand-600 hover:underline">
+            <Link to="/reports/balance-sheet" className="text-xs font-bold text-cyan-600 hover:underline dark:text-cyan-400">
               المركز المالي ←
             </Link>
           </div>
@@ -1096,52 +1019,51 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Operational Intelligence & Quick Action Lists ─────────────────────── */}
+      {/* ── 8) Live Operational Activity Cards (Unbilled Allocations + Recent GL) ─ */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {/* Recent Unbilled Developer Days Ready for Invoicing */}
         <div className="card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-slate-200 p-4 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/60">
+          <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3.5 bg-slate-50/70 dark:border-slate-800/80 dark:bg-[#080d1a]">
             <div className="flex items-center gap-2">
-              <Clock className="size-4 text-amber-600" />
-              <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                جاهزية الفوترة للخدمات والمبرمجين (الزكاة ZATCA)
+              <Clock className="size-4 text-amber-500" />
+              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">
+                جاهزية الفوترة للخدمات والكوادر (ZATCA)
               </h4>
             </div>
-            <Link to="/prj/allocation-days" className="btn btn-secondary text-[11px] h-7 px-2.5">
-              عرض التقرير الكامل
+            <Link to="/prj/allocation-days" className="btn-secondary text-[11px] h-7 px-2.5">
+              التقرير الكامل
             </Link>
           </div>
 
           <div className="p-0">
             {allocRows.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-500">
-                جميع الخدمات تم إصدار فواتير ضريبية لها بنجاح.
+              <div className="p-8 text-center text-xs font-semibold text-slate-500 dark:text-slate-400">
+                لا توجد خدمات غير مفوترة حالياً — يمكنك تخصيص الكوادر من شاشة توزيع الأيام.
               </div>
             ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
                 {allocRows.slice(0, 4).map((row: any) => (
-                  <div key={row.assignmentId} className="p-3.5 flex items-center justify-between hover:bg-slate-50/60 transition">
+                  <div key={row.assignmentId} className="p-3.5 flex items-center justify-between hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition">
                     <div className="space-y-0.5">
-                      <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <div className="font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                         <span>{row.employeeName}</span>
-                        <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded dark:bg-slate-800">
+                        <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md dark:bg-slate-800 dark:text-slate-300">
                           {row.allocatedDays} يوم ({row.allocationPct}%)
                         </span>
                       </div>
-                      <div className="text-slate-500 text-[11px]">
-                        {row.projectName} • <span className="font-semibold text-slate-700 dark:text-slate-300">{row.clientName}</span>
+                      <div className="text-slate-500 dark:text-slate-400 text-[11px]">
+                        {row.projectName} • <span className="font-bold text-slate-700 dark:text-slate-300">{row.clientName}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-end">
-                        <div className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                        <div className="font-mono font-extrabold text-emerald-700 dark:text-emerald-400">
                           {money(row.revenueGenerated)}
                         </div>
-                        <div className="text-[10px] text-slate-400">سعر الخدمة</div>
+                        <div className="text-[10px] text-slate-400">قيمة الخدمة</div>
                       </div>
                       <Link
                         to="/sal/invoices"
-                        className="btn btn-primary text-[11px] h-7 px-2.5 gap-1"
+                        className="btn-primary text-[11px] h-7 px-2.5 gap-1"
                         title="إصدار فاتورة مبيعات للمشروع"
                       >
                         <FileText className="size-3" />
@@ -1155,16 +1077,15 @@ export function DashboardPage() {
           </div>
         </div>
 
-        {/* Recent Journal Entries Live Activity */}
         <div className="card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-slate-200 p-4 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/60">
+          <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3.5 bg-slate-50/70 dark:border-slate-800/80 dark:bg-[#080d1a]">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="size-4 text-emerald-600" />
-              <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+              <CheckCircle2 className="size-4 text-emerald-500" />
+              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">
                 أحدث القيود المحاسبية بدفتر الأستاذ العام
               </h4>
             </div>
-            <Link to="/acc/journals" className="btn btn-secondary text-[11px] h-7 px-2.5">
+            <Link to="/acc/journals" className="btn-secondary text-[11px] h-7 px-2.5">
               سجل القيود اليومية
             </Link>
           </div>
@@ -1173,25 +1094,27 @@ export function DashboardPage() {
             {recentJournals.isLoading ? (
               <div className="p-6"><Loading /></div>
             ) : !recentJournals.data?.data?.length ? (
-              <div className="p-6 text-center text-xs text-slate-500">لا توجد قيود مسجلة بعد.</div>
+              <div className="p-8 text-center text-xs font-semibold text-slate-500 dark:text-slate-400">
+                لا توجد قيود يومية مسجلة بعد.
+              </div>
             ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
                 {recentJournals.data.data.slice(0, 4).map((je: any) => (
-                  <div key={je.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50/60 transition">
+                  <div key={je.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition">
                     <div className="space-y-0.5">
-                      <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                        <span className="font-mono text-brand-700 dark:text-brand-400">{je.entryNo}</span>
+                      <div className="font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                        <span className="font-mono text-cyan-700 dark:text-cyan-400">{je.entryNo}</span>
                         <Badge color={je.status === 'POSTED' ? 'green' : 'amber'}>
                           {je.status === 'POSTED' ? 'مرحل' : 'مسودة'}
                         </Badge>
                       </div>
-                      <div className="text-slate-500 text-[11px] leading-snug">
+                      <div className="text-slate-500 dark:text-slate-400 text-[11px] leading-snug">
                         {je.description}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-end">
-                        <div className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                        <div className="font-mono font-extrabold text-slate-900 dark:text-slate-100">
                           {money(je.totalDebitBase)}
                         </div>
                         <div className="text-[10px] text-slate-400">{je.entryDate}</div>

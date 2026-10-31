@@ -736,18 +736,18 @@ export function ServiceCatalogPage() {
         {viewingService && (
           <div className="space-y-6 text-xs animate-fade-in">
             {/* Header Badge Card */}
-            <div className="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-6 text-white shadow-lg border border-brand-800/40">
+            <div className="card cyber-card-cyan p-5">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-sm font-bold text-brand-300">
+                <span className="font-mono text-sm font-extrabold text-cyan-700 dark:text-cyan-400">
                   {viewingService.code}
                 </span>
                 <Badge color={viewingService.isActive ? 'green' : 'slate'}>
                   {viewingService.isActive ? 'نشط ومتاح' : 'معطل مؤقتاً'}
                 </Badge>
               </div>
-              <h3 className="mt-2 text-lg font-black text-white">{viewingService.nameAr}</h3>
+              <h3 className="mt-2 text-lg font-black text-slate-900 dark:text-white">{viewingService.nameAr}</h3>
               {viewingService.nameEn && (
-                <div className="text-xs text-slate-300 font-sans" dir="ltr">
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-sans mt-0.5" dir="ltr">
                   {viewingService.nameEn}
                 </div>
               )}

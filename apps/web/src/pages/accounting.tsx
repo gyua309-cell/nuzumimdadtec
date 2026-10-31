@@ -110,14 +110,14 @@ export function AccountsPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {/* View Mode Toggle */}
-            <div className="bg-slate-100 p-0.5 rounded-lg flex items-center border border-slate-200">
+            <div className="bg-slate-100 dark:bg-[#080d1a] p-1 rounded-xl flex items-center border border-slate-200/80 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setViewMode('TREE')}
-                className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === 'TREE'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white text-cyan-700 shadow-2xs dark:bg-slate-800 dark:text-amber-400'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                 }`}
               >
                 <Network className="size-3.5" /> الشجرة المرئية
@@ -125,10 +125,10 @@ export function AccountsPage() {
               <button
                 type="button"
                 onClick={() => setViewMode('TABLE')}
-                className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === 'TABLE'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white text-cyan-700 shadow-2xs dark:bg-slate-800 dark:text-amber-400'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                 }`}
               >
                 <List className="size-3.5" /> جدول مسطح
@@ -148,7 +148,7 @@ export function AccountsPage() {
         }
       />
       <div className="card overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 p-3 dark:border-slate-800 bg-slate-50/50">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 p-3 dark:border-slate-800 bg-slate-50/70 dark:bg-[#080d1a]">
           <input className="input w-72 text-xs" placeholder="بحث بالرمز أو اسم الحساب…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="flex items-center gap-2">
             <button className="btn-secondary text-xs py-1" onClick={() => setCollapsed(new Set(headers.map((h) => h.id)))}>طي الكل</button>

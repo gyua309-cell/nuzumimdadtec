@@ -163,7 +163,7 @@ export function BanksHubPage() {
             </button>
             <button
               onClick={() => setTransferModalOpen(true)}
-              className="btn btn-primary text-xs flex items-center gap-1.5 bg-blue-700 hover:bg-blue-800"
+              className="btn-primary text-xs flex items-center gap-1.5"
             >
               <ArrowLeftRight className="size-3.5" />
               تحويل بنكي / صرافة عملات
@@ -175,84 +175,84 @@ export function BanksHubPage() {
       {/* 4 Executive Bank Account Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Al-Rajhi SAR */}
-        <div className="card p-5 bg-gradient-to-br from-blue-50/70 to-white dark:from-slate-900 dark:to-slate-900 border border-blue-200 dark:border-slate-800 shadow-sm rounded-xl">
+        <div className="card cyber-card-blue p-5">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-blue-900 dark:text-blue-300">مصرف الراجحي / الرياض (SAR)</span>
-            <span className="p-2 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-lg">
-              <Landmark className="size-5" />
+            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">مصرف الراجحي / الرياض (SAR)</span>
+            <span className="p-2 bg-blue-500/12 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/25 rounded-xl">
+              <Landmark className="size-4" />
             </span>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-blue-950 dark:text-blue-200 tracking-tight font-mono">
-              {money(stats.sarBalance)} SAR
+            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
+              {money(stats.sarBalance)} <span className="text-xs font-bold text-slate-500">SAR</span>
             </div>
-            <div className="text-xs text-blue-700 dark:text-blue-400 font-semibold mt-1">
+            <div className="text-xs text-blue-700 dark:text-blue-400 font-bold mt-1">
               معادل: {money(stats.sarBalance * 13.15)} EGP
             </div>
-            <div className="mt-2 text-[11px] text-slate-500 font-mono">
+            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
               حساب بنكي رئيسي (الريال السعودي)
             </div>
           </div>
         </div>
 
         {/* Card 2: CIB EGP */}
-        <div className="card p-5 bg-gradient-to-br from-emerald-50/70 to-white dark:from-slate-900 dark:to-slate-900 border border-emerald-200 dark:border-slate-800 shadow-sm rounded-xl">
+        <div className="card cyber-card-emerald p-5">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-emerald-900 dark:text-emerald-300">البنك التجاري الدولي CIB (EGP)</span>
-            <span className="p-2 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-lg">
-              <Building className="size-5" />
+            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">البنك التجاري الدولي CIB (EGP)</span>
+            <span className="p-2 bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/25 rounded-xl">
+              <Building className="size-4" />
             </span>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-emerald-950 dark:text-emerald-200 tracking-tight font-mono">
-              {money(stats.egpBalance)} EGP
+            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
+              {money(stats.egpBalance)} <span className="text-xs font-bold text-slate-500">EGP</span>
             </div>
-            <div className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold mt-1">
+            <div className="text-xs text-emerald-700 dark:text-emerald-400 font-bold mt-1">
               حساب العمليات التشغيلية والرواتب (فرع مصر)
             </div>
-            <div className="mt-2 text-[11px] text-slate-500 font-mono">
+            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
               حساب بنكي جاري (الجنيه المصري)
             </div>
           </div>
         </div>
 
         {/* Card 3: NBE EGP */}
-        <div className="card p-5 bg-gradient-to-br from-cyan-50/70 to-white dark:from-slate-900 dark:to-slate-900 border border-cyan-200 dark:border-slate-800 shadow-sm rounded-xl">
+        <div className="card cyber-card-cyan p-5">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-cyan-900 dark:text-cyan-300">البنك الأهلي المصري NBE (EGP)</span>
-            <span className="p-2 bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded-lg">
-              <Landmark className="size-5" />
+            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">البنك الأهلي المصري NBE (EGP)</span>
+            <span className="p-2 bg-cyan-500/12 text-cyan-600 dark:text-cyan-400 ring-1 ring-cyan-500/25 rounded-xl">
+              <Landmark className="size-4" />
             </span>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-cyan-950 dark:text-cyan-200 tracking-tight font-mono">
-              {money(stats.nbeBalance)} EGP
+            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
+              {money(stats.nbeBalance)} <span className="text-xs font-bold text-slate-500">EGP</span>
             </div>
-            <div className="text-xs text-cyan-700 dark:text-cyan-400 font-semibold mt-1">
+            <div className="text-xs text-cyan-700 dark:text-cyan-400 font-bold mt-1">
               حساب الودائع والاحتياطي التشغيلي
             </div>
-            <div className="mt-2 text-[11px] text-slate-500 font-mono">
+            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
               حساب فرعي احتياطي
             </div>
           </div>
         </div>
 
         {/* Card 4: Main Cash Drawer & Custody Pool */}
-        <div className="card p-5 bg-gradient-to-br from-amber-50/70 to-white dark:from-slate-900 dark:to-slate-900 border border-amber-200 dark:border-slate-800 shadow-sm rounded-xl">
+        <div className="card cyber-card-amber p-5">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-amber-900 dark:text-amber-300">الخزينة النقدية وصناديق العهد</span>
-            <span className="p-2 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded-lg">
-              <Wallet className="size-5" />
+            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">الخزينة النقدية وصناديق العهد</span>
+            <span className="p-2 bg-amber-500/12 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/25 rounded-xl">
+              <Wallet className="size-4" />
             </span>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black text-amber-950 dark:text-amber-200 tracking-tight font-mono">
-              {money(stats.cashBalance)} EGP
+            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
+              {money(stats.cashBalance)} <span className="text-xs font-bold text-slate-500">EGP</span>
             </div>
-            <div className="text-xs text-amber-700 dark:text-amber-400 font-semibold mt-1">
+            <div className="text-xs text-amber-700 dark:text-amber-400 font-bold mt-1">
               سيولة الخزائن النقدية وعهد الفروع
             </div>
-            <div className="mt-2 text-[11px] text-slate-500 font-mono">
+            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
               النقدية في الصندوق
             </div>
           </div>
@@ -591,7 +591,7 @@ function InterBankTransferModal({
         <div className="flex items-center gap-2">
           <button className="btn-secondary text-xs" onClick={onClose}>إلغاء</button>
           <button
-            className="btn-primary text-xs flex items-center gap-1.5 bg-blue-700 hover:bg-blue-800"
+            className="btn-primary text-xs flex items-center gap-1.5"
             onClick={() => transferMut.mutate()}
             disabled={transferMut.isPending}
           >

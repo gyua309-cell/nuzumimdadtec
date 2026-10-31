@@ -317,17 +317,16 @@ export function EmployeeAllocationDaysReportPage() {
       </div>
 
       {/* Educational Architecture Card */}
-      <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50/80 to-indigo-50/50 p-4 text-xs text-blue-950 dark:border-blue-900/40 dark:from-blue-950/20 dark:to-indigo-950/10 dark:text-blue-200 print:hidden">
+      <div className="card cyber-card-cyan p-4 text-xs print:hidden">
         <div className="flex items-start gap-3">
-          <Sparkles className="size-5 text-blue-600 shrink-0 mt-0.5" />
+          <Sparkles className="size-5 text-cyan-600 dark:text-cyan-400 shrink-0 mt-0.5" />
           <div className="space-y-1.5">
-            <h4 className="font-bold text-sm text-blue-900 dark:text-blue-300">
-              دورة عمل تأجير وتوزيع المبرمجين على المشاريع وربطها التلقائي بالفواتير:
+            <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
+              دورة عمل تأجير وتوزيع الكوادر على المشاريع وربطها التلقائي بالفواتير:
             </h4>
-            <p className="leading-relaxed">
-              وفقاً لدليل العمليات المعياري، يعمل البرنامج على تخصيص المطورين بالأيام الفعلية (مثلاً: <strong>18 يوماً</strong> في مشروع "بوابة العملاء"، و<strong>3 أيام</strong> في مشروع "تطبيق الجوال"، و<strong>يوم واحد متفرغ Standby</strong>).
-              يقوم النظام تلقائياً بتحويل الأيام إلى نسبة تكلفة شهرية مقسومة على أيام الشهر (22 يوم)، واحتساب الإيراد التعاقدي وفق سعر خدمة المطور (يومي/شهري).
-              تظهر كل حصة في هذا التقرير مرتبطة تلقائياً ببيانات فواتير المبيعات الضريبية في مديول المبيعات (ZATCA).
+            <p className="leading-relaxed text-slate-600 dark:text-slate-300">
+              وفقاً لدليل العمليات المعياري، يعمل البرنامج على تخصيص الكوادر بالأيام الفعلية على المشاريع واحتساب أيام التفرغ (Bench).
+              يقوم النظام تلقائياً بتحويل الأيام إلى نسبة تكلفة شهرية مقسومة على أيام الشهر (22 يوم)، واحتساب الإيراد التعاقدي وفق سعر الخدمة المعتمد، مع ربط كل حصة بفواتير المبيعات الضريبية (ZATCA).
             </p>
           </div>
         </div>

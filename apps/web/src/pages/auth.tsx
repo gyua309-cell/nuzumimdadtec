@@ -3,29 +3,34 @@ import {
   Building2, KeyRound, ShieldCheck, UserCog, User, Lock, Eye, EyeOff,
   Sparkles, ArrowRight, Layers, Briefcase, Calculator,
   TrendingUp, Wallet, Check, Zap, Award,
-  Sun, Moon, Globe, HelpCircle
+  Sun, Moon, Globe, HelpCircle,
 } from 'lucide-react';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { Field, Spinner, useToast } from '../components/ui';
+import { Field, Modal, Spinner, useToast } from '../components/ui';
 
 /** ISO currency codes offered in the wizard (reference metadata, not business data). */
 const CURRENCIES = ['EGP', 'SAR', 'AED', 'USD', 'EUR', 'KWD', 'QAR', 'BHD', 'OMR', 'JOD', 'GBP'];
 
 function Shell({ children, title, subtitle }: { children: React.ReactNode; title: string; subtitle?: string }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-brand-950 to-slate-900 p-4 text-slate-100">
+    <div className="flex min-h-screen items-center justify-center bg-[#f3f6fb] dark:bg-[#070b14] p-4 text-slate-900 dark:text-slate-100">
       <div className="w-full max-w-xl">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-brand-600 to-indigo-500 text-2xl font-black text-white shadow-xl shadow-brand-500/20">
-            إ
+          <div className="hazard-badge mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl border border-amber-500/40 shadow-lg" />
+          <div className="inline-flex items-center gap-2">
+            <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">IDHAM ERP</h1>
+            <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-[10px] font-black text-amber-700 dark:text-amber-400 border border-amber-500/30">
+              PRO
+            </span>
           </div>
-          <h1 className="text-2xl font-black tracking-tight text-white">إدهام موارد بشرية المحاسبي</h1>
-          <p className="text-xs text-brand-300 font-mono tracking-wider mt-0.5">IDHAM HR ACCOUNTING ERP</p>
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-1">
+            نظام الموارد البشرية والمحاسبة المتكامل
+          </p>
         </div>
-        <div className="card p-6 border-slate-800 bg-slate-900/90 backdrop-blur-xl shadow-2xl">
-          <h2 className="mb-1 text-lg font-bold text-white">{title}</h2>
-          {subtitle && <p className="mb-4 text-xs text-slate-400">{subtitle}</p>}
+        <div className="card cyber-card-amber p-6 shadow-xl">
+          <h2 className="mb-1 text-lg font-extrabold text-slate-900 dark:text-white">{title}</h2>
+          {subtitle && <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>}
           {children}
         </div>
       </div>
@@ -36,9 +41,6 @@ function Shell({ children, title, subtitle }: { children: React.ReactNode; title
 const fieldErr = (e: unknown, path: string) =>
   e instanceof ApiError ? e.problem.errors?.find((x) => x.path === path || x.path.endsWith(`.${path}`))?.message : undefined;
 
-// ------------------------------------------------------------------
-// Modern High-End Login Page with Dual-Pane Welcome Showcase
-// ------------------------------------------------------------------
 export function LoginPage() {
   const { login } = useAuth();
   const toast = useToast();
@@ -52,50 +54,37 @@ export function LoginPage() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   const [showHelpModal, setShowHelpModal] = useState(false);
 
-  // Toggle Theme
   const toggleTheme = () => {
     const nextDark = !isDark;
     setIsDark(nextDark);
-    if (nextDark) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('idham.theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('idham.theme', 'light');
-    }
+    document.documentElement.classList.toggle('dark', nextDark);
+    localStorage.setItem('idham.theme', nextDark ? 'dark' : 'light');
   };
 
-  // Demo Credentials & Quick Switch
   const DEMO_ACCOUNTS = [
     {
       roleKey: 'admin' as const,
       roleTitle: 'مدير النظام التنفيذي',
-      roleEn: 'Executive Admin',
       u: 'admin',
       p: 'AdminPass12345!',
-      desc: 'صلاحيات كاملة: الإدارة، المشاريع، المحاسبة، ZATCA',
       icon: Award,
-      badgeColor: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+      badgeColor: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
     },
     {
       roleKey: 'finance' as const,
       roleTitle: 'مدير مالي ومحاسب',
-      roleEn: 'Finance & Tax Manager',
       u: 'accountant',
       p: 'Finance123!',
-      desc: 'القيود المحاسبية، الضرائب، إقرارات الزكاة، الفوترة',
       icon: Calculator,
-      badgeColor: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+      badgeColor: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
     },
     {
       roleKey: 'pmo' as const,
       roleTitle: 'مدير مشاريع وعمليات',
-      roleEn: 'PMO & Operations Lead',
       u: 'pmo',
       p: 'PmoPass123!',
-      desc: 'توزيع المطورين، أيام العمل، هوامش الربحية',
       icon: Briefcase,
-      badgeColor: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
+      badgeColor: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-500/30',
     },
   ];
 
@@ -108,47 +97,41 @@ export function LoginPage() {
     }
   };
 
-  // Interactive Slides for Welcome Pane
   const SLIDES = [
     {
       id: 0,
       tag: 'الفوترة الإلكترونية المعتمدة',
       title: 'الربط المباشر مع هيئة الزكاة (ZATCA Phase 2)',
-      desc: 'توليد مستندات UBL XML 2.1 المعتمدة، التشفير وحساب التجزئة SHA-256، توقيع الأختام الرقمية CSID، وأكواد الاستجابة السريعة QR المشفرة لكافة الفواتير الضريبية والمبسطة.',
+      desc: 'توليد مستندات UBL XML 2.1 المعتمدة، التشفير وحساب التجزئة SHA-256، توقيع الأختام الرقمية CSID، وأكواد الاستجابة السريعة QR بصيغة TLV لكافة الفواتير الضريبية والمبسطة.',
       icon: ShieldCheck,
-      color: 'from-emerald-500 to-teal-600',
       pill: 'معتمد ومطابق 100%',
     },
     {
       id: 1,
       tag: 'حوكمة الكوادر والمشاريع',
-      title: 'توزيع المطورين بالأيام الفعلية وربط الفوترة',
-      desc: 'توزيع دقيق لأيام وساعات العمل للمبرمجين على المشاريع (مثال: 18 يوم بمشروع A و3 أيام بمشروع B)، واحتساب نسبة استغلال الكوادر والفاقد الاستيعابي (Bench Cost) لحظياً.',
+      title: 'توزيع الكوادر بالأيام الفعلية وربط الفوترة',
+      desc: 'توزيع دقيق لأيام وساعات العمل للكوادر على المشاريع، واحتساب نسبة استغلال الكوادر والفاقد الاستيعابي (Bench Cost) لحظياً مع ربط مباشر بفواتير المبيعات.',
       icon: Layers,
-      color: 'from-brand-500 to-indigo-600',
       pill: 'ربط مباشر بالمبيعات',
     },
     {
       id: 2,
       tag: 'محرك التكلفة متعدد العملات',
-      title: 'رواتب وبدلات الكوادر الإقليمية (SAR / EGP)',
-      desc: 'محرك مالي دقيق لمعالجة رواتب المطورين في مصر والسعودية، مع تحويل العملات اللحظي وفق أسعار الصرف الرسمية، وحساب التأمينات الاجتماعية والبدلات والضرائب.',
+      title: 'رواتب وبدلات وعهد الفروع الإقليمية (SAR / EGP)',
+      desc: 'محرك مالي دقيق لمعالجة رواتب الكوادر وعهد الفروع في السعودية ومصر، مع تحويل العملات وفق أسعار الصرف المعتمدة، وحساب مكافأة نهاية الخدمة والتأمينات.',
       icon: Wallet,
-      color: 'from-violet-500 to-purple-600',
       pill: 'دعم العملات المتعددة',
     },
     {
       id: 3,
       tag: 'الرقابة المالية الإستراتيجية',
-      title: 'لوحة الذكاء التنفيذي ومصفوفة الربحية',
-      desc: 'مؤشرات الأداء المالي والتشغيلي المباشر، هوامش ربحية العملاء والمشاريع، فحص جدوى أسعار الخدمات، وميزان مراجعة متزن لحظياً من القيود المحاسبية مباشرة.',
+      title: 'لوحة المؤشرات التنفيذية ومصفوفة الربحية',
+      desc: 'مؤشرات الأداء المالي والتشغيلي الحية، هوامش ربحية العملاء والمشاريع، وميزان مراجعة متزن لحظياً من القيود المحاسبية مباشرة مع محرك طباعة وتصدير موحد.',
       icon: TrendingUp,
-      color: 'from-cyan-500 to-blue-600',
       pill: 'مؤشرات تنفيذية حية',
     },
   ];
 
-  // Auto-rotate slides
   useEffect(() => {
     const timer = setInterval(() => {
       setActiveSlide((prev) => (prev + 1) % SLIDES.length);
@@ -182,63 +165,71 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-stretch bg-slate-950 font-sans selection:bg-brand-500 selection:text-white">
-      {/* ── Left / Secondary Pane: Interactive Welcome & Feature Showcase (Desktop) ── */}
-      <div className="hidden lg:flex lg:w-1/2 xl:w-7/12 relative overflow-hidden flex-col justify-between p-12 bg-gradient-to-br from-slate-950 via-brand-950 to-indigo-950 text-white border-e border-slate-800/80">
-        {/* Ambient Glow Orbs */}
-        <div className="absolute -top-32 -start-32 size-96 rounded-full bg-brand-600/20 blur-3xl pointer-events-none" />
-        <div className="absolute top-1/2 -end-32 size-96 rounded-full bg-indigo-600/15 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-32 start-1/4 size-80 rounded-full bg-emerald-600/15 blur-3xl pointer-events-none" />
+    <div className="min-h-screen w-full flex items-stretch bg-[#f3f6fb] dark:bg-[#070b14] text-slate-900 dark:text-slate-100 font-sans">
+      {/* ── Left / Showcase Pane: Obsidian Cyber Executive Identity (Desktop) ── */}
+      <div className="hidden lg:flex lg:w-1/2 xl:w-7/12 relative overflow-hidden flex-col justify-between p-12 bg-[#070b14] text-white border-e border-slate-800">
+        {/* Ambient Cyber Glow Orbs */}
+        <div className="absolute -top-32 -start-32 size-96 rounded-full bg-amber-500/15 blur-3xl pointer-events-none" />
+        <div className="absolute top-1/3 -end-32 size-96 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 start-1/4 size-80 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
 
-        {/* Subtle Decorative Grid Pattern */}
+        {/* Subtle Grid Pattern */}
         <div
-          className="absolute inset-0 opacity-[0.03] pointer-events-none"
+          className="absolute inset-0 opacity-[0.04] pointer-events-none"
           style={{
-            backgroundImage: `radial-gradient(circle at 1px 1px, #fff 1px, transparent 0)`,
+            backgroundImage: 'radial-gradient(circle at 1px 1px, #fff 1px, transparent 0)',
             backgroundSize: '24px 24px',
           }}
         />
 
-        {/* Top Header & Brand Identity */}
+        {/* Top Header & IDHAM Hazard Brand Identity */}
         <div className="relative z-10 flex items-center justify-between">
           <div className="flex items-center gap-3.5">
-            <div className="size-12 rounded-2xl bg-gradient-to-tr from-brand-600 via-brand-500 to-indigo-500 flex items-center justify-center font-black text-2xl text-white shadow-xl shadow-brand-500/25 ring-1 ring-white/20">
-              إ
-            </div>
+            <div className="hazard-badge size-12 rounded-2xl border border-amber-500/40 shadow-xl" />
             <div>
               <div className="text-xl font-black tracking-tight text-white flex items-center gap-2">
-                <span>إدهام موارد بشرية المحاسبي</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-brand-500/20 text-brand-300 border border-brand-500/30">
-                  إصدار 2026
+                <span>IDHAM ERP</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-md font-black bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  PRO 2026
                 </span>
               </div>
-              <div className="text-xs text-slate-400 font-mono tracking-wider">
-                IDHAM ENTERPRISE HR & FINANCIAL INTELLIGENCE ERP
+              <div className="text-xs font-bold text-slate-400 mt-0.5">
+                منظومة الموارد البشرية والمحاسبة المتكاملة (السعودية ومصر)
               </div>
             </div>
           </div>
 
-          {/* Theme Toggle Button */}
           <button
+            type="button"
             onClick={toggleTheme}
-            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-colors"
-            title="تبديل المظهر"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-slate-200 border border-white/10 transition-colors cursor-pointer"
+            title="تبديل المظهر الليلي / النهاري"
           >
-            {isDark ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-brand-300" />}
+            {isDark ? (
+              <>
+                <Sun className="size-4 text-amber-400" />
+                <span>الوضع النهاري</span>
+              </>
+            ) : (
+              <>
+                <Moon className="size-4 text-cyan-400" />
+                <span>الوضع الليلي</span>
+              </>
+            )}
           </button>
         </div>
 
         {/* Middle: Feature Carousel Card */}
         <div className="relative z-10 my-auto py-8">
-          <div className="space-y-6 max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-white/10 backdrop-blur-md text-brand-200 border border-white/10">
-              <Sparkles className="size-3.5 text-brand-400" />
+          <div className="rounded-3xl border border-slate-800/90 bg-[#0c1427]/90 p-8 shadow-2xl backdrop-blur-md space-y-5 max-w-xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
+              <Sparkles className="size-3.5 text-amber-400" />
               <span>{SLIDES[activeSlide].tag}</span>
-              <span className="text-white/40">•</span>
-              <span className="text-[11px] text-emerald-400 font-bold">{SLIDES[activeSlide].pill}</span>
+              <span className="text-white/30">•</span>
+              <span className="text-[11px] text-emerald-400 font-extrabold">{SLIDES[activeSlide].pill}</span>
             </div>
 
-            <h2 className="text-3xl font-black text-white leading-tight tracking-tight">
+            <h2 className="text-2xl xl:text-3xl font-black text-white leading-tight tracking-tight">
               {SLIDES[activeSlide].title}
             </h2>
 
@@ -246,22 +237,23 @@ export function LoginPage() {
               {SLIDES[activeSlide].desc}
             </p>
 
-            {/* Slide Navigation Dots & Icons */}
-            <div className="flex items-center gap-3 pt-4">
+            {/* Slide Navigation Pills */}
+            <div className="flex flex-wrap items-center gap-2 pt-2">
               {SLIDES.map((s, idx) => {
                 const IconComponent = s.icon;
                 const isActive = activeSlide === idx;
                 return (
                   <button
                     key={s.id}
+                    type="button"
                     onClick={() => setActiveSlide(idx)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
                       isActive
-                        ? 'bg-white text-slate-900 shadow-lg shadow-white/10 scale-105'
-                        : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white border border-white/5'
+                        ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-slate-950 shadow-md'
+                        : 'bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/10'
                     }`}
                   >
-                    <IconComponent className={`size-4 ${isActive ? 'text-brand-600' : 'text-slate-400'}`} />
+                    <IconComponent className={`size-4 ${isActive ? 'text-slate-950' : 'text-cyan-400'}`} />
                     <span className="hidden xl:inline">{s.tag}</span>
                   </button>
                 );
@@ -270,259 +262,250 @@ export function LoginPage() {
           </div>
         </div>
 
-        {/* Bottom Metrics & Compliance Badges */}
-        <div className="relative z-10 pt-6 border-t border-white/10 grid grid-cols-3 gap-4">
+        {/* Bottom Compliance Pillars */}
+        <div className="relative z-10 pt-6 border-t border-slate-800/80 grid grid-cols-3 gap-4">
           <div className="space-y-1">
-            <div className="text-2xl font-black font-mono text-emerald-400">100%</div>
-            <div className="text-xs text-slate-300 font-semibold">مطابقة ZATCA 2</div>
-            <div className="text-[10px] text-slate-400">تشفير UBL 2.1 معتمد</div>
+            <div className="text-xl font-black font-mono text-emerald-400">ZATCA Phase 2</div>
+            <div className="text-xs text-slate-300 font-bold">الفوترة الإلكترونية</div>
+            <div className="text-[11px] text-slate-400">UBL 2.1 + TLV QR معتمد</div>
           </div>
           <div className="space-y-1">
-            <div className="text-2xl font-black font-mono text-brand-300">94.2%</div>
-            <div className="text-xs text-slate-300 font-semibold">استغلال الكوادر</div>
-            <div className="text-[10px] text-slate-400">حوكمة الوقت المستغل</div>
+            <div className="text-xl font-black font-mono text-amber-400">HR & PMO</div>
+            <div className="text-xs text-slate-300 font-bold">حوكمة الكوادر والمشاريع</div>
+            <div className="text-[11px] text-slate-400">تتبع الأيام والربحية الفعلية</div>
           </div>
           <div className="space-y-1">
-            <div className="text-2xl font-black font-mono text-cyan-300">SAR / EGP</div>
-            <div className="text-xs text-slate-300 font-semibold">تعدد العملات الحقيقي</div>
-            <div className="text-[10px] text-slate-400">فروق العملة والرواتب</div>
+            <div className="text-xl font-black font-mono text-cyan-400">SAR / EGP</div>
+            <div className="text-xs text-slate-300 font-bold">تعدد العملات والفروع</div>
+            <div className="text-[11px] text-slate-400">رواتب وعهد وميزان متوازن</div>
           </div>
         </div>
       </div>
 
-      {/* ── Right / Main Pane: High-Conversion Login Form ── */}
-      <div className="w-full lg:w-1/2 xl:w-5/12 flex items-center justify-center p-6 sm:p-10 md:p-12 bg-slate-900/50 backdrop-blur-2xl">
-        <div className="w-full max-w-md space-y-6">
-          {/* Mobile Header (Shown on Small Screens) */}
-          <div className="text-center lg:hidden space-y-2 mb-6">
-            <div className="mx-auto size-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center font-black text-2xl text-white shadow-xl shadow-brand-500/20">
-              إ
-            </div>
-            <h1 className="text-2xl font-black text-white">إدهام موارد بشرية المحاسبي</h1>
-            <p className="text-xs text-brand-300 font-mono">IDHAM HR ACCOUNTING ERP</p>
-          </div>
-
-          {/* Form Header */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-400 bg-brand-500/10 px-2.5 py-1 rounded-full border border-brand-500/20">
-                <Sparkles className="size-3" /> بوابة الدخول الآمنة
-              </span>
-              <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-mono">
-                <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                Supabase Live Connected
-              </span>
-            </div>
-            <h2 className="text-2xl font-black text-white tracking-tight">تسجيل الدخول للمنظومة</h2>
-            <p className="text-xs text-slate-400">
-              أدخل بياناتك أو اختر دورك للتجربة الفورية بنقرة واحدة.
-            </p>
-          </div>
-
-          {/* Quick Demo Role Selector (1-Click Switch) */}
-          <div className="space-y-2 pt-1">
-            <div className="flex items-center justify-between text-[11px] text-slate-400 font-semibold">
-              <span>اختر دوراً للتجربة السريعة:</span>
-              <span className="text-brand-400 font-bold">نقرة واحدة للتعبئة</span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              {DEMO_ACCOUNTS.map((acc) => {
-                const IconComponent = acc.icon;
-                const isCurrent = selectedRole === acc.roleKey;
-                return (
-                  <button
-                    key={acc.roleKey}
-                    type="button"
-                    onClick={() => handleSelectRole(acc.roleKey)}
-                    className={`relative p-2.5 rounded-xl text-start transition-all border ${
-                      isCurrent
-                        ? 'bg-brand-950/80 border-brand-500 text-white shadow-md shadow-brand-500/10 ring-1 ring-brand-500/50'
-                        : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className={`size-6 rounded-lg flex items-center justify-center ${acc.badgeColor} border`}>
-                        <IconComponent className="size-3.5" />
-                      </div>
-                      {isCurrent && <Check className="size-3.5 text-brand-400" />}
-                    </div>
-                    <div className="font-bold text-xs leading-snug truncate">{acc.roleTitle}</div>
-                    <div className="text-[10px] font-mono text-slate-400 truncate">{acc.u}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Quick 1-Click Launch Button */}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => handleInstantLogin()}
-            className="w-full h-11 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-brand-600 hover:from-emerald-500 hover:to-brand-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 transition-all hover:scale-[1.01] active:scale-[0.99] border border-emerald-400/30"
-          >
-            {busy ? (
-              <Spinner />
-            ) : (
-              <>
-                <Zap className="size-4 text-amber-300 animate-bounce" />
-                <span>دخول فوري كـ ({DEMO_ACCOUNTS.find((a) => a.roleKey === selectedRole)?.roleTitle})</span>
-                <ArrowRight className="size-3.5 ms-1" />
-              </>
-            )}
-          </button>
-
-          {/* Divider */}
-          <div className="relative flex items-center py-1">
-            <div className="grow border-t border-slate-800" />
-            <span className="shrink mx-3 text-[11px] text-slate-500 font-medium">أو عبر إدخال البيانات</span>
-            <div className="grow border-t border-slate-800" />
-          </div>
-
-          {/* Actual Login Form */}
-          <form onSubmit={submit} className="space-y-4">
-            {/* Username Input */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                <span>اسم المستخدم أو البريد الإلكتروني</span>
-                <span className="text-[10px] font-mono text-slate-500">Username</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 start-0 ps-3.5 flex items-center pointer-events-none text-slate-400">
-                  <User className="size-4" />
-                </div>
-                <input
-                  type="text"
-                  dir="ltr"
-                  required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="admin"
-                  autoComplete="username"
-                  className="w-full h-11 ps-10 pe-3.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-xs font-mono focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all placeholder:text-slate-500"
-                />
+      {/* ── Right / Main Pane: Dual-Mode Executive Login Card ── */}
+      <div className="w-full lg:w-1/2 xl:w-5/12 flex items-center justify-center p-5 sm:p-10 bg-[#f3f6fb] dark:bg-[#070b14]">
+        <div className="w-full max-w-md space-y-5">
+          {/* Mobile Header */}
+          <div className="flex items-center justify-between lg:hidden mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="hazard-badge size-11 rounded-xl border border-amber-500/40 shadow-md" />
+              <div>
+                <div className="text-lg font-black text-slate-900 dark:text-white">IDHAM ERP</div>
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">نظام الموارد البشرية والمحاسبة</div>
               </div>
             </div>
-
-            {/* Password Input with Show/Hide Toggle */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                <span>كلمة المرور</span>
-                <button
-                  type="button"
-                  onClick={() => setShowHelpModal(true)}
-                  className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors"
-                >
-                  نسيت كلمة المرور؟
-                </button>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 start-0 ps-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="size-4" />
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  dir="ltr"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  autoComplete="current-password"
-                  className="w-full h-11 ps-10 pe-10 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-xs font-mono focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all placeholder:text-slate-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 end-0 pe-3 flex items-center text-slate-400 hover:text-slate-200 transition-colors"
-                  title={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
-                >
-                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Remember Me Checkbox */}
-            <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center gap-2 cursor-pointer text-slate-400 hover:text-slate-300 select-none">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="size-4 rounded border-slate-700 bg-slate-800 text-brand-600 focus:ring-brand-500/20 focus:ring-offset-0"
-                />
-                <span>تذكر بيانات الحساب على هذا المتصفح</span>
-              </label>
-            </div>
-
-            {/* Submit Button */}
             <button
-              type="submit"
-              disabled={busy || !username || !password}
-              className="w-full h-11 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-brand-600/30 transition-all hover:scale-[1.01] active:scale-[0.99]"
+              type="button"
+              onClick={toggleTheme}
+              className="btn-secondary text-xs px-2.5 py-1.5"
             >
-              {busy ? <Spinner /> : <KeyRound className="size-4" />}
-              <span>دخول إلى النظام (Sign In)</span>
+              {isDark ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-amber-600" />}
             </button>
-          </form>
+          </div>
 
-          {/* Cloud & Supabase Status Badge */}
-          <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-800 text-xs text-slate-400 space-y-1">
-            <div className="flex items-center justify-between font-bold text-slate-300">
-              <span className="flex items-center gap-1.5">
-                <Globe className="size-3.5 text-emerald-400" /> اتصال قاعدة البيانات السحابية
-              </span>
-              <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                ACTIVE
-              </span>
+          <div className="card cyber-card-cyan p-6 sm:p-7 space-y-5">
+            {/* Form Header */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-amber-700 dark:text-amber-400 bg-amber-500/12 px-2.5 py-1 rounded-full border border-amber-500/25">
+                  <Sparkles className="size-3" /> بوابة الدخول الآمنة
+                </span>
+                <span className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 font-extrabold">
+                  <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                  متصل سحابياً
+                </span>
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight pt-1">
+                تسجيل الدخول للمنظومة
+              </h2>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                أدخل بيانات حسابك أو اختر الدور للدخول السريع بنقرة واحدة.
+              </p>
             </div>
-            <div className="text-[11px] text-slate-400 font-mono truncate" dir="ltr">
-              db.gybgninvybdddpmyszlw.supabase.co:5432
+
+            {/* Quick Role Selector */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-bold">
+                <span>اختيار سريع للدور الوظيفي:</span>
+                <span className="text-cyan-700 dark:text-cyan-400">تعبئة تلقائية</span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {DEMO_ACCOUNTS.map((acc) => {
+                  const IconComponent = acc.icon;
+                  const isCurrent = selectedRole === acc.roleKey;
+                  return (
+                    <button
+                      key={acc.roleKey}
+                      type="button"
+                      onClick={() => handleSelectRole(acc.roleKey)}
+                      className={`relative p-2.5 rounded-xl text-start transition-all border cursor-pointer ${
+                        isCurrent
+                          ? 'bg-amber-500/10 border-amber-500 text-slate-900 dark:text-white shadow-xs ring-1 ring-amber-500/30'
+                          : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 dark:bg-[#080d1a] dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className={`size-6 rounded-lg flex items-center justify-center ${acc.badgeColor} border`}>
+                          <IconComponent className="size-3.5" />
+                        </div>
+                        {isCurrent && <Check className="size-3.5 text-amber-600 dark:text-amber-400" />}
+                      </div>
+                      <div className="font-extrabold text-[11px] leading-snug truncate">{acc.roleTitle}</div>
+                      <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">{acc.u}</div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+
+            {/* Quick 1-Click Launch Button */}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => handleInstantLogin()}
+              className="btn-primary w-full h-11 text-xs font-black gap-2"
+            >
+              {busy ? (
+                <Spinner />
+              ) : (
+                <>
+                  <Zap className="size-4" />
+                  <span>دخول فوري كـ ({DEMO_ACCOUNTS.find((a) => a.roleKey === selectedRole)?.roleTitle})</span>
+                  <ArrowRight className="size-3.5 ms-1" />
+                </>
+              )}
+            </button>
+
+            {/* Divider */}
+            <div className="relative flex items-center py-0.5">
+              <div className="grow border-t border-slate-200 dark:border-slate-800" />
+              <span className="shrink mx-3 text-[11px] text-slate-400 font-bold">أو تسجيل الدخول اليدوي</span>
+              <div className="grow border-t border-slate-200 dark:border-slate-800" />
+            </div>
+
+            {/* Login Form */}
+            <form onSubmit={submit} className="space-y-3.5">
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>اسم المستخدم أو البريد الإلكتروني</span>
+                  <span className="text-[10px] font-mono text-slate-400">Username</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 start-0 ps-3.5 flex items-center pointer-events-none text-slate-400">
+                    <User className="size-4" />
+                  </div>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    required
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="admin"
+                    autoComplete="username"
+                    className="input h-10 ps-10 font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>كلمة المرور</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowHelpModal(true)}
+                    className="text-[11px] font-bold text-cyan-700 hover:underline dark:text-cyan-400 cursor-pointer"
+                  >
+                    مساعدة في الدخول؟
+                  </button>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 start-0 ps-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Lock className="size-4" />
+                  </div>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    dir="ltr"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    autoComplete="current-password"
+                    className="input h-10 ps-10 pe-10 font-mono text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 end-0 pe-3 flex items-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                    title={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                  >
+                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs pt-0.5">
+                <label className="flex items-center gap-2 cursor-pointer text-slate-600 dark:text-slate-400 font-semibold select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="size-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500/20 dark:border-slate-700 dark:bg-slate-800"
+                  />
+                  <span>تذكر بيانات الجلسة على هذا الجهاز</span>
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={busy || !username || !password}
+                className="btn-secondary w-full h-10 text-xs font-extrabold gap-2 border-cyan-500/40 text-cyan-800 hover:bg-cyan-50/70 dark:text-cyan-300 dark:hover:bg-cyan-950/30"
+              >
+                {busy ? <Spinner /> : <KeyRound className="size-4" />}
+                <span>تسجيل الدخول بالبيانات أعلاه</span>
+              </button>
+            </form>
+          </div>
+
+          {/* Cloud & Supabase Status Footer */}
+          <div className="card px-4 py-3 flex items-center justify-between text-xs">
+            <span className="flex items-center gap-2 font-bold text-slate-600 dark:text-slate-300">
+              <Globe className="size-3.5 text-emerald-500" />
+              <span>اتصال قاعدة البيانات السحابية (Supabase)</span>
+            </span>
+            <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+              ONLINE
+            </span>
           </div>
         </div>
       </div>
 
       {/* Help Modal */}
-      {showHelpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="card max-w-md w-full p-6 space-y-4 border-slate-700 bg-slate-900 text-white">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2 font-bold text-base">
-                <HelpCircle className="size-5 text-brand-400" />
-                <span>بيانات الدخول التجريبي والاستعادة</span>
-              </div>
-              <button
-                onClick={() => setShowHelpModal(false)}
-                className="text-slate-400 hover:text-white text-lg font-bold"
-              >
-                ×
-              </button>
-            </div>
-            <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
-              <p>
-                تم تزويد النظام بحسابات تجريبية مهيأة مسبقاً لاختبار كافة الصلاحيات والمديولات التشغيلية:
-              </p>
-              <div className="p-3 rounded-lg bg-slate-800 space-y-1 font-mono text-[11px]">
-                <div>• مدير النظام: <strong className="text-white">admin</strong> / <strong>AdminPass12345!</strong></div>
-                <div>• مدير الحسابات: <strong className="text-white">accountant</strong> / <strong>Finance123!</strong></div>
-                <div>• مدير العمليات: <strong className="text-white">pmo</strong> / <strong>PmoPass123!</strong></div>
-              </div>
-              <p className="text-slate-400 text-[11px]">
-                في حال كنت تستخدم قاعدة بيانات الإنتاج الرسمية، يرجى مراجعة مسؤول إدارة تقنية المعلومات لإعادة تعيين كلمة المرور من شاشة إعدادات المستخدمين.
-              </p>
-            </div>
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setShowHelpModal(false)}
-                className="btn-primary text-xs"
-              >
-                حسناً، فهمت
-              </button>
-            </div>
+      <Modal
+        open={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+        title="بيانات الدخول والاستعادة"
+        footer={
+          <button type="button" onClick={() => setShowHelpModal(false)} className="btn-primary text-xs">
+            حسناً، فهمت
+          </button>
+        }
+      >
+        <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+          <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
+            <HelpCircle className="size-4 text-cyan-500" />
+            <span>حسابات الأدوار المهيأة في المنظومة:</span>
           </div>
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#080d1a] border border-slate-200 dark:border-slate-800 space-y-1.5 font-mono text-[11px]">
+            <div>• مدير النظام: <strong className="text-slate-900 dark:text-white">admin</strong> / <strong>AdminPass12345!</strong></div>
+            <div>• مدير الحسابات: <strong className="text-slate-900 dark:text-white">accountant</strong> / <strong>Finance123!</strong></div>
+            <div>• مدير العمليات: <strong className="text-slate-900 dark:text-white">pmo</strong> / <strong>PmoPass123!</strong></div>
+          </div>
+          <p className="text-slate-500 dark:text-slate-400 text-[11px]">
+            لإعادة تعيين كلمة مرور لمستخدم في بيئة الإنتاج، يرجى التواصل مع مدير المنظومة من شاشة «إدارة المستخدمين».
+          </p>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }
@@ -627,8 +610,8 @@ export function SetupWizard() {
         {steps.map((s, i) => {
           const Icon = s.icon;
           return (
-            <div key={s.title} className={`flex items-center gap-2 ${i === step ? 'text-brand-400 font-bold' : i < step ? 'text-emerald-400' : 'text-slate-500'}`}>
-              <div className={`flex size-8 items-center justify-center rounded-full text-xs font-bold ${i === step ? 'bg-brand-600 text-white' : i < step ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            <div key={s.title} className={`flex items-center gap-2 ${i === step ? 'text-amber-600 dark:text-amber-400 font-extrabold' : i < step ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
+              <div className={`flex size-8 items-center justify-center rounded-full text-xs font-extrabold ${i === step ? 'bg-amber-500 text-slate-950' : i < step ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
                 {i < step ? '✓' : <Icon className="size-3.5" />}
               </div>
               <span className="text-xs hidden sm:inline">{s.title}</span>
