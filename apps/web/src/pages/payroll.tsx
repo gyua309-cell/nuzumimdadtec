@@ -104,13 +104,14 @@ export function MonthlyVariablesPage() {
     { name: 'notes', label: 'ملاحظات', type: 'textarea' },
   ];
 
-  const totalApproved = list.data?.data.filter((v: any) => v.status === 'APPROVED').reduce((s: number, v: any) => s + Number(v.computedAmount), 0) ?? 0;
-  const totalDraft = list.data?.data.filter((v: any) => v.status === 'DRAFT').reduce((s: number, v: any) => s + Number(v.computedAmount), 0) ?? 0;
+  const rows: any[] = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
+  const totalApproved = rows.filter((v: any) => v.status === 'APPROVED').reduce((s: number, v: any) => s + Number(v.computedAmount), 0) ?? 0;
+  const totalDraft = rows.filter((v: any) => v.status === 'DRAFT').reduce((s: number, v: any) => s + Number(v.computedAmount), 0) ?? 0;
 
   const handleExport = () => {
     downloadCsv(`monthly-variables-${periodId || today()}.csv`, [
       ['الموظف', 'النوع', 'الفئة', 'المشروع', 'المبلغ المحسوب', 'الحالة'],
-      ...(list.data?.data ?? []).map((v: any) => [
+      ...rows.map((v: any) => [
         v.employeeName, v.variableTypeName, VAR_CATEGORY[v.category]?.label || v.category, v.projectName || '', v.computedAmount, v.status,
       ]),
     ]);
@@ -144,16 +145,16 @@ export function MonthlyVariablesPage() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Stat label="إجمالي المعتمد" value={money(totalApproved)} tone="green" />
             <Stat label="إجمالي المسودة" value={money(totalDraft)} hint="في انتظار الاعتماد" />
-            <Stat label="عدد السجلات" value={String(list.data?.meta.total ?? '—')} />
+            <Stat label="عدد السجلات" value={String(list.data?.meta?.total ?? rows.length)} />
           </div>
           <div className="card overflow-hidden">
-            {list.isLoading ? <Loading /> : list.error ? <ErrorState error={list.error} /> : list.data!.data.length === 0 ? <EmptyState text="لا توجد متغيرات لهذه الفترة." /> : (
+            {list.isLoading ? <Loading /> : list.error ? <ErrorState error={list.error} /> : rows.length === 0 ? <EmptyState text="لا توجد متغيرات لهذه الفترة." /> : (
               <table className="table">
                 <thead>
                   <tr><th>الموظف</th><th>النوع</th><th>الفئة</th><th>المشروع</th><th>المبلغ المحسوب</th><th>الحالة</th><th /></tr>
                 </thead>
                 <tbody>
-                  {list.data!.data.map((v: any) => (
+                  {rows.map((v: any) => (
                     <tr key={v.id}>
                       <td><Link to={`/hr/employees/${v.employeeId}`} className="text-brand-600 hover:underline">{v.employeeName}</Link></td>
                       <td>{v.variableTypeName}</td>
@@ -208,7 +209,7 @@ export function LoansPage() {
   const list = useQuery({ queryKey: ['/loans', page, search], queryFn: () => api.get<Page<any>>('/loans', { page, pageSize: 100, q: search }) });
   const detail = useQuery({ queryKey: ['loan', selected?.id], enabled: !!selected?.id, queryFn: () => api.get<any>(`/loans/${selected.id}`) });
 
-  const loans = list.data?.data ?? [];
+  const loans = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
 
   // Summary KPIs
   const totalPrincipal = loans.reduce((acc: number, l: any) => acc + Number(l.principalBase || 0), 0);
@@ -592,9 +593,10 @@ export function PayrollRunsPage() {
             <button
               className="btn-secondary text-xs flex items-center gap-1.5"
               onClick={() => {
+                const runList = Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? []);
                 downloadCsv(`payroll-runs-${today()}.csv`, [
                   ['رقم المسيّر', 'الفترة', 'عدد الموظفين', 'إجمالي الرواتب', 'إجمالي المتغيرات', 'صافي الاستحقاق', 'رقم القيد', 'الحالة'],
-                  ...(runs.data?.data ?? []).map((r: any) => [
+                  ...runList.map((r: any) => [
                     r.runNo, r.periodName, r.employeeCount, r.totalSalaryBase, r.totalVariablesBase, r.netPayableBase, r.journalEntryNo || '', r.status,
                   ]),
                 ]);
@@ -629,11 +631,11 @@ export function PayrollRunsPage() {
       </div>
       <div className="card overflow-hidden">
         <div className="border-b border-slate-200 px-4 py-2.5 font-semibold dark:border-slate-800">التشغيلات السابقة</div>
-        {runs.isLoading ? <Loading /> : runs.data?.data.length === 0 ? <EmptyState text="لم يتم تشغيل مسيّر بعد." /> : (
+        {runs.isLoading ? <Loading /> : (Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? [])).length === 0 ? <EmptyState text="لم يتم تشغيل مسيّر بعد." /> : (
           <table className="table">
             <thead><tr><th>#</th><th>الفترة</th><th>الموظفون</th><th>الرواتب</th><th>المتغيرات</th><th>صافي الاستحقاق</th><th>القيد</th><th>الحالة</th><th /></tr></thead>
             <tbody>
-              {runs.data?.data.map((r: any) => (
+              {(Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? [])).map((r: any) => (
                 <tr key={r.id}>
                   <td className="num">{r.runNo}</td>
                   <td>{r.periodName}</td>

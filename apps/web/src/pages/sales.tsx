@@ -124,7 +124,7 @@ export function InvoicesPage() {
       }),
   });
 
-  const list = invoices.data?.data ?? [];
+  const list = Array.isArray(invoices.data) ? invoices.data : (invoices.data?.data ?? []);
 
   // Summary Metrics
   const totalCount = list.length;
@@ -518,7 +518,7 @@ function AutoGenerateInvoicesModal({
             onChange={(e) => setProjectId(e.target.value)}
           >
             <option value="">جميع المشاريع والعملاء</option>
-            {projects.data?.data.map((p) => (
+            {(Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => (
               <option key={p.id} value={p.id}>
                 {p.code} — {p.nameAr}
               </option>
@@ -677,7 +677,7 @@ function CreateInvoiceModal({
     queryFn: () => api.get<Page<any>>('/employees', { pageSize: 200 }),
   });
 
-  const employeeList = employees.data?.data ?? [];
+  const employeeList = Array.isArray(employees.data) ? employees.data : (employees.data?.data ?? []);
 
   const addLine = () => {
     setLines((prev) => [
@@ -898,7 +898,7 @@ function CreateInvoiceModal({
                 onChange={(e) => setClientId(e.target.value)}
               >
                 <option value="">-- اختر العميل من القائمة --</option>
-                {clients.data?.data.map((c) => (
+                {(Array.isArray(clients.data) ? clients.data : (clients.data?.data ?? [])).map((c: any) => (
                   <option key={c.id} value={c.id}>
                     {c.nameAr} {c.vatNumber ? `(ضريبي: ${c.vatNumber})` : ''}
                   </option>
@@ -913,7 +913,7 @@ function CreateInvoiceModal({
                 onChange={(e) => setProjectId(e.target.value)}
               >
                 <option value="">-- خدمات عامة غير مرتبطة بمشروع --</option>
-                {projects.data?.data.map((p) => (
+                {(Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => (
                   <option key={p.id} value={p.id}>
                     {p.code} — {p.nameAr}
                   </option>
@@ -1568,7 +1568,7 @@ export function CreditNotesPage() {
     queryFn: () => api.get<Page<any>>('/credit-notes', { pageSize: 100 }),
   });
 
-  const list = invoices.data?.data ?? [];
+  const list = Array.isArray(invoices.data) ? invoices.data : (invoices.data?.data ?? []);
 
   return (
     <div className="space-y-5">

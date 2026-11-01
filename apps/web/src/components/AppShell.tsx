@@ -832,7 +832,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
               <Building2 className="size-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
               <select
                 className="bg-transparent text-xs font-extrabold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[180px]"
-                value={company?.id ?? me.companies[0].id}
+                value={company?.id ?? me?.companies?.[0]?.id ?? ''}
                 onChange={(e) => {
                   if (e.target.value) {
                     switchCompany(e.target.value);

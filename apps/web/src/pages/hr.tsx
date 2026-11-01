@@ -111,11 +111,12 @@ export function EmployeesPage() {
     },
     onError: (e) => { setErrors(fieldErrors(e)); toast.error(e); },
   });
-  const empList = list.data?.data ?? [];
-  const totalEmployees = list.data?.meta.total ?? empList.length;
-  const activeCount = empList.filter((x: any) => x.status === 'ACTIVE').length;
-  const billableCount = empList.filter((x: any) => x.isBillableResource).length;
-  const withProfileCount = empList.filter((x: any) => x.costProfileId || x.costProfileName).length;
+  const rawData: any = list.data;
+  const empList: any[] = Array.isArray(rawData) ? rawData : (Array.isArray(rawData?.data) ? rawData.data : (Array.isArray(rawData?.items) ? rawData.items : []));
+  const totalEmployees = list.data?.meta?.total ?? empList.length;
+  const activeCount = empList.filter((x: any) => x?.status === 'ACTIVE').length;
+  const billableCount = empList.filter((x: any) => x?.isBillableResource).length;
+  const withProfileCount = empList.filter((x: any) => x?.costProfileId || x?.costProfileName).length;
 
   const handleExport = () => {
     downloadCsv(`employees-${today()}.csv`, [
@@ -169,11 +170,11 @@ export function EmployeesPage() {
           </div>
           {list.data?.meta && (
             <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              المعروض: <strong className="font-mono text-slate-900 dark:text-white font-bold">{list.data.data.length}</strong> من <strong className="font-mono text-slate-900 dark:text-white font-bold">{list.data.meta.total}</strong>
+              المعروض: <strong className="font-mono text-slate-900 dark:text-white font-bold">{empList.length}</strong> من <strong className="font-mono text-slate-900 dark:text-white font-bold">{totalEmployees}</strong>
             </div>
           )}
         </div>
-        {list.isLoading ? <Loading /> : list.error ? <div className="p-4"><ErrorState error={list.error} /></div> : list.data!.data.length === 0 ? (
+        {list.isLoading ? <Loading /> : list.error ? <div className="p-4"><ErrorState error={list.error} /></div> : empList.length === 0 ? (
           <EmptyState text={search || status ? 'لا توجد نتائج مطابقة' : 'لا يوجد موظفون بعد. ابدأ بتعيين أول موظف.'} />
         ) : (
           <>
@@ -193,7 +194,7 @@ export function EmployeesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {list.data!.data.map((e) => (
+                  {empList.map((e: any) => (
                     <tr key={e.id} className="cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-800/50" onClick={() => nav(`/hr/employees/${e.id}`)}>
                       <td className="num text-start font-mono font-bold text-slate-800 dark:text-slate-200">{e.code}</td>
                       <td>
@@ -319,8 +320,16 @@ export function EmployeeDetailPage() {
   const removeVersion = (kind: string, vid: string) => confirm('حذف آخر إصدار؟ (تصحيح إدخال خاطئ)') && act.mutate(() => api.del(`/employees/${id}/${kind}/${vid}`));
 
   if (emp.isLoading) return <Loading />;
-  if (emp.error) return <ErrorState error={emp.error} />;
+  if (emp.error || !emp.data) return <ErrorState error={emp.error} />;
   const e = emp.data;
+  const placements: any[] = Array.isArray(e?.placements) ? e.placements : [];
+  const compensations: any[] | null = Array.isArray(e?.compensations) ? e.compensations : (e?.compensations === null ? null : []);
+  const costProfiles: any[] = Array.isArray(e?.costProfiles) ? e.costProfiles : [];
+  const overrides: any[] = Array.isArray(e?.overrides) ? e.overrides : [];
+  const custodies: any[] = Array.isArray(e?.custodies) ? e.custodies : [];
+  const statusHistory: any[] = Array.isArray(e?.statusHistory) ? e.statusHistory : [];
+  const documents: any[] = Array.isArray(e?.documents) ? e.documents : [];
+
   const submit = (path: string) => async (body: Record<string, any>) => refresh(await api.post(`/employees/${id}${path}`, body));
 
   return (
@@ -343,12 +352,12 @@ export function EmployeeDetailPage() {
           <table className="table">
             <thead><tr><th>الفترة</th><th>القسم</th><th>الفرع</th><th>الوظيفة</th><th>مركز التكلفة</th><th>المدير</th><th>السبب</th><th /></tr></thead>
             <tbody>
-              {e.placements.map((p: any, i: number) => (
+              {placements.map((p: any, i: number) => (
                 <tr key={p.id}>
                   <td><Effective from={p.effectiveFrom} to={p.effectiveTo} /></td>
                   <td>{p.departmentName ?? '—'}</td><td>{p.branchName ?? '—'}</td><td>{p.positionTitle ?? '—'}</td><td>{p.costCenterName ?? '—'}</td><td>{p.managerName ?? '—'}</td>
                   <td className="text-xs">{p.changeReason}</td>
-                  <td>{i === 0 && e.placements.length > 1 && <button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => removeVersion('placements', p.id)}><Trash2 className="size-3.5" /></button>}</td>
+                  <td>{i === 0 && placements.length > 1 && <button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => removeVersion('placements', p.id)}><Trash2 className="size-3.5" /></button>}</td>
                 </tr>
               ))}
             </tbody>
@@ -357,20 +366,20 @@ export function EmployeeDetailPage() {
       )}
 
       {tab === 'salary' && (
-        e.compensations === null ? <EmptyState text="ليست لديك صلاحية عرض الرواتب." /> : (
+        compensations === null ? <EmptyState text="ليست لديك صلاحية عرض الرواتب." /> : (
           <Section title="سجل الراتب" action={<button className="btn-primary h-8" onClick={() => setModal('salary')}><Plus className="size-4" /> تعديل الراتب</button>}>
             <table className="table">
               <thead><tr><th>الفترة</th><th>الأساسي</th><th>التأميني</th><th>السبب</th><th>بواسطة</th><th /></tr></thead>
               <tbody>
-                {e.compensations.length === 0 && <tr><td colSpan={6} className="text-center text-slate-500">لم يُسجل راتب بعد</td></tr>}
-                {e.compensations.map((c: any, i: number) => (
+                {compensations.length === 0 && <tr><td colSpan={6} className="text-center text-slate-500">لم يُسجل راتب بعد</td></tr>}
+                {compensations.map((c: any, i: number) => (
                   <tr key={c.id}>
                     <td><Effective from={c.effectiveFrom} to={c.effectiveTo} /></td>
                     <td className="num">{money(c.basicSalary)} {c.salaryCurrency}</td>
                     <td className="num">{money(c.insuranceSalary)} {c.insuranceCurrency}</td>
                     <td className="text-xs">{c.changeReason}</td>
                     <td className="text-xs">{c.createdBy} — {dateTime(c.createdAt)}</td>
-                    <td>{i === 0 && e.compensations.length > 1 && <button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => removeVersion('compensations', c.id)}><Trash2 className="size-3.5" /></button>}</td>
+                    <td>{i === 0 && compensations.length > 1 && <button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => removeVersion('compensations', c.id)}><Trash2 className="size-3.5" /></button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -386,8 +395,8 @@ export function EmployeeDetailPage() {
             <table className="table">
               <thead><tr><th>الفترة</th><th>الملف</th><th /></tr></thead>
               <tbody>
-                {e.costProfiles.length === 0 && <tr><td colSpan={3} className="text-center text-amber-600">لا يوجد ملف تكلفة؛ لن تُحسب مكونات التكلفة لهذا الموظف.</td></tr>}
-                {e.costProfiles.map((p: any, i: number) => (
+                {costProfiles.length === 0 && <tr><td colSpan={3} className="text-center text-amber-600">لا يوجد ملف تكلفة؛ لن تُحسب مكونات التكلفة لهذا الموظف.</td></tr>}
+                {costProfiles.map((p: any, i: number) => (
                   <tr key={p.id}>
                     <td><Effective from={p.effectiveFrom} to={p.effectiveTo} /></td>
                     <td><Link className="text-brand-600 hover:underline" to={`/cost/profiles/${p.profileId}`}>{p.profileCode} — {p.profileName}</Link></td>
@@ -401,8 +410,8 @@ export function EmployeeDetailPage() {
             <table className="table">
               <thead><tr><th>المكون</th><th>الفترة</th><th>النسبة</th><th>المبلغ</th><th>مستبعد</th><th>السبب</th><th /></tr></thead>
               <tbody>
-                {e.overrides.length === 0 && <tr><td colSpan={7} className="text-center text-slate-500">لا توجد استثناءات — تُطبق قيم ملف التكلفة كما هي.</td></tr>}
-                {e.overrides.map((o: any) => (
+                {overrides.length === 0 && <tr><td colSpan={7} className="text-center text-slate-500">لا توجد استثناءات — تُطبق قيم ملف التكلفة كما هي.</td></tr>}
+                {overrides.map((o: any) => (
                   <tr key={o.id}>
                     <td>{o.componentCode} — {o.componentName}</td>
                     <td><Effective from={o.effectiveFrom} to={o.effectiveTo} /></td>
@@ -429,8 +438,8 @@ export function EmployeeDetailPage() {
           <table className="table">
             <thead><tr><th>رقم الأصل</th><th>الأصل</th><th>الفترة</th><th>ملاحظات</th></tr></thead>
             <tbody>
-              {e.custodies.length === 0 && <tr><td colSpan={4} className="text-center text-slate-500">لا توجد عهد. تُسند العهد من شاشة الأصل.</td></tr>}
-              {e.custodies.map((c: any) => (
+              {custodies.length === 0 && <tr><td colSpan={4} className="text-center text-slate-500">لا توجد عهد. تُسند العهد من شاشة الأصل.</td></tr>}
+              {custodies.map((c: any) => (
                 <tr key={c.id}>
                   <td className="num text-start"><Link className="text-brand-600 hover:underline" to={`/assets/list/${c.assetId}`}>{c.assetNo}</Link></td>
                   <td>{c.assetName}</td><td><Effective from={c.effectiveFrom} to={c.effectiveTo} /></td><td className="text-xs">{c.notes}</td>
@@ -441,7 +450,7 @@ export function EmployeeDetailPage() {
         </Section>
       )}
 
-      {tab === 'docs' && <DocumentsTab employeeId={id!} docs={e.documents} onChange={() => refresh()} />}
+      {tab === 'docs' && <DocumentsTab employeeId={id!} docs={documents} onChange={() => refresh()} />}
       {tab === 'preview' && <CostPreview employeeId={id!} />}
 
       {tab === 'status' && (
@@ -449,7 +458,7 @@ export function EmployeeDetailPage() {
           <table className="table">
             <thead><tr><th>من</th><th>إلى</th><th>تاريخ السريان</th><th>السبب</th><th>بواسطة</th></tr></thead>
             <tbody>
-              {e.statusHistory.map((h: any) => (
+              {statusHistory.map((h: any) => (
                 <tr key={h.id}>
                   <td>{h.oldStatus ? <StatusBadge s={h.oldStatus} /> : '—'}</td><td><StatusBadge s={h.newStatus} /></td><td>{date(h.effectiveDate)}</td>
                   <td className="text-xs">{h.reason === 'HIRED' ? 'تعيين' : h.reason}</td><td className="text-xs">{h.changedBy ?? '—'} — {dateTime(h.changedAt)}</td>
@@ -461,10 +470,10 @@ export function EmployeeDetailPage() {
       )}
 
       <FormModal open={modal === 'placement'} title="تغيير التنسيب" onClose={() => setModal(null)} onSubmit={submit('/placements')}
-        initial={{ ...Object.fromEntries(placementFields.map((f) => [f.name, e.placements[0]?.[f.name] ?? ''])), effectiveFrom: today() }}
+        initial={{ ...Object.fromEntries(placementFields.map((f) => [f.name, (placements[0] as any)?.[f.name] ?? ''])), effectiveFrom: today() }}
         fields={[{ name: 'effectiveFrom', label: 'تاريخ السريان', type: 'date', required: true }, ...placementFields, { name: 'reason', label: 'السبب', type: 'textarea', required: true }]} />
       <FormModal open={modal === 'salary'} title="تعديل الراتب" onClose={() => setModal(null)} onSubmit={submit('/compensations')}
-        initial={{ ...(e.compensations?.[0] ? { basicSalary: e.compensations[0].basicSalary, salaryCurrency: e.compensations[0].salaryCurrency, insuranceSalary: e.compensations[0].insuranceSalary, insuranceCurrency: e.compensations[0].insuranceCurrency } : {}), effectiveFrom: today() }}
+        initial={{ ...(compensations?.[0] ? { basicSalary: compensations[0].basicSalary, salaryCurrency: compensations[0].salaryCurrency, insuranceSalary: compensations[0].insuranceSalary, insuranceCurrency: compensations[0].insuranceCurrency } : {}), effectiveFrom: today() }}
         fields={[{ name: 'effectiveFrom', label: 'تاريخ السريان', type: 'date', required: true }, ...salaryFields, { name: 'reason', label: 'السبب', type: 'textarea', required: true }]} />
       <FormModal open={modal === 'profile'} title="إسناد ملف تكلفة" onClose={() => setModal(null)} onSubmit={submit('/cost-profiles')} initial={{ effectiveFrom: today() }}
         fields={[{ name: 'profileId', label: 'ملف التكلفة', type: 'ref', ref: REF.profile, required: true }, { name: 'effectiveFrom', label: 'تاريخ السريان', type: 'date', required: true }]} />

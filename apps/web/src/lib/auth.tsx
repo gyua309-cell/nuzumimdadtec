@@ -69,8 +69,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const demo = getDemoUser();
     setMe(demo);
-    session.setCompany(demo.companies[0].id);
-    setCompanyId(demo.companies[0].id);
+    const demoCompId = demo.companies?.[0]?.id ?? null;
+    session.setCompany(demoCompId);
+    setCompanyId(demoCompId);
     setStatus('authenticated');
   }, []);
 
@@ -109,8 +110,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
         const demo = getDemoUser();
         setMe(demo);
-        session.setCompany(demo.companies[0].id);
-        setCompanyId(demo.companies[0].id);
+        const demoCompId = demo.companies?.[0]?.id ?? null;
+        session.setCompany(demoCompId);
+        setCompanyId(demoCompId);
         setStatus('authenticated');
         return;
       }
@@ -127,8 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const demo = getDemoUser();
       setMe(demo);
-      session.setCompany(demo.companies[0].id);
-      setCompanyId(demo.companies[0].id);
+      const demoCompId = demo.companies?.[0]?.id ?? null;
+      session.setCompany(demoCompId);
+      setCompanyId(demoCompId);
       setStatus('authenticated');
     },
     logout: async () => {

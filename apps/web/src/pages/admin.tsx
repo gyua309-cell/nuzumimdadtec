@@ -49,12 +49,12 @@ export function AuditLogPage() {
           <input className="input w-40" type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} />
           <input className="input w-40" type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} />
         </div>
-        {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : q.data!.data.length === 0 ? <EmptyState text="لا توجد سجلات مطابقة." /> : (
+        {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : (Array.isArray(q.data) ? q.data : (q.data?.data ?? [])).length === 0 ? <EmptyState text="لا توجد سجلات مطابقة." /> : (
           <>
             <table className="table">
               <thead><tr><th>الوقت</th><th>المستخدم</th><th>العملية</th><th>الجدول</th><th>المعرّف</th><th>الحقول المعدلة</th><th>السبب</th><th>IP</th></tr></thead>
               <tbody>
-                {q.data!.data.map((a) => (
+                {(Array.isArray(q.data) ? q.data : (q.data?.data ?? [])).map((a: any) => (
                   <tr key={a.id} className="cursor-pointer" onClick={() => setSel(a)}>
                     <td className="whitespace-nowrap">{dateTime(a.occurredAt)}</td><td>{a.userName ?? 'النظام'}</td>
                     <td><Badge color={a.action === 'DELETE' ? 'red' : a.action === 'INSERT' ? 'green' : 'blue'}>{AUDIT_ACTION[a.action] ?? a.action}</Badge></td>
@@ -97,13 +97,13 @@ export function SecurityEventsPage() {
     <div>
       <PageHeader title="الأحداث الأمنية" subtitle="محاولات الدخول، القفل، تغيير كلمات المرور، إعادة استخدام رموز التحديث." />
       <div className="card overflow-hidden">
-        {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : q.data!.data.length === 0 ? <EmptyState text="لا توجد أحداث." /> : (
+        {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : (Array.isArray(q.data) ? q.data : (q.data?.data ?? [])).length === 0 ? <EmptyState text="لا توجد أحداث." /> : (
           <>
             <table className="table">
               <thead><tr><th>الوقت</th><th>المستخدم</th><th>الحدث</th><th>IP</th><th>التفاصيل</th></tr></thead>
-              <tbody>{q.data!.data.map((e) => <tr key={e.id}><td>{dateTime(e.occurredAt)}</td><td dir="ltr">{e.username ?? '—'}</td><td><Badge color={/FAIL|LOCK|REUSE/.test(e.eventType) ? 'red' : 'slate'}>{e.eventType}</Badge></td><td dir="ltr">{e.ip}</td><td className="max-w-md truncate font-mono text-xs" dir="ltr">{e.details ? JSON.stringify(e.details) : ''}</td></tr>)}</tbody>
+              <tbody>{(Array.isArray(q.data) ? q.data : (q.data?.data ?? [])).map((e: any) => <tr key={e.id}><td>{dateTime(e.occurredAt)}</td><td dir="ltr">{e.username ?? '—'}</td><td><Badge color={/FAIL|LOCK|REUSE/.test(e.eventType) ? 'red' : 'slate'}>{e.eventType}</Badge></td><td dir="ltr">{e.ip}</td><td className="max-w-md truncate font-mono text-xs" dir="ltr">{e.details ? JSON.stringify(e.details) : ''}</td></tr>)}</tbody>
             </table>
-            <Pager {...q.data!.meta} onPage={setPage} />
+            <Pager page={q.data?.meta?.page ?? page} pageSize={q.data?.meta?.pageSize ?? 50} total={q.data?.meta?.total ?? (Array.isArray(q.data) ? q.data : (q.data?.data ?? [])).length} onPage={setPage} />
           </>
         )}
       </div>
@@ -133,15 +133,15 @@ export function UsersPage() {
     <div>
       <PageHeader title="المستخدمون" actions={<button className="btn-primary" onClick={() => setCreate({ username: '', fullName: '', email: '', password: '', preferredLocale: 'ar', mustChangePassword: true })}><Plus className="size-4" /> مستخدم جديد</button>} />
       <div className="card overflow-hidden">
-        {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : (
+        {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : (Array.isArray(q.data) ? q.data : (q.data?.data ?? [])).length === 0 ? <EmptyState text="لا يوجد مستخدمون." /> : (
           <>
             <table className="table">
               <thead><tr><th>اسم المستخدم</th><th>الاسم</th><th>البريد</th><th>الأدوار في هذه الشركة</th><th>الحالة</th><th>آخر دخول</th><th /></tr></thead>
               <tbody>
-                {q.data!.data.map((u) => (
+                {(Array.isArray(q.data) ? q.data : (q.data?.data ?? [])).map((u: any) => (
                   <tr key={u.id}>
                     <td dir="ltr" className="text-start font-medium">{u.username}</td><td>{u.fullName} {u.isSystemAdmin && <Badge color="blue">مدير النظام</Badge>}</td><td dir="ltr" className="text-start">{u.email ?? '—'}</td>
-                    <td><div className="flex flex-wrap gap-1">{u.roles.map((r: any) => <span key={r.assignmentId} className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-800">{r.roleName}<button className="text-rose-500" onClick={() => unassign.mutate({ u: u.id, a: r.assignmentId })}>×</button></span>)}</div></td>
+                    <td><div className="flex flex-wrap gap-1">{(u.roles ?? []).map((r: any) => <span key={r.assignmentId} className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-800">{r.roleName}<button className="text-rose-500" onClick={() => unassign.mutate({ u: u.id, a: r.assignmentId })}>×</button></span>)}</div></td>
                     <td>{u.status === 'ACTIVE' ? <Badge color="green">نشط</Badge> : <Badge color="red">معطل</Badge>} {u.lockedUntil && new Date(u.lockedUntil) > new Date() && <Badge color="amber">مقفل مؤقتًا</Badge>}</td>
                     <td>{dateTime(u.lastLoginAt)}</td>
                     <td><div className="flex justify-end gap-1">

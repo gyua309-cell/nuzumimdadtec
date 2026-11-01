@@ -75,8 +75,8 @@ export function ProjectsPage() {
     queryKey: ['/projects', page, search, statusFilter],
     queryFn: () => api.get<Page<any>>('/projects', { page, pageSize: 50, q: search, status: statusFilter }),
   });
-  const prjList = list.data?.data ?? [];
-  const totalProjects = list.data?.meta.total ?? prjList.length;
+  const prjList = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
+  const totalProjects = list.data?.meta?.total ?? prjList.length;
   const activePrjCount = prjList.filter((x: any) => x.status === 'ACTIVE').length;
   const onHoldCount = prjList.filter((x: any) => x.status === 'ON_HOLD').length;
   const draftPrjCount = prjList.filter((x: any) => x.status === 'DRAFT').length;
@@ -133,12 +133,12 @@ export function ProjectsPage() {
           </div>
           {list.data?.meta && (
             <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              المعروض: <strong className="font-mono text-slate-900 dark:text-white font-bold">{list.data.data.length}</strong> من <strong className="font-mono text-slate-900 dark:text-white font-bold">{list.data.meta.total}</strong>
+              المعروض: <strong className="font-mono text-slate-900 dark:text-white font-bold">{prjList.length}</strong> من <strong className="font-mono text-slate-900 dark:text-white font-bold">{totalProjects}</strong>
             </div>
           )}
         </div>
         {list.isLoading ? <Loading /> : list.error ? <div className="p-4"><ErrorState error={list.error} /></div>
-          : list.data!.data.length === 0 ? <EmptyState text="لا توجد مشاريع. أنشئ عميلاً أولاً ثم أضف مشروعاً." />
+          : prjList.length === 0 ? <EmptyState text="لا توجد مشاريع. أنشئ عميلاً أولاً ثم أضف مشروعاً." />
           : (
             <>
               <div className="overflow-x-auto">
@@ -151,7 +151,7 @@ export function ProjectsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {list.data!.data.map((p) => (
+                    {prjList.map((p) => (
                       <tr key={p.id} className="cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-800/50" onClick={() => nav(`/prj/projects/${p.id}`)}>
                         <td className="num text-start font-mono font-bold text-slate-800 dark:text-slate-200">{p.code}</td>
                         <td>
@@ -258,9 +258,12 @@ export function ProjectDetailPage() {
   const [addPrice, setAddPrice] = useState(false);
 
   if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorState error={q.error} />;
+  if (q.error || !q.data) return <ErrorState error={q.error} />;
   const p = q.data;
-  const transitions = STATUS_TRANSITIONS[p.status] ?? [];
+  const assignments = Array.isArray(p?.assignments) ? p.assignments : [];
+  const servicePrices = Array.isArray(p?.servicePrices) ? p.servicePrices : (Array.isArray(p?.prices) ? p.prices : []);
+  const statusHistory = Array.isArray(p?.statusHistory) ? p.statusHistory : (Array.isArray(p?.history) ? p.history : []);
+  const transitions = STATUS_TRANSITIONS[p?.status] ?? [];
 
   const changeStatus = async () => {
     if (!newStatus) return;
@@ -367,9 +370,9 @@ export function ProjectDetailPage() {
               <tr><th>الموظف</th><th>النسبة%</th><th>من</th><th>إلى</th><th>فائض؟</th><th>ملاحظات</th><th /></tr>
             </thead>
             <tbody>
-              {(!p.assignments || p.assignments.length === 0)
+              {assignments.length === 0
                 ? <tr><td colSpan={7} className="text-center text-slate-500">لا توجد تخصيصات</td></tr>
-                : p.assignments.map((a: any) => (
+                : assignments.map((a: any) => (
                   <tr key={a.id}>
                     <td><Link to={`/hr/employees/${a.employeeId}`} className="text-brand-600 hover:underline">{a.employeeName}</Link></td>
                     <td className="num">{a.allocationPct}%</td>
@@ -413,9 +416,9 @@ export function ProjectDetailPage() {
               <tr><th>الموظف</th><th>الأساس</th><th>السعر</th><th>العملة</th><th>من</th><th>إلى</th><th /></tr>
             </thead>
             <tbody>
-              {(!p.servicePrices || p.servicePrices.length === 0)
+              {servicePrices.length === 0
                 ? <tr><td colSpan={7} className="text-center text-slate-500">لا توجد أسعار override — يُستخدم السعر الافتراضي للموظف</td></tr>
-                : p.servicePrices.map((sp: any) => (
+                : servicePrices.map((sp: any) => (
                   <tr key={sp.id}>
                     <td>{sp.employeeName}</td>
                     <td>{PRICING_BASIS[sp.pricingBasis ?? sp.basis] ?? (sp.pricingBasis ?? sp.basis)}</td>
@@ -454,9 +457,9 @@ export function ProjectDetailPage() {
           <table className="table">
             <thead><tr><th>من</th><th>إلى</th><th>السبب</th><th>بواسطة</th><th>التاريخ</th></tr></thead>
             <tbody>
-              {(!p.statusHistory || p.statusHistory.length === 0)
+              {statusHistory.length === 0
                 ? <tr><td colSpan={5} className="text-center text-slate-500">لا يوجد سجل</td></tr>
-                : p.statusHistory.map((h: any) => (
+                : statusHistory.map((h: any) => (
                   <tr key={h.id}>
                     <td><ProjStatus s={h.fromStatus} /></td>
                     <td><ProjStatus s={h.toStatus} /></td>

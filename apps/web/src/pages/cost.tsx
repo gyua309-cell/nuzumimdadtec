@@ -94,14 +94,15 @@ export function CostProfileDetailPage() {
     onError: (e) => toast.error(e),
   });
   if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorState error={q.error} />;
+  if (q.error || !q.data) return <ErrorState error={q.error} />;
   const p = q.data;
+  const lines: any[] = Array.isArray(p?.lines) ? p.lines : (Array.isArray(p?.components) ? p.components : []);
   const t = today();
   const handleExportCsv = () => {
-    if (!p.lines?.length) return;
+    if (!lines.length) return;
     downloadCsv(`cost-profile-${p.code}-${today()}.csv`, [
       ['كود المكون', 'اسم المكون', 'طريقة الحساب', 'الطبيعة', 'النسبة%', 'المبلغ', 'العملة', 'حد أدنى', 'حد أقصى', 'ساري من', 'ساري حتى'],
-      ...p.lines.map((l: any) => [
+      ...lines.map((l: any) => [
         l.componentCode, l.componentName, CALC_METHOD[l.calcMethod] || l.calcMethod, COMPONENT_NATURE[l.nature] || l.nature, l.ratePct ? `${l.ratePct}%` : '', l.amount || '', l.currencyCode || '', l.minAmount || '', l.maxAmount || '', l.effectiveFrom || '', l.effectiveTo || 'مفتوح',
       ]),
     ]);
@@ -130,11 +131,11 @@ export function CostProfileDetailPage() {
           <h3 className="font-semibold">مكونات الملف</h3>
           <button className="btn-primary h-8" onClick={() => setModal(true)}><Plus className="size-4" /> إضافة / تعديل مكون</button>
         </div>
-        {p.lines.length === 0 ? <EmptyState text="الملف فارغ. أضف المكونات التي تُحسب لموظفي هذا الملف." /> : (
+        {lines.length === 0 ? <EmptyState text="الملف فارغ. أضف المكونات التي تُحسب لموظفي هذا الملف." /> : (
           <table className="table">
             <thead><tr><th>المكون</th><th>الطبيعة</th><th>النسبة</th><th>المبلغ</th><th>حد أدنى</th><th>حد أقصى</th><th>السريان</th><th /></tr></thead>
             <tbody>
-              {p.lines.map((l: any) => {
+              {lines.map((l: any) => {
                 const current = l.effectiveFrom <= t && (!l.effectiveTo || l.effectiveTo >= t);
                 return (
                   <tr key={l.id} className={current ? '' : 'opacity-60'}>
@@ -188,11 +189,13 @@ export function CostSheetPage() {
   const sheet = useQuery({ queryKey: ['cost-sheet', periodId], enabled: !!periodId, queryFn: () => api.get<any>('/cost-sheet', { periodId }) });
   const exportCsv = () => {
     if (!sheet.data) return;
-    downloadCsv(`cost-sheet-${sheet.data.period.name}.csv`, [
+    const rows: any[] = Array.isArray(sheet.data?.rows) ? sheet.data.rows : (Array.isArray(sheet.data) ? sheet.data : []);
+    downloadCsv(`cost-sheet-${sheet.data.period?.name || today()}.csv`, [
       ['الرقم', 'الموظف', 'أيام العمل', 'إجمالي التكلفة', 'القابلة للتوزيع', 'الاستقطاعات'],
-      ...sheet.data.rows.map((r: any) => [r.code, r.fullNameAr, r.employedDays, r.totalCostBase, r.distributableCostBase, r.totalDeductionsBase]),
+      ...rows.map((r: any) => [r.code, r.fullNameAr, r.employedDays, r.totalCostBase, r.distributableCostBase, r.totalDeductionsBase]),
     ]);
   };
+  const rows: any[] = Array.isArray(sheet.data?.rows) ? sheet.data.rows : (Array.isArray(sheet.data) ? sheet.data : []);
   return (
     <div className="space-y-4">
       <PageHeader
@@ -215,16 +218,16 @@ export function CostSheetPage() {
       {sheet.isLoading ? <Loading /> : sheet.error ? <ErrorState error={sheet.error} /> : sheet.data && (
         <>
           <div className="grid grid-cols-3 gap-3">
-            <Stat label="إجمالي التكلفة" value={money(sheet.data.totals.totalCostBase)} hint={base} tone="blue" />
-            <Stat label="القابلة للتوزيع على المشاريع" value={money(sheet.data.totals.distributableCostBase)} hint={base} tone="green" />
-            <Stat label="استقطاعات الموظفين" value={money(sheet.data.totals.totalDeductionsBase)} hint="ليست تكلفة شركة" />
+            <Stat label="إجمالي التكلفة" value={money(sheet.data.totals?.totalCostBase ?? 0)} hint={base} tone="blue" />
+            <Stat label="القابلة للتوزيع على المشاريع" value={money(sheet.data.totals?.distributableCostBase ?? 0)} hint={base} tone="green" />
+            <Stat label="استقطاعات الموظفين" value={money(sheet.data.totals?.totalDeductionsBase ?? 0)} hint="ليست تكلفة شركة" />
           </div>
           <div className="card overflow-x-auto">
-            {sheet.data.rows.length === 0 ? <EmptyState text="لا يوجد موظفون عاملون في هذه الفترة." /> : (
+            {rows.length === 0 ? <EmptyState text="لا يوجد موظفون عاملون في هذه الفترة." /> : (
               <table className="table">
                 <thead><tr><th>الرقم</th><th>الموظف</th><th>أيام العمل</th><th>إجمالي التكلفة</th><th>القابلة للتوزيع</th><th>الاستقطاعات</th></tr></thead>
                 <tbody>
-                  {sheet.data.rows.map((r: any) => (
+                  {rows.map((r: any) => (
                     <Fragment key={r.employeeId}>
                       <tr className="cursor-pointer" onClick={() => setOpen(open === r.employeeId ? null : r.employeeId)}>
                         <td className="num text-start">{r.code}</td>
@@ -241,7 +244,7 @@ export function CostSheetPage() {
                         )}
                       </tr>
                       {open === r.employeeId && !r.error && (
-                        <tr key={`${r.employeeId}-d`}><td colSpan={6} className="bg-slate-50 p-0 dark:bg-slate-800/40">{r.lines.length ? <CostLinesTable lines={r.lines} base={base} /> : <div className="p-3 text-xs text-slate-500">لا توجد مكونات (راجع الراتب وملف التكلفة).</div>}</td></tr>
+                        <tr key={`${r.employeeId}-d`}><td colSpan={6} className="bg-slate-50 p-0 dark:bg-slate-800/40">{(r.lines ?? []).length ? <CostLinesTable lines={r.lines ?? []} base={base} /> : <div className="p-3 text-xs text-slate-500">لا توجد مكونات (راجع الراتب وملف التكلفة).</div>}</td></tr>
                       )}
                     </Fragment>
                   ))}

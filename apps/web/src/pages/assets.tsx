@@ -79,7 +79,7 @@ export function AssetsPage() {
   }, [q]);
   const list = useQuery({ queryKey: ['/assets', page, search, status], queryFn: () => api.get<Page<any>>('/assets', { page, pageSize: 50, q: search, status }) });
 
-  const assetItems = list.data?.data ?? [];
+  const assetItems = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
   const totalCost = assetItems.reduce((acc, a) => acc + (parseFloat(a.costBase) || 0), 0);
   const totalBookValue = assetItems.reduce((acc, a) => acc + (parseFloat(a.netBookValueBase) || 0), 0);
   const activeCount = assetItems.filter((a) => a.status === 'ACTIVE').length;
@@ -137,11 +137,11 @@ export function AssetsPage() {
           </div>
           {list.data?.meta && (
             <div className="text-xs text-slate-500 font-mono">
-              المعروض: <strong>{assetItems.length}</strong> من <strong>{list.data.meta.total}</strong>
+              المعروض: <strong>{assetItems.length}</strong> من <strong>{list.data?.meta?.total ?? assetItems.length}</strong>
             </div>
           )}
         </div>
-        {list.isLoading ? <Loading /> : list.error ? <div className="p-4"><ErrorState error={list.error} /></div> : list.data!.data.length === 0 ? (
+        {list.isLoading ? <Loading /> : list.error ? <div className="p-4"><ErrorState error={list.error} /></div> : assetItems.length === 0 ? (
           <EmptyState text="لا توجد أصول. أنشئ فئة أصول أولًا ثم أضف الأصل." />
         ) : (
           <>
@@ -154,7 +154,7 @@ export function AssetsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {list.data!.data.map((a) => (
+                  {assetItems.map((a) => (
                     <tr key={a.id} className="cursor-pointer" onClick={() => nav(`/assets/list/${a.id}`)}>
                       <td className="num text-start">{a.assetNo}</td><td className="font-medium">{a.name}</td><td>{a.categoryName}</td><td>{date(a.purchaseDate)}</td>
                       <td className="num">{money(a.costBase)}</td><td className="num">{money(a.accumulatedBase)}</td><td className="num">{money(a.netBookValueBase)}</td>
@@ -223,10 +223,12 @@ export function AssetDetailPage() {
   const post = (path: string) => async (b: Record<string, any>) => refresh(await api.post(`/assets/${id}${path}`, b));
   const del = useMutation({ mutationFn: () => api.del(`/assets/${id}`), onSuccess: () => { toast.success('تم الحذف'); history.back(); }, onError: (e) => toast.error(e) });
   if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorState error={q.error} />;
+  if (q.error || !q.data) return <ErrorState error={q.error} />;
   const a = q.data;
   const draft = a.status === 'DRAFT';
-  const custodian = a.custodies.find((c: any) => !c.effectiveTo || c.effectiveTo >= today());
+  const custodies = Array.isArray(a?.custodies) ? a.custodies : [];
+  const schedule = Array.isArray(a?.schedule) ? a.schedule : [];
+  const custodian = custodies.find((c: any) => !c.effectiveTo || c.effectiveTo >= today());
   return (
     <div className="space-y-4">
       <PageHeader
@@ -268,8 +270,8 @@ export function AssetDetailPage() {
         <table className="table">
           <thead><tr><th>الموظف</th><th>الفترة</th><th>ملاحظات</th></tr></thead>
           <tbody>
-            {a.custodies.length === 0 && <tr><td colSpan={3} className="text-center text-slate-500">لا توجد عهدة — الإهلاك لن يُحمّل على موظف.</td></tr>}
-            {a.custodies.map((c: any) => (
+            {custodies.length === 0 && <tr><td colSpan={3} className="text-center text-slate-500">لا توجد عهدة — الإهلاك لن يُحمّل على موظف.</td></tr>}
+            {custodies.map((c: any) => (
               <tr key={c.id}><td><Link className="text-brand-600 hover:underline" to={`/hr/employees/${c.employeeId}`}>{c.employeeCode} — {c.employeeName}</Link></td><td>{date(c.effectiveFrom)} ← {c.effectiveTo ? date(c.effectiveTo) : 'مفتوح'}</td><td className="text-xs">{c.notes}</td></tr>
             ))}
           </tbody>
@@ -282,7 +284,7 @@ export function AssetDetailPage() {
           <table className="table">
             <thead><tr><th>الشهر</th><th>القسط</th><th>المجمع</th><th>القيمة الدفترية</th><th>الحالة</th></tr></thead>
             <tbody>
-              {a.schedule.map((r: any) => (
+              {schedule.map((r: any) => (
                 <tr key={r.month}><td>{r.month.slice(0, 7)}</td><td className="num">{money(r.amount)}</td><td className="num">{money(r.accumulated)}</td><td className="num">{money(r.netBookValue)}</td><td>{r.posted ? <Badge color="green">مرحّل #{r.runNo}</Badge> : <Badge>مجدول</Badge>}</td></tr>
               ))}
             </tbody>
@@ -329,11 +331,13 @@ export function DepreciationPage() {
   const done = () => { qc.invalidateQueries({ queryKey: ['dep-preview'] }); qc.invalidateQueries({ queryKey: ['dep-runs'] }); qc.invalidateQueries({ queryKey: ['/assets'] }); };
   const run = useMutation({ mutationFn: () => api.post<any>('/depreciation-runs', { periodId }), onSuccess: (r) => { toast.success('تم ترحيل الإهلاك'); done(); setView(r.id); }, onError: (e) => toast.error(e) });
 
+  const runList = Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? []);
+
   const handleExportRuns = () => {
-    if (!runs.data?.data?.length) return;
+    if (!runList.length) return;
     downloadCsv(`depreciation-runs-${today()}.csv`, [
       ['رقم التشغيل', 'الفترة المالية', 'عدد الأصول', 'إجمالي الإهلاك', 'رقم القيد المحاسبي', 'الحالة'],
-      ...runs.data.data.map((r: any) => [
+      ...runList.map((r: any) => [
         r.runNo, r.periodName, r.assetCount, r.totalAmountBase, r.journalEntryNo || '—', r.status,
       ]),
     ]);
@@ -404,15 +408,15 @@ export function DepreciationPage() {
       </div>
       <div className="card overflow-hidden">
         <div className="border-b border-slate-200 px-4 py-2.5 font-semibold dark:border-slate-800">التشغيلات السابقة</div>
-        {runs.isLoading ? <Loading /> : runs.data?.data.length === 0 ? <EmptyState text="لم يتم تشغيل الإهلاك بعد." /> : (
+        {runs.isLoading ? <Loading /> : runList.length === 0 ? <EmptyState text="لم يتم تشغيل الإهلاك بعد." /> : (
           <table className="table">
             <thead><tr><th>#</th><th>الفترة</th><th>الأصول</th><th>الإجمالي</th><th>القيد</th><th>الحالة</th><th /></tr></thead>
             <tbody>
-              {runs.data?.data.map((r) => (
+              {runList.map((r: any) => (
                 <tr key={r.id}>
                   <td className="num">{r.runNo}</td><td>{r.periodName}</td><td className="num">{r.assetCount}</td><td className="num">{money(r.totalAmountBase)}</td>
                   <td>{r.journalEntryId ? <Link className="text-brand-600 hover:underline" to={`/acc/journals/${r.journalEntryId}`}>{r.journalEntryNo}</Link> : '—'}</td>
-                  <td><Badge color={RUN_STATUS[r.status].color}>{RUN_STATUS[r.status].label}</Badge>{r.cancelReason && <div className="text-xs text-slate-500">{r.cancelReason}</div>}</td>
+                  <td><Badge color={RUN_STATUS[r.status]?.color}>{RUN_STATUS[r.status]?.label ?? r.status}</Badge>{r.cancelReason && <div className="text-xs text-slate-500">{r.cancelReason}</div>}</td>
                   <td><div className="flex justify-end gap-1"><button className="btn-ghost h-7 px-2" onClick={() => setView(r.id)}>تفاصيل</button>{r.status === 'POSTED' && <button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => setCancelId(r.id)}>إلغاء</button>}</div></td>
                 </tr>
               ))}

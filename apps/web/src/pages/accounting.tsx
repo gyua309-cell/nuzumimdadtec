@@ -474,9 +474,10 @@ export function JournalsPage() {
   const [page, setPage] = useState(1);
   const q = useQuery({ queryKey: ['journals', f, page], queryFn: () => api.get<Page<any>>('/journal-entries', { ...f, page, pageSize: 50, sort: '-entryDate' }) });
   const base = useBaseCurrency();
+  const list: any[] = Array.isArray(q.data) ? q.data : (q.data?.data ?? []);
 
   const handleExport = () => {
-    const list = q.data?.data ?? [];
+    if (!list.length) return;
     downloadCsv(`journal-entries-${today()}.csv`, [
       ['رقم القيد', 'التاريخ', 'الفترة', 'النوع', 'الدفتر', 'الوصف', 'المصدر', `مدين (${base})`, `دائن (${base})`, 'الحالة'],
       ...list.map((e: any) => [
@@ -514,7 +515,7 @@ export function JournalsPage() {
           <input className="input w-40" type="date" value={f.dateFrom} onChange={(e) => setF({ ...f, dateFrom: e.target.value })} />
           <input className="input w-40" type="date" value={f.dateTo} onChange={(e) => setF({ ...f, dateTo: e.target.value })} />
         </div>
-        {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : q.data!.data.length === 0 ? (
+        {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : list.length === 0 ? (
           <EmptyState text="لا توجد قيود بعد." action={<Link className="btn-primary" to="/acc/journals/new"><Plus className="size-4" /> قيد يدوي جديد</Link>} />
         ) : (
           <>
@@ -527,7 +528,7 @@ export function JournalsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {q.data!.data.map((e) => (
+                  {list.map((e: any) => (
                     <tr key={e.id} className="cursor-pointer" onClick={() => nav(`/acc/journals/${e.id}`)}>
                       <td className="num text-start font-medium">{e.entryNo ?? '—'}</td>
                       <td>{date(e.entryDate)}</td><td>{e.periodName}</td><td>{JOURNAL_TYPE[e.journalType] ?? e.journalType}</td><td>{LEDGER[e.ledger]}</td>
@@ -686,9 +687,10 @@ export function JournalDetailPage() {
   const refresh = () => { qc.invalidateQueries({ queryKey: ['journal'] }); qc.invalidateQueries({ queryKey: ['journals'] }); };
   const post = useMutation({ mutationFn: () => api.post<any>(`/journal-entries/${id}/post`), onSuccess: (e) => { toast.success(`تم ترحيل القيد ${e.entryNo}`); refresh(); }, onError: (e) => toast.error(e) });
   if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorState error={q.error} />;
+  if (q.error || !q.data) return <ErrorState error={q.error} />;
   const e = q.data;
-  const st = JE_STATUS[e.status];
+  const lines: any[] = Array.isArray(e?.lines) ? e.lines : [];
+  const st = JE_STATUS[e?.status] ?? { color: 'slate', label: e?.status ?? '—' };
   return (
     <div>
       <PageHeader
@@ -719,7 +721,7 @@ export function JournalDetailPage() {
         <table className="table">
           <thead><tr><th>#</th><th>الحساب</th><th>مدين (عملة)</th><th>دائن (عملة)</th><th>العملة</th><th>السعر</th><th>مدين (أساسي)</th><th>دائن (أساسي)</th><th>الأبعاد</th><th>البيان</th></tr></thead>
           <tbody>
-            {e.lines.map((l: any) => (
+            {lines.map((l: any) => (
               <tr key={l.lineNo}>
                 <td className="num">{l.lineNo}</td>
                 <td><Link className="hover:underline" to={`/reports/account-statement?accountId=${l.accountId}`}><span className="num">{l.accountCode}</span> — {l.accountNameAr}</Link></td>

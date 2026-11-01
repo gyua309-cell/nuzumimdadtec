@@ -44,7 +44,8 @@ export async function exportInvoiceToExcel(inv: InvoiceDetail): Promise<boolean>
     { key: 'total', header: 'الإجمالي شامل الضريبة', width: 18, type: 'currency' as const, isTotal: true },
   ];
 
-  const data = inv.lines.map((l: InvoiceLine, idx: number) => ({
+  const lines = Array.isArray(inv?.lines) ? inv.lines : (Array.isArray((inv as any)?.items) ? (inv as any).items : []);
+  const data = lines.map((l: InvoiceLine, idx: number) => ({
     lineNo: l.lineNo ?? idx + 1,
     employee: l.employeeName ? `${l.employeeName} (${l.employeeCode || ''})` : 'فريق العمل والبرمجة',
     description: l.description,
@@ -148,7 +149,7 @@ export const ZatcaTaxInvoiceTemplate: React.FC<ZatcaTaxInvoiceTemplateProps> = (
             <span>البند / الخدمة</span>
             <span>الإجمالي</span>
           </div>
-          {inv.lines.map((l, i) => (
+          {(Array.isArray(inv?.lines) ? inv.lines : []).map((l, i) => (
             <div key={i} className="text-[10px] flex justify-between gap-1">
               <div className="truncate max-w-[50mm]">
                 <div className="font-semibold">{l.employeeName || l.description}</div>
@@ -410,7 +411,7 @@ export const ZatcaTaxInvoiceTemplate: React.FC<ZatcaTaxInvoiceTemplateProps> = (
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {inv.lines.map((l, i) => {
+              {(Array.isArray(inv?.lines) ? inv.lines : []).map((l, i) => {
                 const desc = l.description || '';
                 const empName = l.employeeName;
                 const empCode = l.employeeCode;

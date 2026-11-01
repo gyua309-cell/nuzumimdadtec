@@ -31,8 +31,8 @@ export function VatReportPage() {
     enabled: Boolean(activePeriodId),
   });
 
-  const sales = salesQuery.data?.data || [];
-  const purchases = purchasesQuery.data?.data || [];
+  const sales = Array.isArray(salesQuery.data) ? salesQuery.data : (salesQuery.data?.data || []);
+  const purchases = Array.isArray(purchasesQuery.data) ? purchasesQuery.data : (purchasesQuery.data?.data || []);
 
   // Calculations
   const salesSubtotal = sales.reduce((acc: number, inv: any) => acc + Number(inv.subtotal || 0), 0);

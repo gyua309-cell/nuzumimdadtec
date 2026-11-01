@@ -29,7 +29,7 @@ export function VendorsPage() {
     queryFn: () => api.get<Page<any>>('/vendors', { q, pageSize: 100 }),
   });
 
-  const list = vendors.data?.data ?? [];
+  const list = Array.isArray(vendors.data) ? vendors.data : (vendors.data?.data ?? []);
   const activeCount = list.filter((v) => v.isActive).length;
   const vatCount = list.filter((v) => v.taxRegistrationNo).length;
 
@@ -428,7 +428,7 @@ export function PurchaseInvoicesPage() {
     queryFn: () => api.get<Page<any>>('/purchase-invoices', { type: typeFilter || undefined, status: statusFilter || undefined, pageSize: 100 }),
   });
 
-  const list = invoices.data?.data ?? [];
+  const list = Array.isArray(invoices.data) ? invoices.data : (invoices.data?.data ?? []);
   const postedCount = list.filter((i) => i.status === 'POSTED').length;
   const draftCount = list.filter((i) => i.status === 'DRAFT').length;
   const totalAmountSum = list.reduce((acc, i) => acc + (parseFloat(i.totalAmount) || 0), 0);
@@ -702,7 +702,7 @@ function CreatePurchaseInvoiceModal({ open, onClose, onSuccess }: { open: boolea
     queryFn: () => api.get<Page<any>>('/accounts', { pageSize: 100 }),
   });
 
-  const expenseAccounts = (accounts.data?.data ?? []).filter((a: any) => a.accountClass === 'OPERATING_EXPENSE' || a.code.startsWith('5'));
+  const expenseAccounts = (Array.isArray(accounts.data) ? accounts.data : (accounts.data?.data ?? [])).filter((a: any) => a.accountClass === 'OPERATING_EXPENSE' || a.code.startsWith('5'));
 
   const [lines, setLines] = useState([
     {
@@ -837,7 +837,7 @@ function CreatePurchaseInvoiceModal({ open, onClose, onSuccess }: { open: boolea
           <Field label="المورد *">
             <select className="input" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
               <option value="">-- اختر المورد --</option>
-              {vendors.data?.data.map((v) => (
+              {(Array.isArray(vendors.data) ? vendors.data : (vendors.data?.data ?? [])).map((v: any) => (
                 <option key={v.id} value={v.id}>
                   {v.code} — {v.nameAr}
                 </option>
@@ -847,7 +847,7 @@ function CreatePurchaseInvoiceModal({ open, onClose, onSuccess }: { open: boolea
           <Field label="المشروع المرتبط (اختياري)">
             <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">-- مصروف عام (بدون مشروع) --</option>
-              {projects.data?.data.map((p) => (
+              {(Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => (
                 <option key={p.id} value={p.id}>
                   {p.code} — {p.nameAr}
                 </option>
@@ -1268,7 +1268,7 @@ export function PurchaseDebitNotesPage() {
     queryFn: () => api.get<Page<any>>('/debit-notes', { pageSize: 100 }),
   });
 
-  const list = debitNotes.data?.data ?? [];
+  const list = Array.isArray(debitNotes.data) ? debitNotes.data : (debitNotes.data?.data ?? []);
 
   const handleExport = () => {
     downloadCsv(`purchase-debit-notes-${today()}.csv`, [

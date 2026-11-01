@@ -63,11 +63,13 @@ export function RevenuePage() {
     }
   };
 
+  const runList = Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? []);
+
   const handleExportRuns = () => {
-    if (!runs.data?.data?.length) return;
+    if (!runList.length) return;
     downloadCsv(`revenue-runs-${today()}.csv`, [
       ['رقم التشغيل', 'الفترة المالية', 'المشاريع', 'الموظفون', 'الخطوط', 'إجمالي الإيراد', 'رقم القيد المحاسبي', 'الحالة'],
-      ...runs.data.data.map((r: any) => [
+      ...runList.map((r: any) => [
         r.runNo, r.periodName, r.projectCount, r.employeeCount, r.lineCount, r.totalRevenueBase, r.journalEntryNo || '—', r.status,
       ]),
     ]);
@@ -171,7 +173,7 @@ export function RevenuePage() {
         </div>
         {runs.isLoading ? (
           <Loading />
-        ) : runs.data?.data.length === 0 ? (
+        ) : runList.length === 0 ? (
           <EmptyState text="لم يتم ترحيل أي إيرادات بعد." />
         ) : (
           <table className="table">
@@ -186,7 +188,7 @@ export function RevenuePage() {
               </tr>
             </thead>
             <tbody>
-              {runs.data?.data.map((r: any) => (
+              {runList.map((r: any) => (
                 <tr key={r.id}>
                   <td className="num">{r.runNo}</td>
                   <td>{r.periodName}</td>
@@ -955,7 +957,7 @@ function CreateRetroactiveAdjustmentModal({
           <Field label="الموظف *">
             <select className="input w-full" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
               <option value="">-- اختر الموظف --</option>
-              {employees.data?.data.map((e) => (
+              {(Array.isArray(employees.data) ? employees.data : (employees.data?.data ?? [])).map((e: any) => (
                 <option key={e.id} value={e.id}>{e.code} — {e.fullNameAr}</option>
               ))}
             </select>
@@ -963,7 +965,7 @@ function CreateRetroactiveAdjustmentModal({
           <Field label="المشروع *">
             <select className="input w-full" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">-- اختر المشروع --</option>
-              {projects.data?.data.map((p) => (
+              {(Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => (
                 <option key={p.id} value={p.id}>{p.code} — {p.nameAr}</option>
               ))}
             </select>

@@ -1093,13 +1093,13 @@ export function DashboardPage() {
           <div className="p-0">
             {recentJournals.isLoading ? (
               <div className="p-6"><Loading /></div>
-            ) : !recentJournals.data?.data?.length ? (
+            ) : !(Array.isArray(recentJournals.data) ? recentJournals.data : (recentJournals.data?.data ?? [])).length ? (
               <div className="p-8 text-center text-xs font-semibold text-slate-500 dark:text-slate-400">
                 لا توجد قيود يومية مسجلة بعد.
               </div>
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
-                {recentJournals.data.data.slice(0, 4).map((je: any) => (
+                {(Array.isArray(recentJournals.data) ? recentJournals.data : (recentJournals.data?.data ?? [])).slice(0, 4).map((je: any) => (
                   <div key={je.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition">
                     <div className="space-y-0.5">
                       <div className="font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">

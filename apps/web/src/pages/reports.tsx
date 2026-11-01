@@ -151,6 +151,12 @@ export function AccountStatementPage() {
       accountId, from, to, page, pageSize: 100, ...(branchId !== 'ALL' ? { branchId } : {}),
     }),
   });
+  const statementRows: any[] = Array.isArray(q.data?.lines)
+    ? q.data.lines
+    : (Array.isArray(q.data?.data)
+      ? q.data.data
+      : (Array.isArray(q.data) ? q.data : []));
+
   return (
     <div>
       <PageHeader
@@ -167,7 +173,7 @@ export function AccountStatementPage() {
                 onClick={() =>
                   downloadCsv(`statement-${q.data?.account?.code || 'acc'}-${from}-${to}.csv`, [
                     ['التاريخ', 'القيد', 'البيان', 'العملة', 'مدين (عملة)', 'دائن (عملة)', 'مدين', 'دائن', 'الرصيد'],
-                    ...(q.data?.data ?? []).map((l: any) => [
+                    ...statementRows.map((l: any) => [
                       l.entryDate, l.entryNo, l.lineDescription ?? l.description, l.currencyCode, l.debitTx, l.creditTx, l.debitBase, l.creditBase, l.runningBalance,
                     ]),
                   ])
@@ -191,12 +197,12 @@ export function AccountStatementPage() {
             <Stat label="الرصيد الختامي" value={money(q.data?.closingBalance ?? '0.00')} tone="blue" hint={q.data?.account?.normalBalance === 'DEBIT' ? 'طبيعة مدينة' : 'طبيعة دائنة'} />
           </div>
           <div className="card overflow-hidden">
-            {!(q.data?.data?.length) ? <EmptyState text="لا توجد حركات في هذه الفترة." /> : (
+            {!statementRows.length ? <EmptyState text="لا توجد حركات في هذه الفترة." /> : (
               <>
                 <table className="table">
                   <thead><tr><th>التاريخ</th><th>رقم القيد</th><th>البيان</th><th>العملة</th><th>مدين (عملة)</th><th>دائن (عملة)</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
                   <tbody>
-                    {(q.data?.data ?? []).map((l: any, i: number) => (
+                    {statementRows.map((l: any, i: number) => (
                       <tr key={i} className="cursor-pointer" onClick={() => nav(`/acc/journals/${l.entryId}`)}>
                         <td>{date(l.entryDate)}</td><td className="num text-start">{l.entryNo}</td><td className="max-w-sm truncate">{l.lineDescription ?? l.description}</td>
                         <td>{l.currencyCode}</td><td className="num">{money(l.debitTx)}</td><td className="num">{money(l.creditTx)}</td>
@@ -410,7 +416,7 @@ export function ClosingPage() {
           <div className="card max-h-[70vh] overflow-y-auto p-2">
             {periods.data!.filter((x) => !x.isAdjustmentPeriod).map((x) => (
               <button key={x.id} onClick={() => setSel(x.id)} className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm ${x.id === periodId ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                <span>{x.name}</span><Badge color={PERIOD_STATUS[x.status].color}>{PERIOD_STATUS[x.status].label}</Badge>
+                <span>{x.name}</span><Badge color={PERIOD_STATUS[x.status]?.color}>{PERIOD_STATUS[x.status]?.label ?? x.status}</Badge>
               </button>
             ))}
           </div>
@@ -419,7 +425,7 @@ export function ClosingPage() {
               <div className="card mb-4 flex flex-wrap items-center gap-4 p-4">
                 <div><div className="text-xs text-slate-500">الفترة</div><div className="text-lg font-bold">{p.name}</div></div>
                 <div><div className="text-xs text-slate-500">من - إلى</div><div>{date(p.startDate)} — {date(p.endDate)}</div></div>
-                <Badge color={PERIOD_STATUS[p.status].color}>{PERIOD_STATUS[p.status].label}</Badge>
+                <Badge color={PERIOD_STATUS[p.status]?.color}>{PERIOD_STATUS[p.status]?.label ?? p.status}</Badge>
                 <div className="ms-auto flex gap-2">
                   {p.status === 'OPEN' && <button className="btn-primary" disabled={!checks.data?.canClose || close.isPending} onClick={() => setConfirmClose(true)}><Lock className="size-4" /> إقفال الفترة</button>}
                   {p.status === 'CLOSED' && <button className="btn-secondary" onClick={() => setReopen(true)}><LockOpen className="size-4" /> إعادة فتح</button>}
@@ -432,8 +438,8 @@ export function ClosingPage() {
                 <table className="table">
                   <thead><tr><th>الرمز</th><th>الفحص</th><th>النتيجة</th><th>التفاصيل</th></tr></thead>
                   <tbody>
-                    {checks.data?.results.map((r: any) => (
-                      <tr key={r.code}><td className="font-mono text-xs">{r.code}</td><td>{r.titleAr}</td><td><Badge color={CHECK_STATUS[r.status].color}>{CHECK_STATUS[r.status].label}</Badge></td><td className="text-xs text-slate-600 dark:text-slate-400">{r.message ?? ''}</td></tr>
+                    {(checks.data?.results ?? []).map((r: any) => (
+                      <tr key={r.code}><td className="font-mono text-xs">{r.code}</td><td>{r.titleAr}</td><td><Badge color={CHECK_STATUS[r.status]?.color}>{CHECK_STATUS[r.status]?.label ?? r.status}</Badge></td><td className="text-xs text-slate-600 dark:text-slate-400">{r.message ?? ''}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -850,9 +856,12 @@ export function ExecutiveIntelligencePage() {
     employeeCount: 0,
   };
 
-  const projects = projectProf.data ?? [];
-  const clients = clientProf.data ?? [];
-  const prices = servicePrices.data?.data ?? [];
+  const rawProj: any = projectProf.data;
+  const rawClient: any = clientProf.data;
+  const rawPrices: any = servicePrices.data;
+  const projects = Array.isArray(rawProj) ? rawProj : (rawProj?.data ?? []);
+  const clients = Array.isArray(rawClient) ? rawClient : (rawClient?.data ?? []);
+  const prices = Array.isArray(rawPrices) ? rawPrices : (rawPrices?.data ?? []);
 
   // Metric 1: Total & Average Employee Cost
   const totalEmpCost = Number(empSummary.totalCostBase || 0);

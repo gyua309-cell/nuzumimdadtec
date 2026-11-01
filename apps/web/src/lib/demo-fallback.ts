@@ -224,21 +224,62 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
     const singleEmp: any = emps.find((e: any) => path.endsWith(`/${e.id}`) || path.endsWith(`/${e.code}`));
     if (singleEmp) {
+      const defaultPlacement = {
+        id: `plc-${singleEmp.id || '1'}`,
+        effectiveFrom: singleEmp.hireDate || '2026-01-01',
+        effectiveTo: null,
+        departmentId: singleEmp.departmentId || null,
+        branchId: singleEmp.branchId || null,
+        positionId: singleEmp.positionId || null,
+        costCenterId: singleEmp.costCenterId || null,
+        departmentName: singleEmp.departmentName || '',
+        branchName: singleEmp.branchName || '',
+        positionTitle: singleEmp.positionTitle || '',
+        costCenterName: singleEmp.costCenterName || '',
+        managerName: null,
+        changeReason: 'التعيين الأولي وتسكين الوظيفة',
+      };
+      const defaultCompensation = {
+        id: `cmp-${singleEmp.id || '1'}`,
+        effectiveFrom: singleEmp.hireDate || '2026-01-01',
+        effectiveTo: null,
+        basicSalary: singleEmp.basicSalary || singleEmp.basic_salary || '0.00',
+        salaryCurrency: singleEmp.currency || singleEmp.salaryCurrency || 'SAR',
+        insuranceSalary: '0.00',
+        insuranceCurrency: singleEmp.currency || singleEmp.salaryCurrency || 'SAR',
+        changeReason: 'الراتب المعتمد عند التعيين',
+        createdBy: 'النظام',
+        createdAt: new Date().toISOString(),
+      };
+      const defaultStatusHistory = [
+        {
+          id: `sh-${singleEmp.id || '1'}`,
+          oldStatus: null,
+          newStatus: singleEmp.status || 'ACTIVE',
+          effectiveDate: singleEmp.hireDate || '2026-01-01',
+          reason: 'HIRED',
+          changedBy: 'مدير النظام',
+          changedAt: new Date().toISOString(),
+        },
+      ];
+
       return {
         ...singleEmp,
-        placement: {
-          departmentId: singleEmp.departmentId,
-          branchId: singleEmp.branchId,
-          positionId: singleEmp.positionId,
-          costCenterId: singleEmp.costCenterId || null,
-          managerEmployeeId: null,
-        },
-        salary: {
-          basicSalary: singleEmp.basicSalary || singleEmp.basic_salary || '0.00',
-          salaryCurrency: singleEmp.currency || singleEmp.salaryCurrency || 'SAR',
-          insuranceSalary: '0.00',
-          insuranceCurrency: singleEmp.currency || 'SAR',
-        },
+        placement: defaultPlacement,
+        placements: Array.isArray(singleEmp.placements) && singleEmp.placements.length > 0
+          ? singleEmp.placements
+          : [defaultPlacement],
+        salary: defaultCompensation,
+        compensations: Array.isArray(singleEmp.compensations) && singleEmp.compensations.length > 0
+          ? singleEmp.compensations
+          : [defaultCompensation],
+        costProfiles: Array.isArray(singleEmp.costProfiles) ? singleEmp.costProfiles : [],
+        overrides: Array.isArray(singleEmp.overrides) ? singleEmp.overrides : [],
+        custodies: Array.isArray(singleEmp.custodies) ? singleEmp.custodies : [],
+        documents: Array.isArray(singleEmp.documents) ? singleEmp.documents : [],
+        statusHistory: Array.isArray(singleEmp.statusHistory) && singleEmp.statusHistory.length > 0
+          ? singleEmp.statusHistory
+          : defaultStatusHistory,
       };
     }
     return makeList(emps);
@@ -247,8 +288,16 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   // 6. Projects (المشاريع)
   if (path.includes('/projects')) {
     const projects = getEntityList('projects', []);
-    const singleProj = projects.find((p: any) => path.endsWith(`/${p.id}`) || path.endsWith(`/${p.code}`));
-    if (singleProj) return singleProj;
+    const singleProj: any = projects.find((p: any) => path.endsWith(`/${p.id}`) || path.endsWith(`/${p.code}`));
+    if (singleProj) {
+      return {
+        ...singleProj,
+        assignments: Array.isArray(singleProj.assignments) ? singleProj.assignments : [],
+        servicePrices: Array.isArray(singleProj.servicePrices) ? singleProj.servicePrices : (Array.isArray(singleProj.prices) ? singleProj.prices : []),
+        prices: Array.isArray(singleProj.prices) ? singleProj.prices : [],
+        history: Array.isArray(singleProj.history) ? singleProj.history : [],
+      };
+    }
     return makeList(projects);
   }
 
@@ -354,7 +403,15 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/journal-entries') || path.includes('/journals')) {
-    return makeList(getEntityList('journal_entries', []));
+    const jes = getEntityList('journal_entries', []);
+    const singleJe = jes.find((j: any) => path.endsWith(`/${j.id}`) || path.endsWith(`/${j.entryNo}`));
+    if (singleJe) {
+      return {
+        ...singleJe,
+        lines: Array.isArray(singleJe.lines) ? singleJe.lines : [],
+      };
+    }
+    return makeList(jes);
   }
 
   // 11. Financial Reports & Statements (Zero Baseline)
@@ -442,7 +499,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       return { ublXml: '<?xml version="1.0" encoding="UTF-8"?><Invoice></Invoice>' };
     }
     const single = invs.find((i: any) => path.endsWith(`/${i.id}`));
-    if (single) return single;
+    if (single) {
+      return {
+        ...single,
+        lines: Array.isArray(single.lines) ? single.lines : [],
+        payments: Array.isArray(single.payments) ? single.payments : [],
+      };
+    }
     return makeList(invs);
   }
 
@@ -509,8 +572,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/purchase-invoices') || path.includes('/pur/invoices')) {
     const pinvs = getEntityList('purchase_invoices', []);
-    const singlePinv = pinvs.find((p: any) => path.endsWith(`/${p.id}`));
-    if (singlePinv) return singlePinv;
+    const singlePinv: any = pinvs.find((p: any) => path.endsWith(`/${p.id}`));
+    if (singlePinv) {
+      return {
+        ...singlePinv,
+        lines: Array.isArray(singlePinv.lines) ? singlePinv.lines : [],
+        payments: Array.isArray(singlePinv.payments) ? singlePinv.payments : [],
+      };
+    }
     return makeList(pinvs);
   }
 
@@ -539,8 +608,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       };
     }
     const runs = getEntityList('payroll_runs', []);
-    const singleRun = runs.find((r: any) => path.endsWith(`/${r.id}`));
-    if (singleRun) return { lines: [], ...(singleRun as Record<string, any>) };
+    const singleRun: any = runs.find((r: any) => path.endsWith(`/${r.id}`));
+    if (singleRun) {
+      return {
+        ...singleRun,
+        lines: Array.isArray(singleRun.lines) ? singleRun.lines : [],
+        entries: Array.isArray(singleRun.entries) ? singleRun.entries : [],
+      };
+    }
     return makeList(runs);
   }
 
@@ -554,8 +629,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/loans')) {
     const loans = getEntityList('loans', []);
-    const singleLoan = loans.find((l: any) => path.endsWith(`/${l.id}`));
-    if (singleLoan) return singleLoan;
+    const singleLoan: any = loans.find((l: any) => path.endsWith(`/${l.id}`));
+    if (singleLoan) {
+      return {
+        ...singleLoan,
+        installments: Array.isArray(singleLoan.installments) ? singleLoan.installments : [],
+      };
+    }
     return makeList(loans);
   }
 
@@ -594,8 +674,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/assets')) {
     const assets = getEntityList('assets', []);
-    const singleAst = assets.find((a: any) => path.endsWith(`/${a.id}`));
-    if (singleAst) return singleAst;
+    const singleAst: any = assets.find((a: any) => path.endsWith(`/${a.id}`));
+    if (singleAst) {
+      return {
+        ...singleAst,
+        custodies: Array.isArray(singleAst.custodies) ? singleAst.custodies : [],
+        schedule: Array.isArray(singleAst.schedule) ? singleAst.schedule : [],
+      };
+    }
     return makeList(assets);
   }
 
@@ -642,8 +728,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/cost-profiles')) {
     const profiles = getEntityList('cost_profiles', []);
-    const singleCp = profiles.find((p) => path.endsWith(`/${p.id}`));
-    if (singleCp) return { ...singleCp, components: [] };
+    const singleCp: any = profiles.find((p: any) => path.endsWith(`/${p.id}`));
+    if (singleCp) {
+      const lines = Array.isArray(singleCp.lines) ? singleCp.lines : (Array.isArray(singleCp.components) ? singleCp.components : []);
+      return { ...singleCp, lines, components: lines };
+    }
     return makeList(profiles);
   }
 
