@@ -7,7 +7,7 @@ import { date, downloadCsv, money, today } from '../lib/format';
 import { opts, PRICING_BASIS, PROJECT_STATUS } from '../lib/labels';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
-import { Badge, EmptyState, ErrorState, Field, Loading, PageHeader, Pager, Stat, useToast } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Stat, useToast } from '../components/ui';
 
 const ProjStatus = ({ s }: { s: string }) => (
   <Badge color={PROJECT_STATUS[s]?.color}>{PROJECT_STATUS[s]?.label ?? s}</Badge>
@@ -474,27 +474,29 @@ export function ProjectDetailPage() {
       )}
 
       {/* Status change dialog */}
-      {modal === 'status' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-96 rounded-xl bg-white shadow-2xl dark:bg-slate-900">
-            <div className="border-b border-slate-200 px-5 py-4 font-semibold dark:border-slate-800">تغيير حالة المشروع</div>
-            <div className="space-y-3 p-5">
-              <Field label="الحالة الجديدة">
-                <select className="input" value={newStatus} onChange={(e) => setNewStatus(e.target.value)}>
-                  {transitions.map((t) => <option key={t.value} value={t.value}>{t.label} ({t.value})</option>)}
-                </select>
-              </Field>
-              <Field label="السبب">
-                <textarea className="input h-20 py-2" value={reason} onChange={(e) => setReason(e.target.value)} />
-              </Field>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-800">
-              <button className="btn-secondary" onClick={() => setModal(null)}>إلغاء</button>
-              <button className="btn-primary" disabled={!newStatus || busy} onClick={changeStatus}>تأكيد</button>
-            </div>
+      <Modal
+        open={modal === 'status'}
+        onClose={() => setModal(null)}
+        title="تغيير حالة المشروع"
+        maxWidth="max-w-md"
+        footer={
+          <div className="flex justify-end gap-2 w-full">
+            <button className="btn-secondary" onClick={() => setModal(null)}>إلغاء</button>
+            <button className="btn-primary" disabled={!newStatus || busy} onClick={changeStatus}>تأكيد</button>
           </div>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <Field label="الحالة الجديدة">
+            <select className="input" value={newStatus} onChange={(e) => setNewStatus(e.target.value)}>
+              {transitions.map((t) => <option key={t.value} value={t.value}>{t.label} ({t.value})</option>)}
+            </select>
+          </Field>
+          <Field label="السبب">
+            <textarea className="input h-20 py-2" value={reason} onChange={(e) => setReason(e.target.value)} />
+          </Field>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

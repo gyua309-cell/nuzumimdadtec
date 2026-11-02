@@ -1,14 +1,16 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Download, Eye, Pencil, Plus, Printer, Search, Tag, Trash2, X,
+  AlertTriangle, CheckCircle2, Eye, FileSpreadsheet, FileUp,
+  Pencil, Plus, Printer, Search, Tag, Trash2, Upload, X,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { money, today } from '../lib/format';
 import {
-  Badge, Drawer, EmptyState, ErrorState, Field, Loading, PageHeader, Spinner, useToast,
+  Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast,
 } from '../components/ui';
+import { ExportMenu } from '../components/ExportMenu';
 
 export interface ServiceItem {
   id: string;
@@ -180,6 +182,133 @@ export function ServiceCatalogPage() {
     isActive: true,
   });
 
+  // CSV Import State & Handlers
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [parsedRows, setParsedRows] = useState<any[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFile(file);
+    setImportErrors([]);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const text = (evt.target?.result as string) || '';
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        if (lines.length < 2) {
+          setImportErrors(['الملف فارغ أو لا يحتوي على صفوف بيانات بعد الترويسة']);
+          return;
+        }
+
+        const parseCsvLine = (line: string): string[] => {
+          const res: string[] = [];
+          let cur = '';
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') {
+              if (inQuotes && line[i + 1] === '"') {
+                cur += '"';
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (ch === ',' && !inQuotes) {
+              res.push(cur.trim());
+              cur = '';
+            } else {
+              cur += ch;
+            }
+          }
+          res.push(cur.trim());
+          return res;
+        };
+
+        const rowsData: any[] = [];
+        const errs: string[] = [];
+
+        for (let idx = 1; idx < lines.length; idx++) {
+          const cols = parseCsvLine(lines[idx]);
+          if (cols.length < 2 || !cols.some(Boolean)) continue;
+          const code = cols[0] || `SRV-${Date.now()}-${idx}`;
+          const nameAr = cols[1];
+          if (!nameAr) {
+            errs.push(`السطر ${idx + 1}: اسم الخدمة بالعربية مطلوب`);
+            continue;
+          }
+          const nameEn = cols[2] || '';
+          const categoryRaw = cols[3] || 'SOFTWARE_DEVELOPMENT';
+          const billingBasisRaw = cols[4] || 'DAILY';
+          const unitPrice = parseFloat(cols[5]) || 0;
+          const currency = cols[6] || 'SAR';
+          const vat = parseFloat(cols[7]) || 15;
+          const gl = cols[8] || '40101';
+
+          rowsData.push({
+            id: `srv-${Date.now()}-${idx}`,
+            code,
+            nameAr,
+            nameEn,
+            category: Object.keys(CATEGORY_LABELS).includes(categoryRaw) ? categoryRaw : 'SOFTWARE_DEVELOPMENT',
+            billingBasis: Object.keys(BILLING_BASIS_LABELS).includes(billingBasisRaw) ? billingBasisRaw : 'DAILY',
+            defaultUnitPrice: unitPrice,
+            currencyCode: currency,
+            vatRate: vat,
+            glAccountId: gl,
+            isActive: true,
+          });
+        }
+
+        setParsedRows(rowsData);
+        setImportErrors(errs);
+      } catch (err: any) {
+        setImportErrors([`فشل قراءة الملف: ${err.message}`]);
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+  };
+
+  const handleExecuteImport = () => {
+    if (parsedRows.length === 0) return;
+    setImporting(true);
+    try {
+      const currentList: ServiceItem[] = query.data || INITIAL_SERVICES;
+      const combined = [...parsedRows, ...currentList];
+      localStorage.setItem('azm_services_catalog', JSON.stringify(combined));
+      qc.invalidateQueries({ queryKey: ['/services/catalog'] });
+      toast.success(`تم استيراد ${parsedRows.length} خدمة إلى المخزون بنجاح`);
+      setImportOpen(false);
+      setImportFile(null);
+      setParsedRows([]);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (err: any) {
+      toast.error('حدث خطأ أثناء حفظ الخدمات المستوردة');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const downloadSampleCsv = () => {
+    const sampleHeaders = ['رمز الخدمة', 'اسم الخدمة بالعربية', 'اسم الخدمة بالإنجليزية', 'التصنيف', 'أساس الفوترة', 'السعر القياسي', 'العملة', 'نسبة الضريبة', 'حساب الإيراد'];
+    const sampleRows = [
+      ['SRV-DEV-01', 'تأجير مهندس برمجيات أول', 'Senior Full-Stack Engineer', 'SOFTWARE_DEVELOPMENT', 'DAILY', '1500', 'SAR', '15', '40101'],
+      ['SRV-CLD-02', 'استشارات بنية تحتية سحابية', 'Cloud Infrastructure Consulting', 'CLOUD_DEVOPS', 'HOURLY', '350', 'SAR', '15', '40101'],
+    ];
+    const csv = '\uFEFF' + [sampleHeaders.join(','), ...sampleRows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'نموذج_استيراد_المخزون_الخدمي.csv';
+    a.click();
+  };
+
   const openAdd = () => {
     setFormData({
       code: `SRV-${String(Math.floor(Math.random() * 900) + 100)}`,
@@ -289,30 +418,6 @@ export function ServiceCatalogPage() {
     }
   };
 
-  const exportCsv = () => {
-    const headers = ['رمز الخدمة', 'اسم الخدمة بالعربية', 'الاسم بالإنجليزية', 'التصنيف', 'أساس الفوترة', 'السعر القياسي', 'العملة', 'نسبة الضريبة', 'حساب الإيراد', 'الحالة'];
-    const rows = services.map((s) => [
-      s.code,
-      `"${s.nameAr.replace(/"/g, '""')}"`,
-      `"${(s.nameEn || '').replace(/"/g, '""')}"`,
-      CATEGORY_LABELS[s.category]?.label || s.category,
-      BILLING_BASIS_LABELS[s.billingBasis] || s.billingBasis,
-      s.defaultUnitPrice,
-      s.currencyCode,
-      `${s.vatRate}%`,
-      s.glAccountId || '40101',
-      s.isActive ? 'نشط' : 'معطل',
-    ]);
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `دليل_المخزون_الخدمي_${today()}.csv`;
-    a.click();
-    toast.success('تم تصدير دليل المخزون الخدمي إلى ملف CSV بنجاح');
-  };
-
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── Official Print Header (Only visible on print) ───────────────────── */}
@@ -337,19 +442,41 @@ export function ServiceCatalogPage() {
         subtitle="دليل الخدمات التقنية والاستشارية وتأجير الكوادر المتاحة للمشاريع وعقود العملاء، مع أسس الفوترة والأسعار القياسية ونسب الضريبة (ZATCA)."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title="دليل المخزون الخدمي والخدمات"
+              filename={`دليل_المخزون_الخدمي_${today()}`}
+              columns={[
+                { key: 'code', header: 'رمز الخدمة' },
+                { key: 'nameAr', header: 'اسم الخدمة بالعربية' },
+                { key: 'nameEn', header: 'اسم الخدمة بالإنجليزية' },
+                { key: 'categoryLabel', header: 'التصنيف' },
+                { key: 'billingBasisLabel', header: 'أساس الفوترة' },
+                { key: 'defaultUnitPrice', header: 'السعر القياسي', type: 'currency' },
+                { key: 'currencyCode', header: 'العملة' },
+                { key: 'vatRate', header: 'نسبة الضريبة %' },
+                { key: 'glAccountId', header: 'حساب الإيراد' },
+                { key: 'statusLabel', header: 'الحالة' },
+              ]}
+              data={(query.data || INITIAL_SERVICES).map((s) => ({
+                ...s,
+                categoryLabel: CATEGORY_LABELS[s.category]?.label || s.category,
+                billingBasisLabel: BILLING_BASIS_LABELS[s.billingBasis] || s.billingBasis,
+                statusLabel: s.isActive ? 'نشط' : 'معطل',
+              }))}
+            />
+            <button
+              className="btn-secondary text-xs flex items-center gap-1.5 shadow-xs"
+              onClick={() => setImportOpen(true)}
+              title="استيراد خدمات من ملف CSV"
+            >
+              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد CSV
+            </button>
             <button
               className="btn-secondary text-xs flex items-center gap-1.5 shadow-xs"
               onClick={() => window.print()}
               title="طباعة الدليل"
             >
               <Printer className="size-3.5" /> طباعة
-            </button>
-            <button
-              className="btn-secondary text-xs flex items-center gap-1.5 shadow-xs"
-              onClick={exportCsv}
-              title="تصدير CSV"
-            >
-              <Download className="size-3.5" /> تصدير Excel/CSV
             </button>
             <button
               className="btn-primary text-xs flex items-center gap-1.5 shadow-xs"
@@ -814,6 +941,134 @@ export function ServiceCatalogPage() {
           </div>
         )}
       </Drawer>
+
+      {/* ── CSV Import Modal ─── */}
+      <Modal
+        open={importOpen}
+        onClose={() => {
+          setImportOpen(false);
+          setImportFile(null);
+          setParsedRows([]);
+          setImportErrors([]);
+        }}
+        title="استيراد خدمات جديدة إلى المخزون من ملف CSV"
+        wide
+        footer={
+          <div className="flex flex-wrap items-center justify-between w-full text-xs">
+            <button
+              type="button"
+              className="btn-secondary flex items-center gap-1.5"
+              onClick={downloadSampleCsv}
+            >
+              <FileSpreadsheet className="size-3.5 text-emerald-600" /> تحميل نموذج CSV استرشادي
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setImportOpen(false);
+                  setImportFile(null);
+                  setParsedRows([]);
+                }}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                className="btn-primary flex items-center gap-1.5"
+                disabled={parsedRows.length === 0 || importing}
+                onClick={handleExecuteImport}
+              >
+                {importing && <Spinner />}
+                <span>تأكيد واستيراد ({parsedRows.length}) خدمة</span>
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-5 text-xs">
+          {/* File Dropzone */}
+          <div className="rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 p-6 text-center hover:border-cyan-500 transition-colors bg-slate-50/50 dark:bg-slate-900/50">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              id="services-csv-input"
+              onChange={handleFileChange}
+            />
+            <label
+              htmlFor="services-csv-input"
+              className="flex flex-col items-center justify-center gap-2 cursor-pointer"
+            >
+              <div className="flex size-12 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
+                <FileUp className="size-6" />
+              </div>
+              <div className="font-bold text-sm text-slate-800 dark:text-white">
+                {importFile ? importFile.name : 'اضغط هنا لاختيار ملف CSV أو اسحب الملف وأفلته'}
+              </div>
+              <p className="text-slate-400 text-xs">
+                يدعم الملفات المشفرة بصيغة UTF-8 مع الأعمدة: رمز الخدمة، الاسم بالعربية، الاسم بالإنجليزية، التصنيف، أساس الفوترة، السعر، العملة، الضريبة
+              </p>
+            </label>
+          </div>
+
+          {/* Error List */}
+          {importErrors.length > 0 && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold">
+                <AlertTriangle className="size-4" /> تنبيهات أثناء قراءة الملف:
+              </div>
+              <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+                {importErrors.map((err, i) => (
+                  <li key={i}>{err}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Preview Table */}
+          {parsedRows.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="size-4" />
+                  <span>تم فحص وتحليل {parsedRows.length} خدمة جاهزة للاستيراد:</span>
+                </div>
+                <span className="text-slate-400 text-[11px]">معاينة الصفوف الخمسة الأولى</span>
+              </div>
+
+              <div className="table-container max-h-56 overflow-y-auto custom-scrollbar">
+                <table className="table text-xs">
+                  <thead>
+                    <tr>
+                      <th>رمز الخدمة</th>
+                      <th>الاسم بالعربية</th>
+                      <th>الاسم بالإنجليزية</th>
+                      <th>أساس الفوترة</th>
+                      <th>السعر القياسي</th>
+                      <th>الضريبة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedRows.slice(0, 5).map((r, idx) => (
+                      <tr key={idx}>
+                        <td className="font-mono font-bold text-cyan-600">{r.code}</td>
+                        <td className="font-semibold text-slate-800 dark:text-white">{r.nameAr}</td>
+                        <td className="text-slate-500 font-mono text-[11px]" dir="ltr">{r.nameEn || '—'}</td>
+                        <td>{BILLING_BASIS_LABELS[r.billingBasis] || r.billingBasis}</td>
+                        <td className="font-mono font-bold">{money(r.defaultUnitPrice)} {r.currencyCode}</td>
+                        <td className="font-mono">{r.vatRate}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

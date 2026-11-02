@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -1017,9 +1018,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
       </div>
 
       {/* ─────────── Global Command Palette Modal (Ctrl+K) ─────────── */}
-      {cmdOpen && (
+      {cmdOpen && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/65 p-4 pt-[10vh] backdrop-blur-xs animate-fade-in"
+          className="fixed inset-0 z-[9999] flex items-start justify-center bg-slate-950/75 p-4 pt-[10vh] backdrop-blur-xs animate-fade-in"
           onClick={() => setCmdOpen(false)}
         >
           <div
@@ -1112,7 +1113,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
               <span>{ALL_SEARCH_ENTRIES.length} شاشة وتقرير في المنظومة</span>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

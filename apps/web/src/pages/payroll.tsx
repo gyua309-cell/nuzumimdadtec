@@ -6,7 +6,7 @@ import { api, Page } from '../lib/api';
 import { date as _date, downloadCsv, money, today } from '../lib/format';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
-import { Badge, EmptyState, ErrorState, Field, Loading, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
 
 const CALC_METHOD: Record<string, string> = {
   FIXED: 'مبلغ ثابت',
@@ -525,34 +525,38 @@ export function LoansPage() {
         }}
       />
 
-      {postponeId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-96 rounded-xl bg-white shadow-2xl space-y-4 p-5 text-xs">
-            <h3 className="font-bold text-slate-900 text-sm">تأجيل موعد استقطاع القسط</h3>
-            <Field label="ترحيل القسط إلى الفترة المالية:">
-              <PeriodSelect value={postponePeriodId} onChange={setPostponePeriodId} />
-            </Field>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-secondary text-xs" onClick={() => setPostponeId(null)}>إلغاء</button>
-              <button
-                className="btn-primary text-xs"
-                onClick={async () => {
-                  try {
-                    await api.post(`/loans/installments/${postponeId}/postpone`, { toPeriodId: postponePeriodId, reason: 'تأجيل إداري' });
-                    qc.invalidateQueries({ queryKey: ['loan', selected?.id] });
-                    toast.success('تم تأجيل القسط بنجاح');
-                    setPostponeId(null);
-                  } catch (e) {
-                    toast.error(e);
-                  }
-                }}
-              >
-                تأكيد التأجيل
-              </button>
-            </div>
+      <Modal
+        open={!!postponeId}
+        onClose={() => setPostponeId(null)}
+        title="تأجيل موعد استقطاع القسط"
+        maxWidth="max-w-md"
+        footer={
+          <div className="flex justify-end gap-2 w-full">
+            <button className="btn-secondary text-xs" onClick={() => setPostponeId(null)}>إلغاء</button>
+            <button
+              className="btn-primary text-xs"
+              onClick={async () => {
+                try {
+                  await api.post(`/loans/installments/${postponeId}/postpone`, { toPeriodId: postponePeriodId, reason: 'تأجيل إداري' });
+                  qc.invalidateQueries({ queryKey: ['loan', selected?.id] });
+                  toast.success('تم تأجيل القسط بنجاح');
+                  setPostponeId(null);
+                } catch (e) {
+                  toast.error(e);
+                }
+              }}
+            >
+              تأكيد التأجيل
+            </button>
           </div>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <Field label="ترحيل القسط إلى الفترة المالية:">
+            <PeriodSelect value={postponePeriodId} onChange={setPostponePeriodId} />
+          </Field>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

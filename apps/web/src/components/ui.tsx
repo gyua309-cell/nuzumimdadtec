@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Inbox, Info, Loader2, Sparkles, Trash2, X } from 'lucide-react';
 import { ApiError } from '../lib/api';
 
@@ -215,21 +216,27 @@ export function Modal({
 }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    if (open) window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
+    if (open) {
+      window.addEventListener('keydown', h);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      window.removeEventListener('keydown', h);
+      document.body.style.overflow = '';
+    };
   }, [open, onClose]);
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/75 backdrop-blur-sm p-3 sm:p-6 transition-all animate-fade-in"
+      className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-fade-in"
       onMouseDown={onClose}
     >
       <div
         className={`relative flex w-full ${
           maxWidth ? maxWidth : wide ? 'max-w-5xl' : 'max-w-3xl'
-        } max-h-[90vh] flex-col rounded-2xl border border-slate-200/90 bg-white shadow-2xl dark:border-slate-700/80 dark:bg-[#0c1427] overflow-hidden animate-scale-up`}
+        } max-h-[92vh] min-h-0 my-auto flex-col rounded-2xl border border-slate-200/90 bg-white shadow-2xl dark:border-slate-700/80 dark:bg-[#0c1427] overflow-hidden animate-scale-up`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Signature IDHAM Top Accent Gradient Bar */}
@@ -253,7 +260,7 @@ export function Modal({
             </span>
             <button
               type="button"
-              className="flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-white transition-all"
+              className="flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-white transition-all cursor-pointer"
               onClick={onClose}
               title="إغلاق (Esc)"
             >
@@ -263,7 +270,7 @@ export function Modal({
         </div>
 
         {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 custom-scrollbar">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6 custom-scrollbar">{children}</div>
 
         {/* Modal Footer */}
         {footer && (
@@ -272,7 +279,8 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

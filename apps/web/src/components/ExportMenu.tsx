@@ -8,7 +8,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, Printer, Share2, ChevronDown, Settings2 } from 'lucide-react';
 import { ExportEngine, ExportColumnDef } from '../engine/export-engine';
 import { PrintEngine, PaperSize, PageOrientation } from '../engine/print-engine';
-import { Spinner, useToast } from './ui';
+import { Modal, Spinner, useToast } from './ui';
 
 export interface ExportMenuProps {
   title: string;
@@ -226,60 +226,62 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
       )}
 
       {/* Columns Filter Modal */}
-      {colModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="font-bold text-sm">تحديد أعمدة ملف التصدير</h3>
-              <button
-                type="button"
-                className="text-xs text-brand-600 hover:underline"
-                onClick={() => setSelectedColKeys(columns.map((c) => c.key))}
-              >
-                تحديد الكل
-              </button>
-            </div>
+      <Modal
+        open={colModalOpen}
+        onClose={() => setColModalOpen(false)}
+        title="تحديد أعمدة ملف التصدير"
+        maxWidth="max-w-md"
+        footer={
+          <button
+            type="button"
+            className="btn-primary text-xs w-full py-2"
+            onClick={() => setColModalOpen(false)}
+          >
+            اعتماد الأعمدة المحددة ({selectedColKeys.length})
+          </button>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+            <span className="text-xs text-slate-500">اختر الحقول التي ترغب في تضمينها في الملف:</span>
+            <button
+              type="button"
+              className="text-xs text-cyan-600 hover:underline font-bold"
+              onClick={() => setSelectedColKeys(columns.map((c) => c.key))}
+            >
+              تحديد الكل
+            </button>
+          </div>
 
-            <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-              {columns.map((col) => {
-                const checked = selectedColKeys.includes(col.key);
-                return (
-                  <label
-                    key={col.key}
-                    className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer text-xs"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedColKeys([...selectedColKeys, col.key]);
-                        } else {
-                          if (selectedColKeys.length > 1) {
-                            setSelectedColKeys(selectedColKeys.filter((k) => k !== col.key));
-                          }
+          <div className="max-h-64 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+            {columns.map((col) => {
+              const checked = selectedColKeys.includes(col.key);
+              return (
+                <label
+                  key={col.key}
+                  className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer text-xs"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedColKeys([...selectedColKeys, col.key]);
+                      } else {
+                        if (selectedColKeys.length > 1) {
+                          setSelectedColKeys(selectedColKeys.filter((k) => k !== col.key));
                         }
-                      }}
-                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                    />
-                    <span className="font-medium">{col.header}</span>
-                  </label>
-                );
-              })}
-            </div>
-
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">
-              <button
-                type="button"
-                className="btn-primary text-xs w-full py-2"
-                onClick={() => setColModalOpen(false)}
-              >
-                اعتماد الأعمدة المحددة ({selectedColKeys.length})
-              </button>
-            </div>
+                      }
+                    }}
+                    className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  />
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">{col.header}</span>
+                </label>
+              );
+            })}
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 };
