@@ -3,14 +3,15 @@ import { createPortal } from 'react-dom';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, BookOpen, Briefcase, Building2, Calculator, ChevronDown, ChevronLeft,
-  Coins, Command, FileText, Globe, Landmark, LayoutDashboard, LogOut, Menu, Moon, Package,
-  PanelRightClose, Plus, Search, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet, X,
+  AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, Calculator, CheckCircle2, ChevronDown, ChevronLeft,
+  Cloud, Coins, Command, Database, FileText, Globe, Landmark, LayoutDashboard, LogOut, Menu, Moon, Package,
+  PanelRightClose, Plus, Search, Server, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet, X,
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, getCustomApiUrl, setCustomApiUrl } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JobsCenterButton } from './JobsCenterModal';
+import { Modal } from './ui';
 
 interface NavItem {
   to: string;
@@ -557,6 +558,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const [cmdIndex, setCmdIndex] = useState(0);
   const cmdInputRef = useRef<HTMLInputElement>(null);
 
+  // Cloud Database Sync Modal State
+  const [cloudModalOpen, setCloudModalOpen] = useState(false);
+  const [cloudUrlInput, setCloudUrlInput] = useState(() => getCustomApiUrl());
+  const isCloudConfigured = !!getCustomApiUrl();
+
   // Active branch selector state (does NOT blank out companyId!)
   const [activeBranchId, setActiveBranchId] = useState<string>(() => localStorage.getItem('idham.activeBranchId') ?? '');
 
@@ -871,11 +877,21 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </select>
           </div>
 
-          {/* Online Status Pill */}
-          <div className="hidden xl:flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-extrabold text-emerald-700 dark:text-emerald-400">
-            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>متصل أونلاين</span>
-          </div>
+          {/* Cloud Database & Sync Status Pill */}
+          <button
+            type="button"
+            onClick={() => setCloudModalOpen(true)}
+            className={`hidden xl:flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-extrabold transition-all cursor-pointer ${
+              isCloudConfigured
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20'
+                : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
+            }`}
+            title="حالة اتصال قاعدة البيانات والسيرفر السحابي (اضغط لضبط السحابة والمزامنة)"
+          >
+            <span className={`size-2 rounded-full ${isCloudConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`} />
+            <span>{isCloudConfigured ? 'سحابي متصل' : 'وضع محلي (أوفلاين)'}</span>
+            <Database className="size-3 opacity-70" />
+          </button>
 
           {/* Dual Live Clocks: Mecca 🕋 & Cairo 🇪🇬 */}
           <div className="hidden 2xl:flex items-center gap-2.5 rounded-xl border border-slate-200/90 bg-slate-50/90 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-[#0f172a] dark:text-slate-300">
@@ -1116,6 +1132,90 @@ export function AppShell({ children }: { children?: ReactNode }) {
         </div>,
         document.body
       )}
+
+      {/* Cloud Database & Central Server Configuration Modal */}
+      <Modal
+        open={cloudModalOpen}
+        onClose={() => setCloudModalOpen(false)}
+        title="ربط قاعدة البيانات والسيرفر السحابي المركزي"
+        wide
+        footer={
+          <div className="flex w-full items-center justify-between">
+            <button
+              type="button"
+              className="btn-ghost text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+              onClick={() => {
+                if (confirm('هل تريد إلغاء الرابط والعودة للوضع المحلي؟')) {
+                  setCustomApiUrl(null);
+                  window.location.reload();
+                }
+              }}
+            >
+              إلغاء الرابط والعودة للوضع المحلي
+            </button>
+            <div className="flex gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setCloudModalOpen(false)}>
+                إغلاق
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  setCustomApiUrl(cloudUrlInput);
+                  window.location.reload();
+                }}
+              >
+                حفظ وتفعيل الاتصال السحابي
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <div className={`p-4 rounded-xl border flex items-start gap-3 ${
+            isCloudConfigured
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
+              : 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
+          }`}>
+            <div className="shrink-0 mt-0.5">
+              {isCloudConfigured ? <CheckCircle2 className="size-5 text-emerald-600 dark:text-emerald-400" /> : <AlertTriangle className="size-5 text-amber-600 dark:text-amber-400" />}
+            </div>
+            <div>
+              <div className="font-extrabold text-sm mb-1">
+                {isCloudConfigured ? 'المنظومة موصولة بسيرفر سحابي' : 'المنظومة تعمل حالياً بالوضع المحلي (ذاكرة المتصفح فقط)'}
+              </div>
+              <p className="leading-relaxed">
+                {isCloudConfigured
+                  ? `أنت متصل بسيرفر سحابي على العنوان (${getCustomApiUrl()}). جميع أجهزتك ترسل وتستقبل البيانات في نفس الثانية.`
+                  : 'أنت تتصفح الواجهة بنظام الذاكرة المؤقتة لجهازك الحالي فقط؛ لذلك لا تظهر الإدخالات على الأجهزة الأخرى. لتفعيل المزامنة المباشرة بين كافة الفروع والجوالات، أدخل رابط السيرفر السحابي أو السيرفر المستضاف.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="card p-4 space-y-3 bg-slate-50 dark:bg-slate-900/40">
+            <label className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200">
+              <Server className="size-4 text-cyan-600" />
+              عنوان السيرفر السحابي (Cloud API Endpoint):
+            </label>
+            <div className="flex items-center gap-2">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                <Cloud className="size-4" />
+              </div>
+              <input
+                type="url"
+                dir="ltr"
+                className="input font-mono flex-1 text-sm"
+                placeholder="https://api.yourdomain.com أو https://idham-api.onrender.com"
+                value={cloudUrlInput}
+                onChange={(e) => setCloudUrlInput(e.target.value)}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              ملاحظة: يمكنك نشر مجلد <code>apps/api</code> على منصات سحابية سريعة مثل Render أو Railway أو Supabase ووضع رابطه هنا لتعمل كل الشاشات حية 100%.
+            </p>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

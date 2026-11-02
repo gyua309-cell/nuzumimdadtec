@@ -55,64 +55,7 @@ const BILLING_BASIS_LABELS: Record<string, string> = {
   fixed: 'مبلغ مقطوع (Fixed Milestone)',
 };
 
-const INITIAL_SERVICES: ServiceItem[] = [
-  {
-    id: 'srv-001',
-    code: 'SRV-DEV-01',
-    nameAr: 'تأجير مهندس برمجيات متقدم (Senior Full-Stack Engineer)',
-    nameEn: 'Senior Full-Stack Software Engineer Outsourcing',
-    category: 'SOFTWARE_DEVELOPMENT',
-    billingBasis: 'DAILY',
-    defaultUnitPrice: 2500,
-    currencyCode: 'SAR',
-    vatRate: 15,
-    glAccountId: '40101',
-    description: 'توفير كادر تقني خبير في تطوير تطبيقات الويب والسحابة بنظام التعاقد اليومي المرن.',
-    isActive: true,
-  },
-  {
-    id: 'srv-002',
-    code: 'SRV-ARCH-01',
-    nameAr: 'استشارات بنية النظم السحابية (Cloud Solutions Architect)',
-    nameEn: 'Cloud Architecture & Solutions Design',
-    category: 'CLOUD_DEVOPS',
-    billingBasis: 'DAILY',
-    defaultUnitPrice: 3500,
-    currencyCode: 'SAR',
-    vatRate: 15,
-    glAccountId: '40101',
-    description: 'تصميم وبناء البنى التحتية السحابية عالية التوافر ومطابقة لمعايير الأمن السيبراني.',
-    isActive: true,
-  },
-  {
-    id: 'srv-003',
-    code: 'SRV-ACC-01',
-    nameAr: 'تأجير محاسب مالي أول (Senior Financial Accountant)',
-    nameEn: 'Senior Financial Accountant Outsourcing',
-    category: 'ACCOUNTING_FINANCE',
-    billingBasis: 'MONTHLY',
-    defaultUnitPrice: 18000,
-    currencyCode: 'SAR',
-    vatRate: 15,
-    glAccountId: '40101',
-    description: 'تأجير كوادر محاسبية مؤهلة لإدارة الدفاتر المحاسبية وإقرارات الزكاة والضريبة.',
-    isActive: true,
-  },
-  {
-    id: 'srv-004',
-    code: 'SRV-ZATCA-01',
-    nameAr: 'باقة الربط والتكامل المباشر مع هيئة الزكاة (ZATCA Phase 2)',
-    nameEn: 'ZATCA Phase 2 E-Invoicing Integration Package',
-    category: 'TECHNICAL_CONSULTING',
-    billingBasis: 'FIXED',
-    defaultUnitPrice: 25000,
-    currencyCode: 'SAR',
-    vatRate: 15,
-    glAccountId: '40101',
-    description: 'تهيئة وربط الحل التقني وإصدار أختام التشفير الرقمية (CSID) والاعتماد الحي مع منصة فاتورة.',
-    isActive: true,
-  },
-];
+const INITIAL_SERVICES: ServiceItem[] = [];
 
 export function ServiceCatalogPage() {
   const { company } = useAuth();
@@ -144,8 +87,7 @@ export function ServiceCatalogPage() {
           // ignore
         }
       }
-      localStorage.setItem('azm_services_catalog', JSON.stringify(INITIAL_SERVICES));
-      return INITIAL_SERVICES;
+      return [];
     },
   });
 

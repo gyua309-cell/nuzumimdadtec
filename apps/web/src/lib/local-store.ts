@@ -153,6 +153,21 @@ export function sanitizeLegacyMockData() {
       localStorage.removeItem(`${STORAGE_PREFIX}cost_centers`);
     }
   }
+
+  // Clean mock services catalog
+  const mockSrvCodes = new Set(['SRV-DEV-01', 'SRV-ARCH-01', 'SRV-ACC-01', 'SRV-ZATCA-01']);
+  const rawSrv = localStorage.getItem('azm_services_catalog');
+  if (rawSrv) {
+    try {
+      const parsed: any[] = JSON.parse(rawSrv);
+      const cleaned = parsed.filter((s) => !mockSrvCodes.has(s.code) && !s.id?.startsWith('srv-00'));
+      if (cleaned.length !== parsed.length) {
+        localStorage.setItem('azm_services_catalog', JSON.stringify(cleaned));
+      }
+    } catch {
+      localStorage.removeItem('azm_services_catalog');
+    }
+  }
 }
 
 /**

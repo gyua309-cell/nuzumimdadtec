@@ -54,14 +54,38 @@ export const session = {
   },
 };
 
-const BASE = '/api/v1';
+export function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('idham.api_url');
+    if (custom) return custom.replace(/\/$/, '') + '/api/v1';
+  }
+  const envUrl = (import.meta.env.VITE_API_URL as string) || '';
+  if (envUrl) return envUrl.replace(/\/$/, '') + '/api/v1';
+  return '/api/v1';
+}
+
+export function setCustomApiUrl(url: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!url || !url.trim()) {
+    localStorage.removeItem('idham.api_url');
+  } else {
+    localStorage.setItem('idham.api_url', url.trim().replace(/\/api\/v1\/?$/, '').replace(/\/$/, ''));
+  }
+}
+
+export function getCustomApiUrl(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('idham.api_url') || (import.meta.env.VITE_API_URL as string) || '';
+}
+
 let refreshing: Promise<boolean> | null = null;
 
 export async function refreshToken(): Promise<boolean> {
+  const base = getApiBaseUrl();
   if (!refreshing) {
     refreshing = (async () => {
       try {
-        const r = await fetch(`${BASE}/auth/refresh`, {
+        const r = await fetch(`${base}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -102,8 +126,9 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
   }
   if (path.startsWith('/auth/')) headers['X-Requested-With'] = 'XMLHttpRequest';
   let res: Response;
+  const base = getApiBaseUrl();
   try {
-    res = await fetch(`${BASE}${path}${qs(opts.query)}`, { method, headers, body: payload, credentials: 'include' });
+    res = await fetch(`${base}${path}${qs(opts.query)}`, { method, headers, body: payload, credentials: 'include' });
   } catch (err: any) {
     const fallback = getDemoFallback(path, method, body);
     if (fallback !== undefined) return fallback as T;
