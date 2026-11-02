@@ -34,17 +34,17 @@ export function EmployeeProfitabilityReportPage() {
   // Queries
   const { data: employees = [], isLoading: isEmpsLoading, error: empsError, refetch } = useQuery({
     queryKey: ['profitability-employees'],
-    queryFn: () => api.get<any[]>('/employees', { pageSize: '100' }).then((r: any) => r.data || []),
+    queryFn: () => api.get<any[]>('/employees', { pageSize: '100' }).then((r: any) => Array.isArray(r) ? r : (r?.data || [])).catch(() => []),
   });
 
   const { data: assignments = [] } = useQuery({
     queryKey: ['profitability-assignments'],
-    queryFn: () => api.get<any[]>('/assignments', { pageSize: '200' }).then((r: any) => r.data || []),
+    queryFn: () => api.get<any[]>('/assignments', { pageSize: '200' }).then((r: any) => Array.isArray(r) ? r : (r?.data || [])).catch(() => []),
   });
 
   const { data: departments = [] } = useQuery({
     queryKey: ['profitability-departments'],
-    queryFn: () => api.get<any[]>('/departments').then((r: any) => r || []),
+    queryFn: () => api.get<any[]>('/departments').then((r: any) => Array.isArray(r) ? r : (r?.data || [])).catch(() => []),
   });
 
   // Calculate profitability per employee

@@ -793,6 +793,8 @@ export function PostingRulesPage() {
 
   if (events.isLoading || rules.isLoading) return <Loading />;
   if (rules.error) return <ErrorState error={rules.error} />;
+  const rawEvents: any = events.data;
+  const eventList: any[] = Array.isArray(rawEvents) ? rawEvents : (rawEvents?.data ?? []);
   const byEvent = new Map<string, any[]>();
   for (const r of rules.data ?? []) byEvent.set(r.eventCode, [...(byEvent.get(r.eventCode) ?? []), r]);
 
@@ -803,7 +805,7 @@ export function PostingRulesPage() {
         <table className="table">
           <thead><tr><th>الحدث</th><th>الوصف</th><th>القواعد المعرفة</th><th /></tr></thead>
           <tbody>
-            {events.data!.map((ev) => {
+            {eventList.map((ev) => {
               const rs = byEvent.get(ev.code) ?? [];
               return (
                 <Fragment key={ev.code}>
@@ -840,7 +842,7 @@ export function PostingRulesPage() {
         {form && (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-3">
-              <Field label="الحدث"><select className="input" disabled={!!form.id} value={form.eventCode} onChange={(e) => setForm({ ...form, eventCode: e.target.value })}>{events.data!.map((x) => <option key={x.code} value={x.code}>{x.descriptionAr} ({x.code})</option>)}</select></Field>
+              <Field label="الحدث"><select className="input" disabled={!!form.id} value={form.eventCode} onChange={(e) => setForm({ ...form, eventCode: e.target.value })}>{eventList.map((x) => <option key={x.code} value={x.code}>{x.descriptionAr} ({x.code})</option>)}</select></Field>
               <Field label="اسم القاعدة"><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
               <Field label="الدفتر"><select className="input" value={form.ledger} onChange={(e) => setForm({ ...form, ledger: e.target.value })}><option value="FINANCIAL">مالي</option><option value="MANAGEMENT">إداري</option></select></Field>
               <Field label="الأولوية" hint="الأقل يُختار أولًا"><input className="input" dir="ltr" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} /></Field>

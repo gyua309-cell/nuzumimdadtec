@@ -27,21 +27,22 @@ export function MultiCurrencyPayrollReportPage() {
     queryFn: async () => {
       if (!activePeriodId) return null;
       // Fetch latest posted or draft run for this period
-      const runs = await api.get<any>('/payroll-runs', { pageSize: '50' });
-      const run = runs?.data?.find((r: any) => r.fiscalPeriodId === activePeriodId && r.status !== 'CANCELLED') || runs?.data?.[0];
+      const runs = await api.get<any>('/payroll-runs', { pageSize: '50' }).catch(() => []);
+      const runList = Array.isArray(runs) ? runs : (Array.isArray(runs?.data) ? runs.data : []);
+      const run = runList.find((r: any) => r.fiscalPeriodId === activePeriodId && r.status !== 'CANCELLED') || runList[0];
       if (!run) {
         // Return preview lines if no run exists
-        const prev = await api.get<any>(`/payroll-runs/preview?periodId=${activePeriodId}`);
+        const prev = await api.get<any>(`/payroll-runs/preview?periodId=${activePeriodId}`).catch(() => ({ lines: [] }));
         return { isPreview: true, ...prev };
       }
       // Fetch detailed run with lines
-      const detailed = await api.get<any>(`/payroll-runs/${run.id}`);
+      const detailed = await api.get<any>(`/payroll-runs/${run.id}`).catch(() => ({ lines: [] }));
       return { isPreview: false, ...detailed };
     },
     enabled: !!activePeriodId,
   });
 
-  const lines = runsData?.lines || [];
+  const lines = Array.isArray(runsData?.lines) ? runsData.lines : (Array.isArray(runsData?.entries) ? runsData.entries : []);
 
   // Filter lines by payout currency if selected
   const filteredLines = useMemo(() => {

@@ -216,14 +216,16 @@ export function RolesPage() {
   const toggle = (code: string) => { const s = new Set<string>(form.permissions); s.has(code) ? s.delete(code) : s.add(code); setForm({ ...form, permissions: s }); };
   if (roles.isLoading) return <Loading />;
   if (roles.error) return <ErrorState error={roles.error} />;
+  const rawRoles: any = roles.data;
+  const roleList: any[] = Array.isArray(rawRoles) ? rawRoles : (rawRoles?.data ?? []);
   return (
     <div>
       <PageHeader title="الأدوار والصلاحيات" subtitle="القوالب الجاهزة للعرض والنسخ فقط. أنشئ أدوار الشركة واختر الصلاحيات من المصفوفة." actions={<button className="btn-primary" onClick={() => open(null)}><Plus className="size-4" /> دور جديد</button>} />
       <div className="card overflow-hidden">
-        {roles.data!.length === 0 ? <EmptyState text="لا توجد أدوار" /> : (
+        {roleList.length === 0 ? <EmptyState text="لا توجد أدوار" /> : (
           <table className="table">
             <thead><tr><th>الرمز</th><th>الاسم</th><th>النوع</th><th>الصلاحيات</th><th>المستخدمون</th><th /></tr></thead>
-            <tbody>{roles.data!.map((r) => (
+            <tbody>{roleList.map((r) => (
               <tr key={r.id} className="cursor-pointer" onClick={() => open(r)}>
                 <td className="font-mono text-xs" dir="ltr">{r.code}</td><td>{r.nameAr}</td><td>{r.isTemplate ? <Badge color="blue">قالب</Badge> : <Badge>دور الشركة</Badge>}</td>
                 <td className="num">{r.permissionCount}</td><td className="num">{r.userCount}</td>

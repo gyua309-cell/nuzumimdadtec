@@ -511,16 +511,30 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 13. ZATCA
   if (path.includes('/zatca/status')) {
+    const comp = getStoredCompany();
     return {
       connected: true,
       environment: 'PRODUCTION',
+      csidStatus: 'PRODUCTION',
+      csidExpiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
       deviceStatus: 'ACTIVE',
       phase: 2,
       lastSyncAt: new Date().toISOString(),
       onboardedDevicesCount: 1,
-      totalInvoicesReported: 0,
-      totalInvoicesCleared: 0,
+      totalInvoicesReported: 12,
+      totalInvoicesCleared: 8,
+      submittedCount: 20,
+      pendingCount: 0,
       complianceRate: '100.00',
+      transmissionNoteAr: 'جميع معاملات الفوترة الإلكترونية مطابقة لمواصفات ومعايير هيئة الزكاة والضريبة والجمارك (ZATCA Phase 2).',
+      checklist: [
+        { key: 'vat', ok: true, labelAr: 'الرقم الضريبي للمنشأة', hintAr: comp.taxNumber || '310123456700003' },
+        { key: 'cr', ok: true, labelAr: 'السجل التجاري للمنشأة', hintAr: comp.commercialReg || '1010123456' },
+        { key: 'csid', ok: true, labelAr: 'شهادة إنتاج CSID مفعلة ومعتمدة', hintAr: 'تم إصدار الشهادة واعتمادها في بيئة الإنتاج' },
+        { key: 'egs', ok: true, labelAr: 'معرّف وحدة الحل التقني EGS', hintAr: 'الوحدة مسجلة برقم تسلسلي معتمد' },
+        { key: 'xml', ok: true, labelAr: 'توليد فواتير UBL 2.1 القياسية', hintAr: 'ترميز XML متوافق مع مواصفات الهيئة' },
+        { key: 'qr', ok: true, labelAr: 'رمز الاستجابة السريع المشفر (TLV)', hintAr: 'جاهز ومشفر مع كل فاتورة مبيعات' },
+      ],
     };
   }
 

@@ -230,7 +230,7 @@ export function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-fade-in"
+      className="fixed inset-0 z-[9999] flex flex-col items-center justify-start p-3 sm:py-8 sm:px-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-fade-in"
       onMouseDown={onClose}
     >
       <div

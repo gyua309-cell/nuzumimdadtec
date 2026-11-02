@@ -407,14 +407,16 @@ export function ClosingPage() {
   const close = useMutation({ mutationFn: () => api.post(`/closing/periods/${periodId}/close`, {}), onSuccess: () => { toast.success('تم إقفال الفترة وحفظ اللقطة'); setConfirmClose(false); refresh(); }, onError: (e) => toast.error(e) });
   if (periods.isLoading) return <Loading />;
   if (periods.error) return <ErrorState error={periods.error} />;
-  const p = periods.data!.find((x) => x.id === periodId);
+  const rawPeriods: any = periods.data;
+  const periodItems: any[] = Array.isArray(rawPeriods) ? rawPeriods : (rawPeriods?.data ?? []);
+  const p = periodItems.find((x) => x.id === periodId);
   return (
     <div>
       <PageHeader title="إقفال الفترات" subtitle="الإقفال يتم بالترتيب بعد اجتياز الفحوصات، وينشئ لقطة تاريخية محمية ببصمة SHA-256. إعادة الفتح تتطلب صلاحية وسببًا." />
-      {periods.data!.length === 0 ? <div className="card"><EmptyState text="لا توجد فترات مالية. أنشئ سنة مالية أولًا." /></div> : (
+      {periodItems.length === 0 ? <div className="card"><EmptyState text="لا توجد فترات مالية. أنشئ سنة مالية أولًا." /></div> : (
         <div className="grid grid-cols-[260px_1fr] gap-4">
           <div className="card max-h-[70vh] overflow-y-auto p-2">
-            {periods.data!.filter((x) => !x.isAdjustmentPeriod).map((x) => (
+            {periodItems.filter((x) => !x.isAdjustmentPeriod).map((x) => (
               <button key={x.id} onClick={() => setSel(x.id)} className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm ${x.id === periodId ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                 <span>{x.name}</span><Badge color={PERIOD_STATUS[x.status]?.color}>{PERIOD_STATUS[x.status]?.label ?? x.status}</Badge>
               </button>
@@ -464,11 +466,14 @@ export function SnapshotsPage() {
   const [sel, setSel] = useState<string | null>(null);
   const snap = useQuery({ queryKey: ['snapshot', sel], enabled: !!sel, queryFn: () => api.get<any>(`/snapshots/${sel}`) });
 
+  const rawQ: any = q.data;
+  const snapshotsList: any[] = Array.isArray(rawQ) ? rawQ : (rawQ?.data ?? []);
+
   const handleExportCsv = () => {
-    if (!q.data?.length) return;
+    if (!snapshotsList.length) return;
     downloadCsv(`closing-snapshots-${today()}.csv`, [
       ['الفترة المالية', 'رقم الإصدار', 'نوع اللقطة', 'بصمة البيانات SHA-256', 'تاريخ الإنشاء', 'بواسطة'],
-      ...q.data.map((s) => [s.periodName, s.version, s.kind, s.dataHash, s.createdAt, s.createdBy]),
+      ...snapshotsList.map((s) => [s.periodName, s.version, s.kind, s.dataHash, s.createdAt, s.createdBy]),
     ]);
     toast.success('تم تصدير لقطات الإقفال إلى CSV بنجاح');
   };
@@ -483,7 +488,7 @@ export function SnapshotsPage() {
             <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
               <Printer className="size-3.5" /> طباعة
             </button>
-            {q.data && q.data.length > 0 && (
+            {snapshotsList.length > 0 && (
               <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv} title="تصدير CSV">
                 <Download className="size-3.5" /> تصدير Excel/CSV
               </button>
@@ -492,10 +497,10 @@ export function SnapshotsPage() {
         }
       />
       <div className="card overflow-hidden">
-        {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : q.data!.length === 0 ? <EmptyState text="لا توجد لقطات بعد؛ تنشأ تلقائيًا عند إقفال أول فترة." /> : (
+        {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : snapshotsList.length === 0 ? <EmptyState text="لا توجد لقطات بعد؛ تنشأ تلقائيًا عند إقفال أول فترة." /> : (
           <table className="table">
             <thead><tr><th>الفترة</th><th>الإصدار</th><th>النوع</th><th>البصمة (SHA-256)</th><th>التاريخ</th><th>بواسطة</th></tr></thead>
-            <tbody>{q.data!.map((s) => <tr key={s.id} className="cursor-pointer" onClick={() => setSel(s.id)}><td>{s.periodName}</td><td className="num">{s.version}</td><td>{s.kind}</td><td className="font-mono text-xs" dir="ltr">{s.dataHash.slice(0, 24)}…</td><td>{dateTime(s.createdAt)}</td><td>{s.createdBy}</td></tr>)}</tbody>
+            <tbody>{snapshotsList.map((s) => <tr key={s.id} className="cursor-pointer" onClick={() => setSel(s.id)}><td>{s.periodName}</td><td className="num">{s.version}</td><td>{s.kind}</td><td className="font-mono text-xs" dir="ltr">{s.dataHash.slice(0, 24)}…</td><td>{dateTime(s.createdAt)}</td><td>{s.createdBy}</td></tr>)}</tbody>
           </table>
         )}
       </div>
@@ -526,8 +531,10 @@ export function DashboardPage() {
   const emps = useQuery({ queryKey: ['employees', 'count'], queryFn: () => api.get<any>('/employees', { pageSize: 1 }) });
   const prjs = useQuery({ queryKey: ['projects', 'count'], queryFn: () => api.get<any>('/projects', { pageSize: 1 }) });
 
-  const open = periods.data?.filter((p) => p.status === 'OPEN' && !p.isAdjustmentPeriod) ?? [];
-  const current = periods.data?.find((p) => !p.isAdjustmentPeriod && p.startDate <= today() && p.endDate >= today());
+  const rawPeriodsList: any = periods.data;
+  const periodList: any[] = Array.isArray(rawPeriodsList) ? rawPeriodsList : (rawPeriodsList?.data ?? []);
+  const open = periodList.filter((p) => p.status === 'OPEN' && !p.isAdjustmentPeriod);
+  const current = periodList.find((p) => !p.isAdjustmentPeriod && p.startDate <= today() && p.endDate >= today());
 
   const chart = useMemo(() => {
     if (!ytd.data) return null;

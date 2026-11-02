@@ -95,10 +95,10 @@ export function EmployeeAllocationDaysReportPage() {
     return rows.filter((r) => {
       if (searchTerm) {
         const q = searchTerm.toLowerCase();
-        const matchName = r.employeeName.toLowerCase().includes(q);
-        const matchEmpCode = r.employeeCode.toLowerCase().includes(q);
-        const matchProject = r.projectName.toLowerCase().includes(q) || r.projectCode.toLowerCase().includes(q);
-        const matchClient = r.clientName.toLowerCase().includes(q);
+        const matchName = (r.employeeName || '').toLowerCase().includes(q);
+        const matchEmpCode = (r.employeeCode || '').toLowerCase().includes(q);
+        const matchProject = (r.projectName || '').toLowerCase().includes(q) || (r.projectCode || '').toLowerCase().includes(q);
+        const matchClient = (r.clientName || '').toLowerCase().includes(q);
         if (!matchName && !matchEmpCode && !matchProject && !matchClient) return false;
       }
       if (invoiceFilter === 'INVOICED' && r.invoiceStatus === 'UNINVOICED') return false;

@@ -893,7 +893,7 @@ export function CustodiesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {custodyDetail.lines.map((l, idx) => (
+                        {(custodyDetail.lines ?? []).map((l, idx) => (
                           <tr key={l.id} className="hover:bg-slate-50/60">
                             <td className="py-2 px-3 font-mono">{idx + 1}</td>
                             <td className="py-2 px-3">
@@ -995,7 +995,7 @@ export function CustodiesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {custodyDetail.transfers.map((t) => (
+                        {(custodyDetail.transfers ?? []).map((t) => (
                           <tr key={t.id} className="hover:bg-purple-50/30">
                             <td className="py-2.5 px-3 font-mono font-bold text-purple-900">
                               {t.transfer_no}
@@ -1086,7 +1086,7 @@ export function CustodiesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {custodyDetail.settlements.map((s) => {
+                        {(custodyDetail.settlements ?? []).map((s) => {
                           const fxNum = Number(s.realized_fx_gain_loss || 0);
                           return (
                             <tr key={s.id} className="hover:bg-emerald-50/30">

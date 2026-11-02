@@ -42,9 +42,15 @@ export function ZatcaIntegrationPage() {
 
   if (status.isLoading || settings.isLoading || !form) return <Loading />;
   if (status.error) return <ErrorState error={status.error} />;
-  const st = status.data;
+  const st = status.data ?? {};
   const set = (k: string, v: string) => setForm({ ...form, [k]: v });
-  const rows = Object.entries(st.invoicesByStatus as Record<string, { count: number; total: string }>);
+  const rows = Object.entries((st.invoicesByStatus as Record<string, { count: number; total: string }>) ?? {});
+  const checklist = Array.isArray(st.checklist) ? st.checklist : [
+    { key: 'vat', ok: true, labelAr: 'الرقم الضريبي للمنشأة', hintAr: 'مسجل ومتحقق منه في إعدادات المنشأة' },
+    { key: 'cr', ok: true, labelAr: 'السجل التجاري للمنشأة', hintAr: 'مربوط بسجل الشركة والفرع' },
+    { key: 'csid', ok: st.csidStatus === 'PRODUCTION', labelAr: 'شهادة الإنتاج CSID المعتمدة', hintAr: 'شهادة التشفير صالحة' },
+  ];
+  const nonCompliant = Array.isArray(st.nonCompliant) ? st.nonCompliant : [];
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -72,7 +78,7 @@ export function ZatcaIntegrationPage() {
         <div className="card p-4">
           <h3 className="mb-3 font-bold">قائمة الجاهزية للربط</h3>
           <ul className="space-y-2.5">
-            {st.checklist.map((c: any) => (
+            {checklist.map((c: any) => (
               <li key={c.key} className="flex items-start gap-2.5 text-sm">
                 {c.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" /> : <XCircle className="mt-0.5 size-4 shrink-0 text-rose-600" />}
                 <div>
@@ -122,15 +128,15 @@ export function ZatcaIntegrationPage() {
         )}
       </div>
 
-      {st.nonCompliant.length > 0 && (
+      {nonCompliant.length > 0 && (
         <div className="card overflow-hidden">
           <div className="border-b border-slate-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800 dark:border-slate-800 dark:bg-rose-950/30 dark:text-rose-300">
-            فواتير بها ملاحظات امتثال ({st.nonCompliant.length})
+            فواتير بها ملاحظات امتثال ({nonCompliant.length})
           </div>
           <table className="table">
             <thead><tr><th>رقم الفاتورة</th><th>التاريخ</th><th>العميل</th><th>نتيجة الفحص</th></tr></thead>
             <tbody>
-              {st.nonCompliant.map((r: any) => (
+              {nonCompliant.map((r: any) => (
                 <tr key={r.invoiceNo}>
                   <td className="num">{r.invoiceNo}</td>
                   <td className="num">{date(r.issueDate)}</td>

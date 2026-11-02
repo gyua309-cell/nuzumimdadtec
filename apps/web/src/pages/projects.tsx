@@ -213,7 +213,7 @@ export function ProjectsPage() {
                   </tbody>
                 </table>
               </div>
-              <Pager {...list.data!.meta} onPage={setPage} />
+              {list.data?.meta && <Pager {...list.data.meta} onPage={setPage} />}
             </>
           )}
       </div>
@@ -518,7 +518,8 @@ export function AssignmentsPage() {
     queryFn: () => api.get<Page<any>>('/assignments', { page, pageSize: 50, q: search }),
   });
 
-  const assignmentItems = list.data?.data ?? [];
+  const rawAssign: any = list.data;
+  const assignmentItems: any[] = Array.isArray(rawAssign) ? rawAssign : (Array.isArray(rawAssign?.data) ? rawAssign.data : []);
   const activeCount = assignmentItems.filter((a) => !a.endDate || a.endDate >= today()).length;
   const overAllocatedCount = assignmentItems.filter((a) => a.isOverAllocated).length;
 
@@ -625,7 +626,7 @@ export function AssignmentsPage() {
           )}
         </div>
         {list.isLoading ? <Loading /> : list.error ? <div className="p-4"><ErrorState error={list.error} /></div>
-          : list.data!.data.length === 0 ? <EmptyState text="لا توجد تخصيصات." />
+          : assignmentItems.length === 0 ? <EmptyState text="لا توجد تخصيصات." />
           : (
             <>
               <div className="overflow-x-auto">
@@ -644,7 +645,7 @@ export function AssignmentsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {list.data!.data.map((a: any) => (
+                    {assignmentItems.map((a: any) => (
                       <tr key={a.id}>
                         <td>
                           <Link to={`/hr/employees/${a.employeeId}`} className="font-bold text-brand-600 hover:underline">
@@ -693,7 +694,7 @@ export function AssignmentsPage() {
                   </tbody>
                 </table>
               </div>
-              <Pager {...list.data!.meta} onPage={setPage} />
+              {list.data?.meta && <Pager {...list.data.meta} onPage={setPage} />}
             </>
           )}
       </div>
@@ -717,11 +718,14 @@ export function UtilizationPage() {
     queryFn: () => api.get<any[]>('/assignments/utilization', { periodId }),
   });
 
+  const rawRep: any = report.data;
+  const reportItems: any[] = Array.isArray(rawRep) ? rawRep : (Array.isArray(rawRep?.data) ? rawRep.data : []);
+
   const handleExportCsv = () => {
-    if (!report.data?.length) return;
+    if (!reportItems.length) return;
     downloadCsv(`utilization-${periodId || today()}.csv`, [
       ['اسم الموظف', 'إجمالي التخصيص%', 'الوقت غير المستغل%', 'الوقت الفائض%', 'الحالة', 'المشاريع'],
-      ...report.data.map((r: any) => [
+      ...reportItems.map((r: any) => [
         r.employeeName, `${Number(r.allocatedPct).toFixed(1)}%`, `${Number(r.unutilizedPct).toFixed(1)}%`, `${Number(r.overAllocatedPct ?? 0).toFixed(1)}%`, r.isOverAllocated ? 'فائض تخصيص' : r.allocatedPct < 100 ? 'وقت فائض' : 'مكتمل', r.projectNames?.join(' - ') || '—',
       ]),
     ]);
@@ -770,9 +774,9 @@ export function UtilizationPage() {
                 </tr>
               </thead>
               <tbody>
-                {report.data.length === 0
+                {reportItems.length === 0
                   ? <tr><td colSpan={6} className="text-center text-slate-500">لا توجد تخصيصات في هذه الفترة</td></tr>
-                  : report.data.map((r: any) => (
+                  : reportItems.map((r: any) => (
                     <tr key={r.employeeId}>
                       <td>
                         <Link to={`/hr/employees/${r.employeeId}`} className="text-brand-600 hover:underline">
@@ -812,7 +816,8 @@ export function ServicePricesPage() {
     queryFn: () => api.get<Page<any>>('/service-prices', { page, pageSize: 50 }),
   });
 
-  const priceItems = list.data?.data ?? [];
+  const rawPrice: any = list.data;
+  const priceItems: any[] = Array.isArray(rawPrice) ? rawPrice : (Array.isArray(rawPrice?.data) ? rawPrice.data : []);
 
   const handleExportCsv = () => {
     if (!priceItems.length) return;
@@ -857,7 +862,7 @@ export function ServicePricesPage() {
       />
       <div className="card overflow-hidden">
         {list.isLoading ? <Loading /> : list.error ? <div className="p-4"><ErrorState error={list.error} /></div>
-          : list.data!.data.length === 0 ? <EmptyState text="لا توجد أسعار. أضف سعراً افتراضياً لكل موظف." />
+          : priceItems.length === 0 ? <EmptyState text="لا توجد أسعار. أضف سعراً افتراضياً لكل موظف." />
           : (
             <>
               <div className="overflow-x-auto">
@@ -866,7 +871,7 @@ export function ServicePricesPage() {
                     <tr><th>الموظف</th><th>الأساس</th><th>السعر</th><th>العملة</th><th>النوع</th><th>من</th><th>إلى</th><th /></tr>
                   </thead>
                   <tbody>
-                    {list.data!.data.map((sp: any) => (
+                    {priceItems.map((sp: any) => (
                       <tr key={sp.id}>
                         <td><Link to={`/hr/employees/${sp.employeeId}`} className="text-brand-600 hover:underline">{sp.employeeName}</Link></td>
                         <td>{PRICING_BASIS[sp.pricingBasis ?? sp.basis] ?? (sp.pricingBasis ?? sp.basis)}</td>
@@ -889,7 +894,7 @@ export function ServicePricesPage() {
                   </tbody>
                 </table>
               </div>
-              <Pager {...list.data!.meta} onPage={setPage} />
+              {list.data?.meta && <Pager {...list.data.meta} onPage={setPage} />}
             </>
           )}
       </div>

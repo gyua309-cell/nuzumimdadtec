@@ -444,26 +444,31 @@ export function CurrenciesPage() {
             <Plus className="size-4" /> سعر جديد
           </button>
         </div>
-        {rates.isLoading ? <Loading /> : rates.error ? <ErrorState error={rates.error} /> : rates.data.data.length === 0 ? (
-          <EmptyState text="لا توجد أسعار صرف مسجلة بعد. أضف سعرًا لكل عملة أجنبية تتعامل بها." />
-        ) : (
-          <table className="table">
-            <thead><tr><th>من</th><th>إلى</th><th>النوع</th><th>التاريخ</th><th>السعر</th><th>المصدر</th><th /></tr></thead>
-            <tbody>
-              {rates.data.data.map((r: any) => (
-                <tr key={r.id}>
-                  <td>{r.fromCurrency}</td><td>{r.toCurrency}</td>
-                  <td>{{ SPOT: 'فوري', MONTHLY_AVG: 'متوسط شهري', CLOSING: 'إقفال' }[r.rateType as string]}</td>
-                  <td>{date(r.rateDate)}</td><td className="num">{r.rate}</td><td>{r.source ?? '—'}</td>
-                  <td className="text-end">
-                    <button className="btn-ghost h-7 px-2" onClick={() => setRateForm({ ...r })}>تعديل</button>
-                    <button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => confirm('حذف السعر؟') && delRate.mutate(r.id)}><Trash2 className="size-3.5" /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {(() => {
+          const rawRates: any = rates.data;
+          const rateList: any[] = Array.isArray(rawRates) ? rawRates : (Array.isArray(rawRates?.data) ? rawRates.data : []);
+          if (rates.isLoading) return <Loading />;
+          if (rates.error) return <ErrorState error={rates.error} />;
+          if (rateList.length === 0) return <EmptyState text="لا توجد أسعار صرف مسجلة بعد. أضف سعرًا لكل عملة أجنبية تتعامل بها." />;
+          return (
+            <table className="table">
+              <thead><tr><th>من</th><th>إلى</th><th>النوع</th><th>التاريخ</th><th>السعر</th><th>المصدر</th><th /></tr></thead>
+              <tbody>
+                {rateList.map((r: any) => (
+                  <tr key={r.id}>
+                    <td>{r.fromCurrency}</td><td>{r.toCurrency}</td>
+                    <td>{{ SPOT: 'فوري', MONTHLY_AVG: 'متوسط شهري', CLOSING: 'إقفال' }[r.rateType as string]}</td>
+                    <td>{date(r.rateDate)}</td><td className="num">{r.rate}</td><td>{r.source ?? '—'}</td>
+                    <td className="text-end">
+                      <button className="btn-ghost h-7 px-2" onClick={() => setRateForm({ ...r })}>تعديل</button>
+                      <button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => confirm('حذف السعر؟') && delRate.mutate(r.id)}><Trash2 className="size-3.5" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          );
+        })()}
       </div>
 
       <Modal
@@ -537,7 +542,7 @@ export function FiscalPage() {
               <table className="table">
                 <thead><tr><th>#</th><th>الفترة</th><th>من</th><th>إلى</th><th>الحالة</th><th>تاريخ الإقفال</th><th>مرات إعادة الفتح</th><th /></tr></thead>
                 <tbody>
-                  {year.data.periods.map((p: any) => (
+                  {(year.data?.periods ?? []).map((p: any) => (
                     <tr key={p.id}>
                       <td className="num">{p.periodNo}</td>
                       <td>{p.name} {p.isAdjustmentPeriod && <Badge color="amber">تسويات</Badge>}</td>

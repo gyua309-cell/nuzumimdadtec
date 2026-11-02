@@ -77,10 +77,11 @@ export function RevenuePage() {
   };
 
   const handleExportPreview = () => {
-    if (!preview.data?.lines?.length) return;
+    const lines = preview.data?.lines;
+    if (!lines || !Array.isArray(lines) || !lines.length) return;
     downloadCsv(`revenue-preview-${periodId || today()}.csv`, [
       ['الموظف', 'المشروع', 'الأساس', 'الوحدات', 'التخصيص%', 'الإيراد بالعملة الأساسية'],
-      ...preview.data.lines.map((l: any) => [
+      ...lines.map((l: any) => [
         l.employeeName, l.projectName, l.pricingBasis, l.units, l.allocationPct, l.grossRevenueBase,
       ]),
     ]);
@@ -371,19 +372,23 @@ export function ProfitabilityPage() {
       ]);
       toast.success('تم تصدير كشف ربحية الموظفين والوقت غير المستغل إلى CSV بنجاح');
     } else if (activeTab === 'clients') {
-      if (!clientProf.data?.length) return;
+      const rawC: any = clientProf.data;
+      const clientItems: any[] = Array.isArray(rawC) ? rawC : (Array.isArray(rawC?.data) ? rawC.data : []);
+      if (!clientItems.length) return;
       downloadCsv(`client-profitability-${periodLabel}.csv`, [
         ['كود العميل', 'اسم العميل', 'عدد المشاريع', 'إجمالي الإيراد', 'التكلفة المباشرة', 'المصروفات العامة', 'إجمالي التكلفة', 'صافي الربح', 'الهامش%'],
-        ...clientProf.data.map((c: any) => [
+        ...clientItems.map((c: any) => [
           c.clientCode, c.clientName, c.projectCount, c.revenueBase, c.directCostBase, c.overheadBase, c.totalCostBase, c.grossProfitBase, c.grossMarginPct != null ? `${c.grossMarginPct}%` : '',
         ]),
       ]);
       toast.success('تم تصدير كشف ربحية العملاء إلى CSV بنجاح');
     } else if (activeTab === 'retroactive') {
-      if (!retroAdjustments.data?.length) return;
+      const rawR: any = retroAdjustments.data;
+      const retroItems: any[] = Array.isArray(rawR) ? rawR : (Array.isArray(rawR?.data) ? rawR.data : []);
+      if (!retroItems.length) return;
       downloadCsv(`retroactive-adjustments-${periodLabel}.csv`, [
         ['الموظف', 'المشروع', 'العميل', 'الفترة الأصلية', 'فترة التسجيل', 'أساس الاحتساب', 'الوحدات', 'السعر', 'الإيراد المسوى', 'سبب التسوية'],
-        ...retroAdjustments.data.map((r: any) => [
+        ...retroItems.map((r: any) => [
           r.employeeName, r.projectName, r.clientName || '', r.originalPeriodName, r.periodName, r.pricingBasis, r.units, r.unitPrice, r.grossRevenueBase, r.adjustmentReason || '',
         ]),
       ]);
@@ -565,7 +570,7 @@ export function ProfitabilityPage() {
                                         فريق العمل وتوزيع التكلفة على المشروع ({p.teamCount} موظف):
                                       </div>
                                       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                        {p.teamMembers.map((tm: any, idx: number) => (
+                                        {(p.teamMembers ?? []).map((tm: any, idx: number) => (
                                           <div key={idx} className="card p-2 bg-white dark:bg-slate-900 border text-[11px] flex justify-between items-center">
                                             <div>
                                               <span className="font-mono text-brand-600 font-semibold">{tm.employeeCode}</span>
@@ -706,7 +711,7 @@ export function ProfitabilityPage() {
                                       مشاريع الموظف وتوزيع الإيراد والتكلفة:
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                      {e.projects.map((pr: any, i: number) => (
+                                      {(e.projects ?? []).map((pr: any, i: number) => (
                                         <div key={i} className="card p-2 bg-white dark:bg-slate-900 border text-[11px] flex justify-between items-center">
                                           <div>
                                             <div className="font-semibold text-slate-800 dark:text-slate-200">{pr.projectName} ({pr.projectCode})</div>

@@ -641,7 +641,7 @@ export function EmployeeWorkloadCardsPage() {
 
                     {/* Multi-segment bar */}
                     <div className="w-full bg-slate-200 rounded-full h-2.5 flex overflow-hidden">
-                      {card.assignments.map((asgn, i) => {
+                      {(card.assignments ?? []).map((asgn, i) => {
                         const colors = ['bg-blue-600', 'bg-emerald-600', 'bg-cyan-600', 'bg-amber-600'];
                         const col = colors[i % colors.length];
                         return (
@@ -674,16 +674,16 @@ export function EmployeeWorkloadCardsPage() {
                   <div className="mt-4 space-y-2">
                     <div className="text-xs font-bold text-slate-800 flex items-center justify-between">
                       <span>المشاريع المسندة حالياً:</span>
-                      <span className="text-[11px] text-slate-500 font-mono">({card.assignments.length} مشروع)</span>
+                      <span className="text-[11px] text-slate-500 font-mono">({(card.assignments ?? []).length} مشروع)</span>
                     </div>
 
-                    {card.assignments.length === 0 ? (
+                    {(!card.assignments || card.assignments.length === 0) ? (
                       <div className="p-3 bg-purple-50/50 rounded-lg border border-purple-200 text-center text-xs text-purple-800 font-medium">
                         المطور متفرغ بالكامل حالياً (على الـ Bench) ومتاح للإسناد الفوري لمشاريع جديدة.
                       </div>
                     ) : (
                       <div className="space-y-1.5 max-h-52 overflow-y-auto custom-scrollbar pe-1">
-                        {card.assignments.map((asgn) => (
+                        {(card.assignments ?? []).map((asgn) => (
                           <div
                             key={asgn.id}
                             className="p-2.5 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-all text-xs space-y-1.5"
@@ -1105,7 +1105,7 @@ function PrintEmployeeCardModal({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {employee.assignments.map((asgn) => (
+              {(employee.assignments ?? []).map((asgn) => (
                 <tr key={asgn.id}>
                   <td className="py-2 px-3 border-l border-slate-200 font-mono font-bold">{asgn.projectCode}</td>
                   <td className="py-2 px-3 border-l border-slate-200 font-semibold">{asgn.projectNameAr}</td>
@@ -1115,7 +1115,7 @@ function PrintEmployeeCardModal({
                   <td className="py-2 px-3 text-center font-mono font-bold">{asgn.allocatedDays} يوم</td>
                 </tr>
               ))}
-              {employee.assignments.length === 0 && (
+              {(!employee.assignments || employee.assignments.length === 0) && (
                 <tr>
                   <td colSpan={6} className="py-4 text-center text-slate-500 font-medium">
                     لا توجد مشاريع مسندة حالياً (المطور على الـ Bench وجاهز للتعيين الفوري).
