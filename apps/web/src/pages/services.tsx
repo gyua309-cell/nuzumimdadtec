@@ -584,7 +584,18 @@ export function ServiceCatalogPage() {
                           >
                             <Pencil className="size-3.5" />
                           </button>
-                          {/* 3. Delete Button */}
+                          {/* 3. Print Button */}
+                          <button
+                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                            title="طباعة بطاقة الخدمة"
+                            onClick={() => {
+                              setViewingService(item);
+                              setTimeout(() => window.print(), 300);
+                            }}
+                          >
+                            <Printer className="size-3.5" />
+                          </button>
+                          {/* 4. Delete Button */}
                           <button
                             className="btn-ghost size-7 p-0 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                             title="حذف الخدمة"

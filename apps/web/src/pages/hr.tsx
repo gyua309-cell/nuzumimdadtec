@@ -231,6 +231,15 @@ export function EmployeesPage() {
                             <Pencil className="size-3.5" />
                           </button>
                           <button
+                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                            title="طباعة بطاقة الموظف"
+                            onClick={() => {
+                              window.open(`#/hr/employees/${e.id}?print=true`, '_blank');
+                            }}
+                          >
+                            <Printer className="size-3.5" />
+                          </button>
+                          <button
                             className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                             title="حذف"
                             onClick={() => {

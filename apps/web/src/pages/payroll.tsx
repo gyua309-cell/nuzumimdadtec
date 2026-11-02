@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Play, Plus, Printer, Search, Calculator, Award, FileCheck2 } from 'lucide-react';
+import { Download, Eye, Play, Plus, Printer, Search, Trash2, Calculator, Award, FileCheck2 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date as _date, downloadCsv, money, today } from '../lib/format';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
@@ -386,12 +386,42 @@ export function LoansPage() {
                           <Badge color={LOAN_STATUS[l.status]?.color}>{LOAN_STATUS[l.status]?.label ?? l.status}</Badge>
                         </td>
                         <td className="text-center">
-                          <button
-                            className="btn-ghost text-xs text-brand-600 px-2 py-1 font-bold"
-                            onClick={(e) => { e.stopPropagation(); setSelected(l); }}
-                          >
-                            عرض الأقساط ←
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
+                              onClick={(e) => { e.stopPropagation(); setSelected(l); }}
+                              title="معاينة تفاصيل السلفة"
+                            >
+                              <Eye className="size-3.5" />
+                            </button>
+                            <button
+                              className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                              onClick={(e) => { e.stopPropagation(); setSelected(l); setTimeout(() => window.print(), 300); }}
+                              title="طباعة سند السلفة والأقساط"
+                            >
+                              <Printer className="size-3.5" />
+                            </button>
+                            {l.status === 'DRAFT' && (
+                              <button
+                                className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`حذف سلفة ${l.loanNo}؟`)) {
+                                    try {
+                                      await api.del(`/loans/${l.id}`);
+                                      qc.invalidateQueries({ queryKey: ['/loans'] });
+                                      toast.success('تم حذف السلفة');
+                                    } catch (err) {
+                                      toast.error(err);
+                                    }
+                                  }
+                                }}
+                                title="حذف السلفة"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -650,9 +680,33 @@ export function PayrollRunsPage() {
                   <td>{r.journalEntryId ? <Link to={`/acc/journals/${r.journalEntryId}`} className="text-brand-600 hover:underline">{r.journalEntryNo}</Link> : '—'}</td>
                   <td><Badge color={RUN_STATUS[r.status]?.color}>{RUN_STATUS[r.status]?.label ?? r.status}</Badge></td>
                   <td>
-                    <div className="flex gap-1 justify-end">
-                      <button className="btn-ghost h-7 px-2 text-xs" onClick={() => setViewId(r.id)}>تفاصيل</button>
-                      {r.status === 'POSTED' && <button className="btn-ghost h-7 px-2 text-xs text-rose-600" onClick={() => setCancelId(r.id)}>إلغاء</button>}
+                    <div className="flex gap-1 justify-end items-center">
+                      <button
+                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
+                        onClick={() => setViewId(r.id)}
+                        title="معاينة تفاصيل المسيّر"
+                      >
+                        <Eye className="size-3.5" />
+                      </button>
+                      <button
+                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                        onClick={() => {
+                          setViewId(r.id);
+                          setTimeout(() => window.print(), 300);
+                        }}
+                        title="طباعة كشف مسيّر الرواتب"
+                      >
+                        <Printer className="size-3.5" />
+                      </button>
+                      {r.status === 'POSTED' && (
+                        <button
+                          className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                          onClick={() => setCancelId(r.id)}
+                          title="إلغاء المسيّر وعكس القيد"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

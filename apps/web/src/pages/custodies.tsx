@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftRight, CheckCircle2,
   Clock, Download, Eye, FileCheck, FileText, Layers,
-  Plus, Printer, Trash2, Wallet
+  Pencil, Plus, Printer, Trash2, Wallet
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date, downloadCsv, money, today } from '../lib/format';
@@ -634,6 +634,38 @@ export function CustodiesPage() {
                           </button>
 
                           {/* Conditional Actions */}
+                          {c.status === 'DRAFT' && (
+                            <button
+                              onClick={() => {
+                                setSelectedCustodyId(c.id);
+                              }}
+                              className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-md transition-colors"
+                              title="تعديل العهدة"
+                            >
+                              <Pencil className="size-4 text-amber-600" />
+                            </button>
+                          )}
+
+                          {c.status === 'DRAFT' && (
+                            <button
+                              onClick={async () => {
+                                if (confirm(`حذف مسودة العهدة ${c.custody_no}؟`)) {
+                                  try {
+                                    await api.del(`/custodies/${c.id}`);
+                                    qc.invalidateQueries({ queryKey: ['/custodies'] });
+                                    toast.success('تم حذف العهدة');
+                                  } catch (err) {
+                                    toast.error(err);
+                                  }
+                                }
+                              }}
+                              className="p-1.5 hover:bg-slate-100 text-rose-600 rounded-md transition-colors"
+                              title="حذف العهدة"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          )}
+
                           {c.status === 'DRAFT' && (
                             <button
                               onClick={() => setDisburseModalCustody(c)}

@@ -174,6 +174,16 @@ export function VendorsPage() {
                           <Pencil className="size-3.5" />
                         </button>
                         <button
+                          className="btn-ghost h-7 px-2 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                          title="طباعة بطاقة المورد"
+                          onClick={() => {
+                            setViewingVendor(v);
+                            setTimeout(() => window.print(), 300);
+                          }}
+                        >
+                          <Printer className="size-3.5" />
+                        </button>
+                        <button
                           className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                           title="حذف"
                           onClick={() => {
@@ -1261,6 +1271,7 @@ export function PurchaseInvoiceDetailPage() {
 // ============================================================================
 export function PurchaseDebitNotesPage() {
   const toast = useToast();
+  const qc = useQueryClient();
   const navigate = useNavigate();
 
   const debitNotes = useQuery({
@@ -1341,9 +1352,45 @@ export function PurchaseDebitNotesPage() {
                   </td>
                   <td><Badge color="green">مرحّل ومعتمد</Badge></td>
                   <td className="text-end">
-                    <button className="btn-ghost h-7 px-2 text-xs" onClick={() => navigate(`/pur/invoices/${d.id}`)}>
-                      عرض السند
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
+                        onClick={() => navigate(`/pur/invoices/${d.id}`)}
+                        title="معاينة سند الاستحقاق"
+                      >
+                        <Eye className="size-3.5" />
+                      </button>
+                      <button
+                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                        onClick={() => window.open(`#/pur/invoices/${d.id}?print=true`, '_blank')}
+                        title="طباعة سند الاستحقاق"
+                      >
+                        <Printer className="size-3.5" />
+                      </button>
+                      <button
+                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                        onClick={() => navigate(`/pur/invoices/${d.id}`)}
+                        title="تعديل الفاتورة"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                        onClick={() => {
+                          if (confirm(`إلغاء فاتورة المشتريات ${d.invoiceNo}؟`)) {
+                            api.post(`/pur/invoices/${d.id}/cancel`, { reason: 'إلغاء بناءً على طلب المستخدم' })
+                              .then(() => {
+                                toast.success('تم إلغاء الفاتورة');
+                                qc.invalidateQueries({ queryKey: ['/purchase-invoices'] });
+                              })
+                              .catch((err) => toast.error(err));
+                          }
+                        }}
+                        title="إلغاء الفاتورة"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

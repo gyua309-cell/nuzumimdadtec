@@ -393,18 +393,27 @@ function VisualAccountNode({
           )}
 
           <Link
-            className="btn-ghost h-6 px-1.5 text-[11px] text-slate-600 hover:bg-slate-100"
+            className="btn-ghost h-6 px-1.5 text-[11px] text-slate-600 hover:bg-slate-100 flex items-center gap-1"
             to={`/reports/account-statement?accountId=${account.id}`}
             title="كشف حساب الأستاذ المساعد"
           >
-            كشف
+            <Eye className="size-3" /> كشف
           </Link>
+
+          <button
+            type="button"
+            className="btn-ghost h-6 px-1.5 text-slate-600 hover:text-emerald-600 hover:bg-slate-100"
+            title="طباعة كشف الحساب"
+            onClick={() => window.open(`#/reports/account-statement?accountId=${account.id}&print=true`, '_blank')}
+          >
+            <Printer className="size-3" />
+          </button>
 
           <button
             type="button"
             className="btn-ghost h-6 px-1.5 text-slate-600 hover:bg-slate-100"
             onClick={() => onEdit(account)}
-            title="تعديل"
+            title="تعديل الحساب"
           >
             <Pencil className="size-3" />
           </button>
@@ -470,6 +479,7 @@ export const BanksPage = () => (
 export function JournalsPage() {
   const nav = useNavigate();
   const toast = useToast();
+  const qc = useQueryClient();
   const [f, setF] = useState({ status: '', journalType: '', ledger: '', dateFrom: '', dateTo: '', q: '' });
   const [page, setPage] = useState(1);
   const q = useQuery({ queryKey: ['journals', f, page], queryFn: () => api.get<Page<any>>('/journal-entries', { ...f, page, pageSize: 50, sort: '-entryDate' }) });
@@ -538,12 +548,47 @@ export function JournalsPage() {
                       <td onClick={(evt) => evt.stopPropagation()}>
                         <div className="flex justify-end gap-1">
                           <button
-                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
-                            title="عرض تفاصيل القيد"
+                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
+                            title="معاينة تفاصيل القيد"
                             onClick={() => nav(`/acc/journals/${e.id}`)}
                           >
                             <Eye className="size-3.5" />
                           </button>
+                          <button
+                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                            title="طباعة سند قيد اليومية"
+                            onClick={() => window.open(`#/acc/journals/${e.id}?print=true`, '_blank')}
+                          >
+                            <Printer className="size-3.5" />
+                          </button>
+                          {e.status === 'DRAFT' && (
+                            <button
+                              className="btn-ghost size-7 p-0 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                              title="تعديل القيد"
+                              onClick={() => nav(`/acc/journals/${e.id}/edit`)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                          )}
+                          {e.status === 'DRAFT' && (
+                            <button
+                              className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                              title="حذف مسودة القيد"
+                              onClick={async () => {
+                                if (confirm('هل تريد حذف مسودة القيد اليومي؟')) {
+                                  try {
+                                    await api.del(`/journal-entries/${e.id}`);
+                                    qc.invalidateQueries({ queryKey: ['journals'] });
+                                    toast.success('تم حذف القيد بنجاح');
+                                  } catch (err) {
+                                    toast.error(err);
+                                  }
+                                }
+                              }}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

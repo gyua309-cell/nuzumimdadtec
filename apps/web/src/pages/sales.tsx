@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowRight, Building2, Code2, Cpu, Download, FileCheck2,
-  FileSpreadsheet, FileText, Filter, Plus, Printer, RotateCcw, Send, ShieldCheck, Sparkles,
+  ArrowRight, Building2, Code2, Cpu, Download, Eye, FileCheck2,
+  FileSpreadsheet, FileText, Filter, Pencil, Plus, Printer, RotateCcw, Send, ShieldCheck, Sparkles,
   Terminal, Trash2, User, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
@@ -351,24 +351,40 @@ export function InvoicesPage() {
                       <td className="text-end">
                         <div className="flex items-center justify-end gap-1">
                           <button
-                            className="btn-ghost h-7 px-2 text-xs"
+                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
                             onClick={() => navigate(`/sal/invoices/${inv.id}`)}
-                            title="عرض تفاصيل الفاتورة"
+                            title="معاينة تفاصيل الفاتورة"
                           >
-                            عرض
+                            <Eye className="size-3.5" />
+                          </button>
+                          <button
+                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                            onClick={() => window.open(`#/sal/invoices/${inv.id}?print=true`, '_blank')}
+                            title="طباعة الفاتورة الضريبية"
+                          >
+                            <Printer className="size-3.5" />
                           </button>
                           {inv.status === 'DRAFT' && (
                             <button
-                              className="btn-ghost h-7 px-2 text-xs text-emerald-600 hover:text-emerald-700"
-                              onClick={() => doPost(inv.id)}
-                              title="ترحيل واعتماد الزكاة"
+                              className="btn-ghost size-7 p-0 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                              onClick={() => navigate(`/sal/invoices/${inv.id}`)}
+                              title="تعديل الفاتورة"
                             >
-                              ترحيل
+                              <Pencil className="size-3.5" />
+                            </button>
+                          )}
+                          {inv.status === 'DRAFT' && (
+                            <button
+                              className="btn-primary h-7 px-2 text-xs flex items-center gap-1 shadow-xs"
+                              onClick={() => doPost(inv.id)}
+                              title="ترحيل واعتماد الزكاة ZATCA"
+                            >
+                              <Send className="size-3" /> ترحيل
                             </button>
                           )}
                           {inv.status === 'POSTED' && !inv.journalEntryId && (
                             <button
-                              className="btn-ghost h-7 px-2 text-xs text-amber-700 hover:text-amber-800"
+                              className="btn-secondary h-7 px-2 text-xs text-amber-700 hover:text-amber-800"
                               onClick={() => doRepair(inv.id)}
                               title="الفاتورة مرحّلة بلا قيد محاسبي: توليد القيد الآن"
                             >
@@ -377,11 +393,11 @@ export function InvoicesPage() {
                           )}
                           {inv.status !== 'CANCELLED' && (
                             <button
-                              className="btn-ghost h-7 px-2 text-xs text-rose-600 hover:text-rose-700"
+                              className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                               onClick={() => setCancelTargetId(inv.id)}
                               title="إلغاء الفاتورة"
                             >
-                              إلغاء
+                              <Trash2 className="size-3.5" />
                             </button>
                           )}
                         </div>

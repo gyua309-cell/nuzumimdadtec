@@ -191,6 +191,13 @@ export function ProjectsPage() {
                               <Pencil className="size-3.5" />
                             </button>
                             <button
+                              className="btn-ghost h-7 px-2 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                              title="طباعة بطاقة المشروع"
+                              onClick={() => window.open(`#/prj/projects/${p.id}?print=true`, '_blank')}
+                            >
+                              <Printer className="size-3.5" />
+                            </button>
+                            <button
                               className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                               title="حذف"
                               onClick={() => {
@@ -880,14 +887,41 @@ export function ServicePricesPage() {
                         <td>{sp.projectId ? <Badge color="blue">مشروع محدد</Badge> : <Badge color="slate">افتراضي</Badge>}</td>
                         <td>{date(sp.effectiveFrom)}</td>
                         <td>{sp.effectiveTo ? date(sp.effectiveTo) : 'مفتوح'}</td>
-                        <td>
-                          {!sp.effectiveTo && (
-                            <button className="btn-ghost h-7 px-2 text-rose-600 text-xs"
-                              onClick={async () => {
-                                if (!confirm('إنهاء هذا السعر اليوم؟')) return;
-                                try { await api.post(`/service-prices/${sp.id}/end`, { effectiveTo: new Date().toISOString().slice(0, 10) }); qc.invalidateQueries({ queryKey: ['/service-prices'] }); toast.success('تم الإنهاء'); } catch (e) { toast.error(e); }
-                              }}>إنهاء</button>
-                          )}
+                        <td className="text-end">
+                          <div className="flex items-center justify-end gap-1">
+                            <Link
+                              to={`/hr/employees/${sp.employeeId}`}
+                              className="btn-ghost size-7 p-0 flex items-center justify-center text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
+                              title="معاينة الموظف"
+                            >
+                              <Eye className="size-3.5" />
+                            </Link>
+                            <button
+                              className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                              title="طباعة السعر"
+                              onClick={() => window.print()}
+                            >
+                              <Printer className="size-3.5" />
+                            </button>
+                            {!sp.effectiveTo && (
+                              <button
+                                className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                title="إنهاء هذا السعر اليوم"
+                                onClick={async () => {
+                                  if (!confirm('إنهاء هذا السعر اليوم؟')) return;
+                                  try {
+                                    await api.post(`/service-prices/${sp.id}/end`, { effectiveTo: new Date().toISOString().slice(0, 10) });
+                                    qc.invalidateQueries({ queryKey: ['/service-prices'] });
+                                    toast.success('تم الإنهاء');
+                                  } catch (e) {
+                                    toast.error(e);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

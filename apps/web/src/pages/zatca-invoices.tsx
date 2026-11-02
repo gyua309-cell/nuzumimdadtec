@@ -5,7 +5,9 @@ import {
   CheckCircle2,
   Copy,
   Download,
+  Eye,
   FileCode,
+  Printer,
   QrCode,
   RefreshCw,
   Send,
@@ -211,6 +213,22 @@ export function ZatcaInvoicesPage() {
                               <ShieldCheck className="size-3.5" /> معتمدة
                             </span>
                           )}
+
+                          <button
+                            onClick={() => window.open(`#/sal/invoices/${inv.id}`, '_blank')}
+                            className="btn-secondary text-xs py-1.5 px-2 flex items-center gap-1 text-slate-700 dark:text-slate-200"
+                            title="معاينة تفاصيل الفاتورة"
+                          >
+                            <Eye className="size-3.5 text-cyan-600" /> معاينة
+                          </button>
+
+                          <button
+                            onClick={() => window.open(`#/sal/invoices/${inv.id}?print=true`, '_blank')}
+                            className="btn-secondary text-xs py-1.5 px-2 flex items-center gap-1 text-slate-700 dark:text-slate-200"
+                            title="طباعة الفاتورة الضريبية ZATCA"
+                          >
+                            <Printer className="size-3.5 text-emerald-600" /> طباعة
+                          </button>
 
                           <button
                             onClick={() => viewXml(inv.id, inv.invoiceNo)}

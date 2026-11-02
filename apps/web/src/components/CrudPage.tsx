@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, AlignJustify, Download, Eye, FileSpreadsheet, List, Pencil, Plus,
-  RefreshCw, Search, Trash2, Upload, X,
+  Printer, RefreshCw, Search, Trash2, Upload, X,
 } from 'lucide-react';
 import { api, ApiError, Page } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -560,6 +560,14 @@ export function CrudPage({
         subtitle={subtitle}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn-secondary text-xs flex items-center gap-1.5"
+              onClick={() => window.print()}
+              title="طباعة الجدول والتقرير"
+            >
+              <Printer className="size-3.5 text-slate-600 dark:text-slate-300" /> طباعة
+            </button>
             <ExportMenu
               title={title}
               columns={exportColumns}
@@ -717,6 +725,17 @@ export function CrudPage({
                           >
                             <Pencil className="size-3.5" />
                           </button>
+                          <button
+                            type="button"
+                            className="flex size-7.5 items-center justify-center rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-500/12 dark:text-slate-400 dark:hover:text-emerald-400 transition-colors"
+                            title="طباعة بطاقة السجل"
+                            onClick={() => {
+                              setViewing(row);
+                              setTimeout(() => window.print(), 300);
+                            }}
+                          >
+                            <Printer className="size-3.5" />
+                          </button>
                           {deletable && (
                             <button
                               type="button"
@@ -767,6 +786,13 @@ export function CrudPage({
           <>
             <button type="button" className="btn-secondary" onClick={() => setViewing(null)}>
               إغلاق
+            </button>
+            <button
+              type="button"
+              className="btn-secondary flex items-center gap-1.5"
+              onClick={() => window.print()}
+            >
+              <Printer className="size-3.5" /> طباعة
             </button>
             <button
               type="button"
