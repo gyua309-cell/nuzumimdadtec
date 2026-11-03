@@ -27,10 +27,13 @@ export class DbService implements OnModuleDestroy {
   readonly pool: Pool;
 
   constructor() {
+    const connStr = process.env.IDHAM_DB_URL_OVERRIDE ?? env().DATABASE_URL;
+    const isLocal = connStr.includes('localhost') || connStr.includes('127.0.0.1');
     this.pool = new Pool({
-      connectionString: process.env.IDHAM_DB_URL_OVERRIDE ?? env().DATABASE_URL,
+      connectionString: connStr,
       max: env().DB_POOL_MAX,
       application_name: 'idham-api',
+      ssl: isLocal ? false : { rejectUnauthorized: false },
     });
     this.pool.on('error', (e) => this.logger.error(`pool error: ${e.message}`));
   }

@@ -17,4 +17,12 @@ services:
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: idham-erp-db
+          property: connectionString
+
+databases:
+  - name: idham-erp-db
+    databaseName: idham_erp
+    user: idham
+    plan: free

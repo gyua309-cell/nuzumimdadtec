@@ -16,7 +16,11 @@ export interface MigrationResult {
  * new migration instead). A session advisory lock prevents concurrent runs.
  */
 export async function migrate(databaseUrl: string, log: (m: string) => void = console.log): Promise<MigrationResult> {
-  const client = new Client({ connectionString: databaseUrl });
+  const isLocal = databaseUrl.includes('localhost') || databaseUrl.includes('127.0.0.1');
+  const client = new Client({
+    connectionString: databaseUrl,
+    ssl: isLocal ? false : { rejectUnauthorized: false },
+  });
   await client.connect();
   const result: MigrationResult = { applied: [], skipped: [] };
   try {
