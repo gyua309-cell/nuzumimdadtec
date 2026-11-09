@@ -2,14 +2,16 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowRight, Building2, Code2, Cpu, Download, Eye, FileCheck2,
+  ArrowRight, Building2, Code2, Cpu, Eye, FileCheck2,
   FileSpreadsheet, FileText, Filter, Pencil, Plus, Printer, RotateCcw, Send, ShieldCheck, Sparkles,
   Terminal, Trash2, User, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
-import { downloadCsv, money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
+import { money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
 import { PeriodSelect } from '../components/forms';
 import { ZatcaTaxInvoiceTemplate, exportInvoiceToExcel } from '../components/ZatcaTaxInvoiceTemplate';
+import { ExportMenu } from '../components/ExportMenu';
+
 import { PrintEngine } from '../engine/print-engine';
 import {
   Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader,
@@ -171,15 +173,7 @@ export function InvoicesPage() {
     }
   };
 
-  const handleExport = () => {
-    downloadCsv(`invoices-${today()}.csv`, [
-      ['رقم الفاتورة', 'النوع', 'العميل', 'الرقم الضريبي للعميل', 'المشروع', 'تاريخ الإصدار', 'المبلغ قبل الضريبة', 'الضريبة 15%', 'الإجمالي شامل الضريبة', 'حالة الزكاة', 'الحالة'],
-      ...list.map((inv: any) => [
-        inv.invoiceNo, inv.invoiceType, inv.clientName, inv.clientVatNumber || '', inv.projectName || '', inv.issueDate, inv.subtotal, inv.vatAmount, inv.totalAmount, inv.zatcaStatus, inv.status,
-      ]),
-    ]);
-    toast.success('تم تصدير الفواتير إلى ملف CSV بنجاح');
-  };
+
 
   return (
     <div className="space-y-5">
@@ -188,12 +182,21 @@ export function InvoicesPage() {
         subtitle="إدارة فواتير العملاء وإصدار الفواتير الآلية من إيرادات وساعات الموظفين بالمشاريع المتوافقة مع متطلبات الفاتورة الإلكترونية."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="سجل فواتير المبيعات الضريبية"
+              filename={`Sales-Invoices-${today()}`}
+              columns={[
+                { key: 'invoiceNo', header: 'رقم الفاتورة', width: 16 },
+                { key: 'issueDate', header: 'تاريخ الإصدار', width: 14 },
+                { key: 'clientName', header: 'العميل', width: 25 },
+                { key: 'projectName', header: 'المشروع', width: 22 },
+                { key: 'subtotal', header: 'المبلغ الخاضع للضريبة', width: 18, format: 'currency' },
+                { key: 'vatAmount', header: 'ضريبة 15%', width: 14, format: 'currency' },
+                { key: 'totalAmount', header: 'الإجمالي شامل الضريبة', width: 18, format: 'currency' },
+                { key: 'status', header: 'الحالة', width: 12 },
+              ]}
+              data={list}
+            />
             <button
               className="btn-primary bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5"
               onClick={() => setShowAutoModal(true)}

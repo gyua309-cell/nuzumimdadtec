@@ -4,9 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Download, Eye, FileUp, Pencil, Plus, Printer, Search, Square, Trash2, UserPlus } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
-import { date, dateTime, downloadCsv, money, today } from '../lib/format';
+import { date, dateTime, money, today } from '../lib/format';
 import { DOC_TYPE, EMPLOYEE_STATUS, EMPLOYMENT_TYPE, opts } from '../lib/labels';
 import { ActiveBadge, cleanPayload, CrudPage, EntityForm, FieldDef, fieldErrors } from '../components/CrudPage';
+import { ExportMenu } from '../components/ExportMenu';
+
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Spinner, Stat, useToast } from '../components/ui';
 
@@ -118,15 +120,7 @@ export function EmployeesPage() {
   const billableCount = empList.filter((x: any) => x?.isBillableResource).length;
   const withProfileCount = empList.filter((x: any) => x?.costProfileId || x?.costProfileName).length;
 
-  const handleExport = () => {
-    downloadCsv(`employees-${today()}.csv`, [
-      ['الرقم الوظيفي', 'الاسم بالعربية', 'الاسم بالإنجليزية', 'القسم', 'المسمى الوظيفي', 'تاريخ التعيين', 'الراتب الأساسي', 'العملة', 'ملف التكلفة', 'الحالة'],
-      ...empList.map((e: any) => [
-        e.code, e.fullNameAr, e.fullNameEn || '', e.departmentName || '', e.positionTitle || '', e.hireDate || '', e.basicSalary || '0', e.salaryCurrency || '', e.costProfileName || '', e.status || '',
-      ]),
-    ]);
-    toast.success('تم تصدير قائمة الموظفين إلى ملف CSV بنجاح');
-  };
+
 
   return (
     <div className="space-y-5">
@@ -135,12 +129,22 @@ export function EmployeesPage() {
         subtitle="بيانات الموظفين والمبرمجين مع سجل تاريخي لكل تغيير (التنسيب، الراتب، ملف التكلفة). التعديل لا يغيّر النتائج التاريخية."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="سجل الموظفين والكوادر البشرية"
+              filename={`Employees-${today()}`}
+              columns={[
+                { key: 'code', header: 'الرقم الوظيفي', width: 14 },
+                { key: 'fullNameAr', header: 'الاسم بالعربية', width: 25 },
+                { key: 'fullNameEn', header: 'الاسم بالإنجليزية', width: 20 },
+                { key: 'departmentName', header: 'القسم', width: 22 },
+                { key: 'positionTitle', header: 'المسمى الوظيفي', width: 22 },
+                { key: 'hireDate', header: 'تاريخ التعيين', width: 14 },
+                { key: 'basicSalary', header: 'الراتب الأساسي', width: 16, format: 'currency' },
+                { key: 'salaryCurrency', header: 'العملة', width: 10 },
+                { key: 'status', header: 'الحالة', width: 12 },
+              ]}
+              data={empList}
+            />
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => { setForm({ employmentType: 'FULL_TIME', isBillableResource: true, hireDate: today(), insuranceSalary: '0' }); setErrors({}); setCreating(true); }}>
               <UserPlus className="size-4" /> تعيين موظف
             </button>

@@ -139,6 +139,59 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
     }
 
+    // Specific Action Endpoints for ZATCA & Invoices
+    if (path.includes('/zatca/invoices/') && path.endsWith('/transmit')) {
+      const parts = path.split('/');
+      const tIdx = parts.findIndex((p) => p === 'transmit');
+      const invId = tIdx > 0 ? parts[tIdx - 1] : parts.pop();
+      const invList = getEntityList('invoices', []);
+      const inv = invList.find((i) => i.id === invId || i.invoiceNo === invId);
+      if (inv) {
+        inv.zatcaStatus = inv.invoiceType === 'SIMPLIFIED' ? 'REPORTED' : 'CLEARED';
+        inv.status = 'POSTED';
+        inv.submittedAt = new Date().toISOString();
+        inv.zatcaHash = '4a7f9b8c2e1d5a3f6b9c8d7e4a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b';
+        saveEntityItem('invoices', inv);
+
+        saveEntityItem('zatca_submissions', {
+          id: `sub-${Date.now()}`,
+          invoiceId: inv.id,
+          invoiceNo: inv.invoiceNo,
+          submissionType: inv.invoiceType === 'SIMPLIFIED' ? 'REPORTING' : 'CLEARANCE',
+          status: inv.zatcaStatus,
+          submittedAt: inv.submittedAt,
+        });
+      }
+      return {
+        success: true,
+        invoiceNo: inv?.invoiceNo || 'INV-2026-0001',
+        zatcaStatus: inv?.zatcaStatus || 'CLEARED',
+        submittedAt: inv?.submittedAt || new Date().toISOString(),
+      };
+    }
+
+    if (path.includes('/zatca/invoices/batch-transmit')) {
+      const invList = getEntityList('invoices', []);
+      let cleared = 0;
+      let reported = 0;
+      for (const inv of invList) {
+        if (inv.zatcaStatus !== 'CLEARED' && inv.zatcaStatus !== 'REPORTED') {
+          if (inv.invoiceType === 'SIMPLIFIED') {
+            inv.zatcaStatus = 'REPORTED';
+            reported++;
+          } else {
+            inv.zatcaStatus = 'CLEARED';
+            cleared++;
+          }
+          inv.status = 'POSTED';
+          inv.submittedAt = new Date().toISOString();
+          inv.zatcaHash = '4a7f9b8c2e1d5a3f6b9c8d7e4a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b';
+          saveEntityItem('invoices', inv);
+        }
+      }
+      return { success: true, processed: cleared + reported, cleared, reported };
+    }
+
     // Specific Action Endpoints for Invoices
     if (path.includes('/invoices/') && (path.endsWith('/post') || path.includes('/post'))) {
       const parts = path.split('/');

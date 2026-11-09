@@ -6,6 +6,8 @@ import { api, Page } from '../lib/api';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { opts, PRICING_BASIS, PROJECT_STATUS } from '../lib/labels';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
+import { ExportMenu } from '../components/ExportMenu';
+
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Stat, useToast } from '../components/ui';
 
@@ -81,15 +83,7 @@ export function ProjectsPage() {
   const onHoldCount = prjList.filter((x: any) => x.status === 'ON_HOLD').length;
   const draftPrjCount = prjList.filter((x: any) => x.status === 'DRAFT').length;
 
-  const handleExport = () => {
-    downloadCsv(`projects-${today()}.csv`, [
-      ['الرمز', 'المشروع بالعربية', 'المشروع بالإنجليزية', 'العميل', 'مدير المشروع', 'تاريخ البداية', 'تاريخ النهاية', 'الهامش المستهدف %', 'الحالة'],
-      ...prjList.map((p: any) => [
-        p.code, p.nameAr, p.nameEn || '', p.clientName || '', p.managerName || '', p.startDate || '', p.endDate || '', p.requiredMarginPct != null ? `${p.requiredMarginPct}%` : '', p.status || '',
-      ]),
-    ]);
-    toast.success('تم تصدير قائمة المشاريع إلى ملف CSV بنجاح');
-  };
+
 
   return (
     <div className="space-y-5">
@@ -98,12 +92,22 @@ export function ProjectsPage() {
         subtitle="إدارة مشاريع العملاء ودورة حياتها. كل مشروع يحتوي على تخصيصات الموظفين والمبرمجين وأسعار الخدمات."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="سجل المشاريع التعاقدية"
+              filename={`Projects-${today()}`}
+              columns={[
+                { key: 'code', header: 'رمز المشروع', width: 14 },
+                { key: 'nameAr', header: 'اسم المشروع بالعربية', width: 25 },
+                { key: 'nameEn', header: 'اسم المشروع بالإنجليزية', width: 22 },
+                { key: 'clientName', header: 'العميل', width: 22 },
+                { key: 'managerName', header: 'مدير المشروع', width: 20 },
+                { key: 'startDate', header: 'تاريخ البداية', width: 14 },
+                { key: 'endDate', header: 'تاريخ النهاية', width: 14 },
+                { key: 'requiredMarginPct', header: 'الهامش المستهدف %', width: 16 },
+                { key: 'status', header: 'الحالة', width: 12 },
+              ]}
+              data={prjList}
+            />
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setCreating(true)}>
               <Plus className="size-4" /> إضافة مشروع
             </button>
