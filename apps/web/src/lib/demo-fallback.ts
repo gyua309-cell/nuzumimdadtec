@@ -16,6 +16,62 @@ export function makeList<T = any>(items: T[]): T[] & { data: T[]; meta: { page: 
   return arr;
 }
 
+export const defaultBranches = [
+  { id: 'br-hq', code: 'HQ', nameAr: 'المقر الرئيسي (الرياض)', nameEn: 'Headquarters - Riyadh', city: 'الرياض', isDefault: true, isActive: true },
+  { id: 'br-cai', code: 'CAI', nameAr: 'فرع القاهرة (مركز التطوير)', nameEn: 'Cairo Branch - Dev Center', city: 'القاهرة', isDefault: false, isActive: true },
+];
+
+export const defaultDepartments = [
+  { id: 'dept-dev', code: 'DEV', nameAr: 'إدارة تطوير البرمجيات والأنظمة', nameEn: 'Software Engineering', isActive: true },
+  { id: 'dept-qa', code: 'QA', nameAr: 'إدارة الجودة وضمان الأداء', nameEn: 'Quality Assurance', isActive: true },
+  { id: 'dept-infra', code: 'INFRA', nameAr: 'إدارة البنية السحابية وDevOps', nameEn: 'Cloud Infrastructure', isActive: true },
+  { id: 'dept-pmo', code: 'PMO', nameAr: 'إدارة المشاريع الرقمية', nameEn: 'Digital PMO', isActive: true },
+];
+
+export const defaultPositions = [
+  { id: 'pos-fs', code: 'POS-FS', titleAr: 'مهندس برمجيات متقدم (Senior Full-Stack)', titleEn: 'Senior Full-Stack Engineer', departmentId: 'dept-dev', isActive: true },
+  { id: 'pos-be', code: 'POS-BE', titleAr: 'مهندس واجهات خلفية (Backend Engineer)', titleEn: 'Backend Engineer', departmentId: 'dept-dev', isActive: true },
+  { id: 'pos-fe', code: 'POS-FE', titleAr: 'مهندس واجهات أمامية (Frontend Engineer)', titleEn: 'Frontend Engineer', departmentId: 'dept-dev', isActive: true },
+  { id: 'pos-devops', code: 'POS-OPS', titleAr: 'مهندس سحابي وعمليات (DevOps Engineer)', titleEn: 'DevOps Engineer', departmentId: 'dept-infra', isActive: true },
+  { id: 'pos-pm', code: 'POS-PM', titleAr: 'مدير مشروع تقني (Technical PM)', titleEn: 'Technical Project Manager', departmentId: 'dept-pmo', isActive: true },
+];
+
+export const defaultCostProfiles = [
+  { id: 'cp-tech', code: 'CP-TECH', nameAr: 'ملف الكوادر التقنية القياسي (تأمينات + بدلات)', currencyCode: 'SAR', isActive: true },
+];
+
+export const defaultCostCenters = [
+  { id: 'cc-del', code: 'CC-DEL', nameAr: 'مركز تكلفة التسليم والمشاريع', nameEn: 'Delivery Cost Center', isActive: true },
+  { id: 'cc-rnd', code: 'CC-RND', nameAr: 'مركز تكلفة البحوث والتطوير R&D', nameEn: 'R&D Cost Center', isActive: true },
+];
+
+export const defaultClients = [
+  {
+    id: 'cli-001',
+    code: 'CLI-001',
+    nameAr: 'شركة عزم الرقمية للحلول التقنية',
+    nameEn: 'Azm Digital Solutions Co.',
+    currencyCode: 'SAR',
+    taxNumber: '310123456700003',
+    paymentTermsDays: 30,
+    email: 'billing@azm-digital.com',
+    phone: '+966112345678',
+    isActive: true,
+  },
+  {
+    id: 'cli-002',
+    code: 'CLI-002',
+    nameAr: 'مجموعة إمداد للتجارة والخدمات',
+    nameEn: 'Imdad Trading & Services Group',
+    currencyCode: 'SAR',
+    taxNumber: '310987654300003',
+    paymentTermsDays: 15,
+    email: 'finance@imdad.sa',
+    phone: '+966123456789',
+    isActive: true,
+  },
+];
+
 export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   // Handle mutations (POST/PATCH/PUT/DELETE) for all entities
   if (method !== 'GET') {
@@ -83,6 +139,98 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
     }
 
+    // Specific Action Endpoints for Invoices
+    if (path.includes('/invoices/') && (path.endsWith('/post') || path.includes('/post'))) {
+      const parts = path.split('/');
+      const postIdx = parts.findIndex((p) => p === 'post');
+      const targetId = postIdx > 0 ? parts[postIdx - 1] : parts.pop();
+      const invList = getEntityList('invoices', []);
+      const inv = invList.find((i) => i.id === targetId || i.invoiceNo === targetId);
+      if (inv) {
+        inv.status = 'POSTED';
+        inv.journalEntryId = inv.journalEntryId || `je-inv-${Date.now()}`;
+        saveEntityItem('invoices', inv);
+      }
+      return { success: true, status: 'POSTED', journalEntryId: inv?.journalEntryId || `je-inv-${Date.now()}` };
+    }
+
+    if (path.includes('/invoices/') && (path.endsWith('/cancel') || path.includes('/cancel'))) {
+      const parts = path.split('/');
+      const cancelIdx = parts.findIndex((p) => p === 'cancel');
+      const targetId = cancelIdx > 0 ? parts[cancelIdx - 1] : parts.pop();
+      const invList = getEntityList('invoices', []);
+      const inv = invList.find((i) => i.id === targetId || i.invoiceNo === targetId);
+      if (inv) {
+        inv.status = 'CANCELLED';
+        saveEntityItem('invoices', inv);
+      }
+      return { success: true, status: 'CANCELLED' };
+    }
+
+    if (path.includes('/invoices/') && (path.endsWith('/repair-journal') || path.includes('/repair-journal'))) {
+      const parts = path.split('/');
+      const repairIdx = parts.findIndex((p) => p === 'repair-journal');
+      const targetId = repairIdx > 0 ? parts[repairIdx - 1] : parts.pop();
+      const invList = getEntityList('invoices', []);
+      const inv = invList.find((i) => i.id === targetId || i.invoiceNo === targetId);
+      if (inv) {
+        inv.journalEntryId = `je-inv-${Date.now()}`;
+        saveEntityItem('invoices', inv);
+      }
+      return { success: true, journalEntryId: inv?.journalEntryId || `je-inv-${Date.now()}` };
+    }
+
+    if (path.includes('/invoices/auto-generate')) {
+      const projects = getEntityList('projects', []);
+      const clients = getEntityList('clients', defaultClients);
+      let count = 0;
+      let totalAmount = 0;
+      for (const prj of projects) {
+        const cli = clients.find((c) => c.id === prj.clientId) || { nameAr: prj.clientName || 'عميل' };
+        const invCount = getEntityList('invoices', []).length + 1;
+        saveEntityItem('invoices', {
+          id: `inv-${Date.now()}-${count}`,
+          invoiceNo: `INV-2026-${String(invCount).padStart(4, '0')}`,
+          invoiceType: 'TAX_INVOICE',
+          invoiceSubType: 'STANDARD',
+          clientId: prj.clientId || 'cli-001',
+          clientName: cli.nameAr,
+          clientVatNumber: '310123456700003',
+          projectId: prj.id,
+          projectName: prj.nameAr,
+          fiscalPeriodId: body?.fiscalPeriodId || 'fp-2026-10',
+          issueDate: body?.issueDate || new Date().toISOString().slice(0, 10),
+          currencyCode: prj.currencyCode || 'SAR',
+          subtotal: '25000.00',
+          taxableAmount: '25000.00',
+          vatRate: '15.00',
+          vatAmount: '3750.00',
+          totalAmount: '28750.00',
+          status: body?.autoPost ? 'POSTED' : 'DRAFT',
+          paymentStatus: 'UNPAID',
+          paidAmount: '0.00',
+          journalEntryId: body?.autoPost ? `je-${Date.now()}` : undefined,
+          lines: [
+            {
+              id: `line-${Date.now()}-1`,
+              lineNo: 1,
+              description: `خدمات تطوير برمجيات وإسناد كوادر - مشروع ${prj.nameAr}`,
+              quantity: 1,
+              unitPrice: 25000,
+              discountPct: 0,
+              subtotal: '25000.00',
+              vatRate: 15,
+              vatAmount: '3750.00',
+              total: '28750.00',
+            },
+          ],
+        });
+        count++;
+        totalAmount += 28750;
+      }
+      return { success: true, count, totalAmount };
+    }
+
     if (targetKey) {
       if (method === 'DELETE') {
         const id = path.split('/').filter(Boolean).pop();
@@ -90,6 +238,106 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         return { success: true };
       }
       if (typeof body === 'object' && body !== null) {
+        // 1) Employee enrichment
+        if (targetKey === 'employees') {
+          const departments = getEntityList('departments', defaultDepartments);
+          const positions = getEntityList('positions', defaultPositions);
+          const branches = getEntityList('branches', defaultBranches);
+          const dept = departments.find((d) => d.id === body.placement?.departmentId || d.id === body.departmentId);
+          const pos = positions.find((p) => p.id === body.placement?.positionId || p.id === body.positionId);
+          const br = branches.find((b) => b.id === body.placement?.branchId || b.id === body.branchId);
+          body.departmentName = dept?.nameAr || body.departmentName || '';
+          body.positionTitle = pos?.titleAr || body.positionTitle || '';
+          body.branchName = br?.nameAr || body.branchName || '';
+          body.basicSalary = body.compensation?.basicSalary || body.basicSalary || '0.00';
+          body.salaryCurrency = body.compensation?.salaryCurrency || body.salaryCurrency || 'SAR';
+          body.status = body.status || 'ACTIVE';
+          if (!body.code) {
+            const count = getEntityList('employees', []).length + 1;
+            body.code = `EMP-${String(count).padStart(3, '0')}`;
+          }
+        }
+
+        // 2) Project enrichment
+        if (targetKey === 'projects') {
+          const clients = getEntityList('clients', defaultClients);
+          const employees = getEntityList('employees', []);
+          const cli = clients.find((c) => c.id === body.clientId);
+          const mgr = employees.find((e) => e.id === body.managerId);
+          body.clientName = cli?.nameAr || body.clientName || 'العميل';
+          body.managerName = mgr?.fullNameAr || body.managerName || '';
+          body.status = body.status || 'ACTIVE';
+          body.currencyCode = body.currencyCode || 'SAR';
+          if (!body.code) {
+            const count = getEntityList('projects', []).length + 1;
+            body.code = `PRJ-${String(count).padStart(3, '0')}`;
+          }
+        }
+
+        // 3) Invoice enrichment
+        if (targetKey === 'invoices') {
+          const clients = getEntityList('clients', defaultClients);
+          const projects = getEntityList('projects', []);
+          const cli = clients.find((c) => c.id === body.clientId);
+          const prj = projects.find((p) => p.id === body.projectId);
+          const invCount = getEntityList('invoices', []).length + 1;
+          body.invoiceNo = body.invoiceNo || `INV-2026-${String(invCount).padStart(4, '0')}`;
+          body.clientName = cli?.nameAr || body.clientName || 'العميل';
+          body.clientVatNumber = cli?.taxNumber || cli?.vatNumber || '310123456700003';
+          body.projectName = prj?.nameAr || body.projectName || '';
+          body.currencyCode = body.currencyCode || 'SAR';
+          body.status = body.status || 'POSTED';
+          body.paymentStatus = body.paymentStatus || 'UNPAID';
+          body.paidAmount = body.paidAmount || '0.00';
+          body.journalEntryId = body.journalEntryId || `je-${Date.now()}`;
+
+          if (Array.isArray(body.lines) && body.lines.length > 0) {
+            let st = 0;
+            let disc = 0;
+            let vt = 0;
+            body.lines = body.lines.map((l: any, idx: number) => {
+              const qty = Number(l.quantity ?? l.units ?? 1);
+              const price = Number(l.unitPrice ?? 0);
+              const dPct = Number(l.discountPct ?? 0);
+              const lineGross = qty * price;
+              const lineDisc = lineGross * (dPct / 100);
+              const lineNet = lineGross - lineDisc;
+              const vatR = Number(l.vatRate ?? 15);
+              const lineVat = lineNet * (vatR / 100);
+              const lineTot = lineNet + lineVat;
+              st += lineNet;
+              disc += lineDisc;
+              vt += lineVat;
+              return {
+                id: l.id || `line-${idx + 1}`,
+                lineNo: idx + 1,
+                description: l.description || 'خدمات برمجية وتقنية',
+                quantity: qty,
+                unitPrice: price,
+                discountPct: dPct,
+                subtotal: lineNet.toFixed(2),
+                vatRate: vatR,
+                vatAmount: lineVat.toFixed(2),
+                total: lineTot.toFixed(2),
+                employeeId: l.employeeId,
+              };
+            });
+            body.subtotal = st.toFixed(2);
+            body.discountAmount = disc.toFixed(2);
+            body.taxableAmount = st.toFixed(2);
+            body.vatRate = '15.00';
+            body.vatAmount = vt.toFixed(2);
+            body.totalAmount = (st + vt).toFixed(2);
+            body.subtotalBase = body.subtotal;
+            body.vatAmountBase = body.vatAmount;
+            body.totalAmountBase = body.totalAmount;
+          } else {
+            body.subtotal = body.subtotal || '0.00';
+            body.vatAmount = body.vatAmount || '0.00';
+            body.totalAmount = body.totalAmount || '0.00';
+          }
+        }
+
         return saveEntityItem(targetKey, body);
       }
     }
@@ -147,7 +395,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 2. Positions (الوظائف)
   if (path.includes('/positions')) {
-    return makeList(getEntityList('positions', []));
+    return makeList(getEntityList('positions', defaultPositions));
   }
 
   // 3. Profitability Modules (Clean Zero Baseline)
@@ -228,10 +476,10 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         id: `plc-${singleEmp.id || '1'}`,
         effectiveFrom: singleEmp.hireDate || '2026-01-01',
         effectiveTo: null,
-        departmentId: singleEmp.departmentId || null,
-        branchId: singleEmp.branchId || null,
-        positionId: singleEmp.positionId || null,
-        costCenterId: singleEmp.costCenterId || null,
+        departmentId: singleEmp.departmentId || singleEmp.placement?.departmentId || null,
+        branchId: singleEmp.branchId || singleEmp.placement?.branchId || null,
+        positionId: singleEmp.positionId || singleEmp.placement?.positionId || null,
+        costCenterId: singleEmp.costCenterId || singleEmp.placement?.costCenterId || null,
         departmentName: singleEmp.departmentName || '',
         branchName: singleEmp.branchName || '',
         positionTitle: singleEmp.positionTitle || '',
@@ -243,8 +491,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         id: `cmp-${singleEmp.id || '1'}`,
         effectiveFrom: singleEmp.hireDate || '2026-01-01',
         effectiveTo: null,
-        basicSalary: singleEmp.basicSalary || singleEmp.basic_salary || '0.00',
-        salaryCurrency: singleEmp.currency || singleEmp.salaryCurrency || 'SAR',
+        basicSalary: singleEmp.basicSalary || singleEmp.compensation?.basicSalary || singleEmp.basic_salary || '0.00',
+        salaryCurrency: singleEmp.salaryCurrency || singleEmp.compensation?.salaryCurrency || singleEmp.currency || 'SAR',
         insuranceSalary: '0.00',
         insuranceCurrency: singleEmp.currency || singleEmp.salaryCurrency || 'SAR',
         changeReason: 'الراتب المعتمد عند التعيين',
@@ -303,7 +551,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 7. Clients (العملاء)
   if (path.includes('/clients')) {
-    const clients = getEntityList('clients', []);
+    const clients = getEntityList('clients', defaultClients);
     const singleCli = clients.find((c: any) => path.endsWith(`/${c.id}`) || path.endsWith(`/${c.code}`));
     if (singleCli) return singleCli;
     return makeList(clients);
@@ -322,15 +570,15 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 9. Organization Structures (الفروع، الأقسام، مراكز التكلفة)
   if (path.includes('/branches')) {
-    return makeList(getEntityList('branches', []));
+    return makeList(getEntityList('branches', defaultBranches));
   }
 
   if (path.includes('/departments')) {
-    return makeList(getEntityList('departments', []));
+    return makeList(getEntityList('departments', defaultDepartments));
   }
 
   if (path.includes('/cost-centers')) {
-    return makeList(getEntityList('cost_centers', []));
+    return makeList(getEntityList('cost_centers', defaultCostCenters));
   }
 
   if (path.includes('/company-currencies') || path.includes('/currencies')) {
@@ -741,7 +989,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/cost-profiles')) {
-    const profiles = getEntityList('cost_profiles', []);
+    const profiles = getEntityList('cost_profiles', defaultCostProfiles);
     const singleCp: any = profiles.find((p: any) => path.endsWith(`/${p.id}`));
     if (singleCp) {
       const lines = Array.isArray(singleCp.lines) ? singleCp.lines : (Array.isArray(singleCp.components) ? singleCp.components : []);

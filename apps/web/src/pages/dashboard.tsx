@@ -85,6 +85,7 @@ export function DashboardPage() {
   const prjs = useQuery({ queryKey: ['projects', 'count'], queryFn: () => api.get<any>('/projects', { pageSize: 50 }) });
   const recentJournals = useQuery({ queryKey: ['journals', 'recent'], queryFn: () => api.get<any>('/journal-entries', { pageSize: 5 }) });
   const custReport = useQuery({ queryKey: ['dashboard-custodies-report'], queryFn: () => api.get<any>('/custodies/report') });
+  const invs = useQuery({ queryKey: ['/invoices', 'dashboard-summary'], queryFn: () => api.get<any>('/invoices') });
 
   // Current Period
   const current = periods.data?.find((p) => !p.isAdjustmentPeriod && p.startDate <= today() && p.endDate >= today());
@@ -101,11 +102,16 @@ export function DashboardPage() {
   const allocSummary = allocData?.summary;
   const allocRows: any[] = allocData?.rows || [];
 
+  const invList: any[] = Array.isArray(invs.data) ? invs.data : (invs.data?.data ?? []);
+  const validInvoices = invList.filter((x: any) => x?.status !== 'CANCELLED');
+  const invoicesRevenue = validInvoices.reduce((acc: number, x: any) => acc + (x.invoiceType === 'CREDIT_NOTE' ? -Number(x.totalAmount || 0) : Number(x.totalAmount || 0)), 0);
+  const postedInvoicesCount = validInvoices.filter((x: any) => x?.status === 'POSTED').length;
+
   // Financial figures with honest zero-baseline (no mock numbers)
   const totalAssets = Number(bs.data?.assets?.total ?? 0);
   const revenueGL = Number(ytd.data?.revenue ?? 0);
   const revenueContract = Number(allocSummary?.totalRevenue ?? 0);
-  const effectiveRevenue = revenueGL > 0 ? revenueGL : revenueContract;
+  const effectiveRevenue = Math.max(revenueGL, revenueContract, invoicesRevenue);
 
   const directCostGL = Number(ytd.data?.directCost ?? 0);
   const directCostContract = Number(allocSummary?.totalCost ?? 0);
@@ -580,7 +586,10 @@ export function DashboardPage() {
             عقود سارية: <strong className="text-cyan-600 dark:text-cyan-400 font-mono">{totalProjects}</strong>
           </span>
           <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
-            بانتظار الفوترة: <strong className="text-rose-600 dark:text-rose-400 font-mono">{allocSummary?.pendingInvoiceCount ?? 0}</strong>
+            فواتير معتمدة ZATCA: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{postedInvoicesCount}</strong>
+          </span>
+          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+            بانتظار الفوترة: <strong className="text-rose-600 dark:text-rose-400 font-mono">{allocSummary?.pendingInvoiceCount ?? validInvoices.filter((x) => x.status === 'DRAFT').length}</strong>
           </span>
           <Link
             to="/zatca/hub"
@@ -617,7 +626,7 @@ export function DashboardPage() {
             <span className="text-xs font-extrabold text-slate-500 dark:text-slate-400">{base}</span>
           </div>
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
-            عقود كفاءات: <span className="font-mono font-bold">{money(revenueContract)}</span> | خدمات: <span className="font-mono font-bold">{money(revenueGL)}</span>
+            عقود كفاءات: <span className="font-mono font-bold">{money(revenueContract)}</span> | مبيعات وفواتير: <span className="font-mono font-bold">{money(invoicesRevenue)}</span>
           </div>
           <Sparkline color="cyan" points={revenueSpark} />
         </div>
