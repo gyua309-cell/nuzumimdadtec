@@ -78,6 +78,261 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     if (path.includes('/companies/current')) {
       return saveStoredCompany(body);
     }
+    // --- 1. Robust Employee Sub-routes and Mutations ---
+    if (path.startsWith('/employees/')) {
+      const cleanP = path.split('?')[0].replace(/\/$/, '');
+      const segments = cleanP.split('/').filter(Boolean); // ['employees', id, (subAction), (subId)]
+      const empId = segments[1];
+      const subAction = segments[2];
+      const subId = segments[3];
+      const emps = getEntityList('employees', []);
+      const empIndex = emps.findIndex((e) => e.id === empId || e.code === empId || e.code?.toLowerCase() === empId?.toLowerCase());
+      const emp = empIndex >= 0 ? { ...emps[empIndex] } : null;
+
+      if (method === 'DELETE' && !subAction) {
+        if (empIndex >= 0) {
+          deleteEntityItem('employees', emps[empIndex].id);
+          const allAsg = getEntityList('assignments', []);
+          const remainingAsg = allAsg.filter((a: any) => a.employeeId !== emps[empIndex].id && a.employeeId !== emps[empIndex].code);
+          if (remainingAsg.length !== allAsg.length) {
+            localStorage.setItem('idham_prod_assignments', JSON.stringify(remainingAsg));
+          }
+        }
+        return { success: true, message: 'تم حذف الموظف بنجاح' };
+      }
+
+      if (method === 'PATCH' && !subAction) {
+        if (emp) {
+          const updated = {
+            ...emp,
+            ...body,
+            id: emp.id,
+            fullNameAr: body.fullNameAr || emp.fullNameAr,
+            fullNameEn: body.fullNameEn !== undefined ? body.fullNameEn : emp.fullNameEn,
+            updatedAt: new Date().toISOString(),
+            rowVersion: (emp.rowVersion || 1) + 1,
+          };
+          saveEntityItem('employees', updated);
+          return updated;
+        }
+      }
+
+      if (emp) {
+        if (subAction === 'compensations' && method === 'POST') {
+          const newComp = {
+            id: `cmp-${Date.now()}`,
+            effectiveFrom: body.effectiveFrom || new Date().toISOString().slice(0, 10),
+            effectiveTo: null,
+            basicSalary: String(body.basicSalary || '0.00'),
+            salaryCurrency: body.salaryCurrency || 'SAR',
+            insuranceSalary: String(body.insuranceSalary || '0.00'),
+            insuranceCurrency: body.insuranceCurrency || body.salaryCurrency || 'SAR',
+            changeReason: body.reason || body.changeReason || 'تعديل الراتب المعتمد',
+            createdBy: 'المدير التنفيذي',
+            createdAt: new Date().toISOString(),
+          };
+          const curComps = Array.isArray(emp.compensations) ? emp.compensations : [];
+          if (curComps.length > 0 && !curComps[0].effectiveTo) curComps[0].effectiveTo = newComp.effectiveFrom;
+          emp.basicSalary = newComp.basicSalary;
+          emp.salaryCurrency = newComp.salaryCurrency;
+          emp.insuranceSalary = newComp.insuranceSalary;
+          emp.insuranceCurrency = newComp.insuranceCurrency;
+          emp.compensations = [newComp, ...curComps];
+          saveEntityItem('employees', emp);
+          return emp;
+        }
+
+        if (subAction === 'placements' && method === 'POST') {
+          const departments = getEntityList('departments', defaultDepartments);
+          const positions = getEntityList('positions', defaultPositions);
+          const branches = getEntityList('branches', defaultBranches);
+          const dept = departments.find((d) => d.id === body.departmentId);
+          const pos = positions.find((p) => p.id === body.positionId);
+          const br = branches.find((b) => b.id === body.branchId);
+          const newPlc = {
+            id: `plc-${Date.now()}`,
+            effectiveFrom: body.effectiveFrom || new Date().toISOString().slice(0, 10),
+            effectiveTo: null,
+            departmentId: body.departmentId || null,
+            positionId: body.positionId || null,
+            branchId: body.branchId || null,
+            costCenterId: body.costCenterId || null,
+            managerEmployeeId: body.managerEmployeeId || null,
+            departmentName: dept?.nameAr || emp.departmentName || '',
+            positionTitle: pos?.titleAr || emp.positionTitle || '',
+            branchName: br?.nameAr || emp.branchName || '',
+            changeReason: body.reason || 'تغيير التنسيب الوظيفي',
+          };
+          const curPlcs = Array.isArray(emp.placements) ? emp.placements : [];
+          if (curPlcs.length > 0 && !curPlcs[0].effectiveTo) curPlcs[0].effectiveTo = newPlc.effectiveFrom;
+          emp.departmentId = newPlc.departmentId;
+          emp.departmentName = newPlc.departmentName;
+          emp.positionId = newPlc.positionId;
+          emp.positionTitle = newPlc.positionTitle;
+          emp.branchId = newPlc.branchId;
+          emp.branchName = newPlc.branchName;
+          emp.placements = [newPlc, ...curPlcs];
+          saveEntityItem('employees', emp);
+          return emp;
+        }
+
+        if (subAction === 'cost-profiles' && method === 'POST') {
+          if (cleanP.endsWith('/end')) {
+            const curP = Array.isArray(emp.costProfiles) ? emp.costProfiles : [];
+            if (curP.length > 0) curP[0].effectiveTo = body.effectiveTo || new Date().toISOString().slice(0, 10);
+            emp.costProfiles = curP;
+          } else {
+            const profiles = getEntityList('cost_profiles', []);
+            const prf = profiles.find((p) => p.id === body.profileId);
+            const newP = {
+              id: `ecp-${Date.now()}`,
+              profileId: body.profileId,
+              profileCode: prf?.code || 'STD',
+              profileName: prf?.nameAr || 'ملف التكلفة المعتمد',
+              effectiveFrom: body.effectiveFrom || new Date().toISOString().slice(0, 10),
+              effectiveTo: null,
+            };
+            const curP = Array.isArray(emp.costProfiles) ? emp.costProfiles : [];
+            if (curP.length > 0 && !curP[0].effectiveTo) curP[0].effectiveTo = newP.effectiveFrom;
+            emp.costProfileId = newP.profileId;
+            emp.costProfileName = newP.profileName;
+            emp.costProfiles = [newP, ...curP];
+          }
+          saveEntityItem('employees', emp);
+          return emp;
+        }
+
+        if (subAction === 'overrides' && method === 'POST') {
+          const curO = Array.isArray(emp.overrides) ? emp.overrides : [];
+          if (cleanP.endsWith('/end') && subId) {
+            const targetO = curO.find((o: any) => o.id === subId);
+            if (targetO) targetO.effectiveTo = body.effectiveTo;
+          } else {
+            const newO = {
+              id: `ovr-${Date.now()}`,
+              componentId: body.componentId,
+              isExcluded: !!body.isExcluded,
+              ratePct: body.ratePct || null,
+              amount: body.amount || null,
+              currencyCode: body.currencyCode || 'SAR',
+              reason: body.reason || 'استثناء خاص بالموظف',
+              effectiveFrom: body.effectiveFrom || new Date().toISOString().slice(0, 10),
+              effectiveTo: null,
+            };
+            emp.overrides = [newO, ...curO];
+          }
+          saveEntityItem('employees', emp);
+          return emp;
+        }
+
+        if (subAction === 'status' && method === 'POST') {
+          const newStatus = body.newStatus || 'ACTIVE';
+          const newSh = {
+            id: `sh-${Date.now()}`,
+            oldStatus: emp.status,
+            newStatus,
+            effectiveDate: body.effectiveDate || new Date().toISOString().slice(0, 10),
+            reason: body.reason || 'تغيير الحالة الإدارية',
+            changedBy: 'المدير التنفيذي',
+            changedAt: new Date().toISOString(),
+          };
+          emp.status = newStatus;
+          emp.statusHistory = [newSh, ...(Array.isArray(emp.statusHistory) ? emp.statusHistory : [])];
+          saveEntityItem('employees', emp);
+          return emp;
+        }
+
+        if (subAction === 'documents' && method === 'POST') {
+          const newDoc = {
+            id: `doc-${Date.now()}`,
+            title: body.title || 'مستند موظف',
+            docType: body.docType || 'CONTRACT',
+            docNumber: body.docNumber || '—',
+            issueDate: body.issueDate || null,
+            expiryDate: body.expiryDate || null,
+            fileName: body.fileName || (body.file && body.file.name) || 'document.pdf',
+            sizeBytes: 1024 * 45,
+            notes: body.notes || '',
+            createdAt: new Date().toISOString(),
+          };
+          emp.documents = [newDoc, ...(Array.isArray(emp.documents) ? emp.documents : [])];
+          saveEntityItem('employees', emp);
+          return emp;
+        }
+
+        if (method === 'DELETE' && subAction && subId) {
+          const arrKey = subAction === 'compensations' ? 'compensations'
+                       : subAction === 'placements' ? 'placements'
+                       : subAction === 'cost-profiles' ? 'costProfiles'
+                       : subAction === 'overrides' ? 'overrides'
+                       : subAction === 'documents' ? 'documents' : null;
+          if (arrKey && Array.isArray(emp[arrKey])) {
+            emp[arrKey] = emp[arrKey].filter((x: any) => x.id !== subId);
+            saveEntityItem('employees', emp);
+          }
+          return { success: true };
+        }
+      }
+    }
+
+    // --- 2. Robust Assignment Mutations ---
+    if (path.startsWith('/assignments')) {
+      if (method === 'DELETE') {
+        const id = path.split('?')[0].split('/').filter(Boolean).pop();
+        if (id) deleteEntityItem('assignments', id);
+        return { success: true, message: 'تم حذف الإسناد بنجاح' };
+      }
+      if (typeof body === 'object' && body !== null) {
+        const emps = getEntityList('employees', []);
+        const projects = getEntityList('projects', []);
+        const emp = emps.find((e) => e.id === body.employeeId || e.code === body.employeeId);
+        const prj = projects.find((p) => p.id === body.projectId || p.code === body.projectId);
+        const workingDays = Number(body.workingDaysInMonth || 22);
+        let allocPct = Number(body.allocationPct ?? 100);
+        let allocDays = Number(body.allocatedDays ?? (allocPct / 100) * workingDays);
+        if (body.allocationBasis === 'DAYS') {
+          allocDays = Number(body.allocatedDays || workingDays);
+          allocPct = (allocDays / workingDays) * 100;
+        }
+        const billableRate = Number(body.billableRate || 1500);
+        const billingBasis = body.billingBasis || 'DAILY';
+        let rev = 0;
+        if (billingBasis === 'DAILY') rev = allocDays * billableRate;
+        else if (billingBasis === 'MONTHLY') rev = (allocPct / 100) * billableRate;
+        else if (billingBasis === 'HOURLY') rev = (Number(body.allocatedHours) || allocDays * 8) * billableRate;
+
+        const empSalary = Number(emp?.basicSalary || 0);
+        const allocatedCost = (allocPct / 100) * empSalary;
+
+        const enrichedAsg = {
+          id: body.id || `asg-${Date.now()}`,
+          employeeId: emp?.id || body.employeeId,
+          employeeCode: emp?.code || body.employeeCode || '',
+          employeeName: emp?.fullNameAr || emp?.full_name_ar || body.employeeName || 'موظف',
+          projectId: prj?.id || body.projectId,
+          projectCode: prj?.code || body.projectCode || '',
+          projectName: prj?.nameAr || body.projectName || 'مشروع',
+          clientName: prj?.clientName || body.clientName || 'عميل',
+          allocationBasis: body.allocationBasis || 'PERCENTAGE',
+          allocationPct: allocPct,
+          allocatedDays: allocDays,
+          workingDaysInMonth: workingDays,
+          billableRate,
+          billingBasis,
+          billingCurrency: body.billingCurrency || 'SAR',
+          effectiveFrom: body.startDate || body.effectiveFrom || new Date().toISOString().slice(0, 10),
+          effectiveTo: body.endDate || body.effectiveTo || null,
+          roleTitle: body.roleTitle || emp?.positionTitle || 'مهندس برمجيات',
+          isBillable: body.isBillable !== false,
+          monthlyRevenue: rev,
+          allocatedCost,
+          marginPct: rev > 0 ? (((rev - allocatedCost) / rev) * 100).toFixed(1) : '0',
+          changeReason: body.changeReason || body.notes || 'إسناد الموظف إلى المشروع',
+        };
+        return saveEntityItem('assignments', enrichedAsg);
+      }
+    }
+
 
     const entityMap: Record<string, string> = {
       '/employees': 'employees',
@@ -304,11 +559,76 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           body.branchName = br?.nameAr || body.branchName || '';
           body.basicSalary = body.compensation?.basicSalary || body.basicSalary || '0.00';
           body.salaryCurrency = body.compensation?.salaryCurrency || body.salaryCurrency || 'SAR';
+          body.insuranceSalary = body.compensation?.insuranceSalary || body.insuranceSalary || '0.00';
+          body.insuranceCurrency = body.compensation?.insuranceCurrency || body.salaryCurrency || 'SAR';
+          body.costProfileId = body.costProfileId || null;
           body.status = body.status || 'ACTIVE';
+          body.hireDate = body.hireDate || new Date().toISOString().slice(0, 10);
           if (!body.code) {
             const count = getEntityList('employees', []).length + 1;
             body.code = `EMP-${String(count).padStart(3, '0')}`;
           }
+          if (!body.id) {
+            body.id = `emp-${Date.now()}`;
+          }
+          // Populate initial placement & compensation histories
+          body.placements = [
+            {
+              id: `plc-${Date.now()}`,
+              effectiveFrom: body.hireDate,
+              effectiveTo: null,
+              departmentId: body.departmentId || body.placement?.departmentId || null,
+              positionId: body.positionId || body.placement?.positionId || null,
+              branchId: body.branchId || body.placement?.branchId || null,
+              departmentName: body.departmentName,
+              positionTitle: body.positionTitle,
+              branchName: body.branchName,
+              changeReason: 'التعيين الأولي وتسكين الكادر',
+            }
+          ];
+          body.compensations = [
+            {
+              id: `cmp-${Date.now()}`,
+              effectiveFrom: body.hireDate,
+              effectiveTo: null,
+              basicSalary: body.basicSalary,
+              salaryCurrency: body.salaryCurrency,
+              insuranceSalary: body.insuranceSalary,
+              insuranceCurrency: body.insuranceCurrency,
+              changeReason: 'الراتب المعتمد عند التعيين',
+              createdBy: 'المدير التنفيذي',
+              createdAt: new Date().toISOString(),
+            }
+          ];
+          // Initial project assignment if provided
+          if (body.initialProjectId) {
+            const allPrjs = getEntityList('projects', []);
+            const targetPrj = allPrjs.find((p) => p.id === body.initialProjectId);
+            if (targetPrj) {
+              const asg = {
+                id: `asg-${Date.now()}`,
+                employeeId: body.id,
+                employeeCode: body.code,
+                employeeName: body.fullNameAr,
+                projectId: targetPrj.id,
+                projectCode: targetPrj.code,
+                projectName: targetPrj.nameAr,
+                clientName: targetPrj.clientName,
+                allocationBasis: 'PERCENTAGE',
+                allocationPct: Number(body.initialAllocationPct || 100),
+                allocatedDays: 22,
+                workingDaysInMonth: 22,
+                billableRate: Number(body.defaultBillingRate || 1500),
+                billingBasis: 'DAILY',
+                billingCurrency: 'SAR',
+                effectiveFrom: body.hireDate,
+                effectiveTo: null,
+                changeReason: 'الإسناد المبدئي لمشروع العمل عند التعيين',
+              };
+              saveEntityItem('assignments', asg);
+            }
+          }
+          return saveEntityItem(targetKey, body);
         }
 
         // 2) Project enrichment
@@ -502,10 +822,10 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 5. Employees & Placement (Clean Dynamic List)
   if (path.includes('/employees')) {
-    const emps = getEntityList<any>('employees', []);
+    const emps = getEntityList('employees', []);
     if (path.includes('/cost')) {
       return {
-        employedDays: 0,
+        employedDays: 22,
         periodDays: 22,
         totalCostBase: '0.00',
         distributableCostBase: '0.00',
@@ -520,67 +840,100 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     }
 
     if (path.includes('/documents')) {
-      return makeList(getEntityList<any>('employee_documents', []));
+      return makeList(getEntityList('employee_documents', []));
     }
 
-    const singleEmp: any = emps.find((e: any) => path.endsWith(`/${e.id}`) || path.endsWith(`/${e.code}`));
-    if (singleEmp) {
-      const defaultPlacement = {
-        id: `plc-${singleEmp.id || '1'}`,
-        effectiveFrom: singleEmp.hireDate || '2026-01-01',
-        effectiveTo: null,
-        departmentId: singleEmp.departmentId || singleEmp.placement?.departmentId || null,
-        branchId: singleEmp.branchId || singleEmp.placement?.branchId || null,
-        positionId: singleEmp.positionId || singleEmp.placement?.positionId || null,
-        costCenterId: singleEmp.costCenterId || singleEmp.placement?.costCenterId || null,
-        departmentName: singleEmp.departmentName || '',
-        branchName: singleEmp.branchName || '',
-        positionTitle: singleEmp.positionTitle || '',
-        costCenterName: singleEmp.costCenterName || '',
-        managerName: null,
-        changeReason: 'التعيين الأولي وتسكين الوظيفة',
-      };
-      const defaultCompensation = {
-        id: `cmp-${singleEmp.id || '1'}`,
-        effectiveFrom: singleEmp.hireDate || '2026-01-01',
-        effectiveTo: null,
-        basicSalary: singleEmp.basicSalary || singleEmp.compensation?.basicSalary || singleEmp.basic_salary || '0.00',
-        salaryCurrency: singleEmp.salaryCurrency || singleEmp.compensation?.salaryCurrency || singleEmp.currency || 'SAR',
-        insuranceSalary: '0.00',
-        insuranceCurrency: singleEmp.currency || singleEmp.salaryCurrency || 'SAR',
-        changeReason: 'الراتب المعتمد عند التعيين',
-        createdBy: 'النظام',
-        createdAt: new Date().toISOString(),
-      };
-      const defaultStatusHistory = [
-        {
-          id: `sh-${singleEmp.id || '1'}`,
-          oldStatus: null,
-          newStatus: singleEmp.status || 'ACTIVE',
-          effectiveDate: singleEmp.hireDate || '2026-01-01',
-          reason: 'HIRED',
-          changedBy: 'مدير النظام',
-          changedAt: new Date().toISOString(),
-        },
-      ];
+    const cleanP = path.split('?')[0].replace(/\/$/, '');
+    const segments = cleanP.split('/').filter(Boolean); // e.g. ['employees', 'id']
 
+    if (segments.length >= 2 && segments[0] === 'employees') {
+      const targetId = segments[1];
+      const singleEmp = emps.find((e) => e.id === targetId || e.code === targetId || e.code?.toLowerCase() === targetId?.toLowerCase());
+      const allAsg = getEntityList('assignments', []);
+      const empAsg = allAsg.filter((a) => a.employeeId === targetId || (singleEmp && (a.employeeId === singleEmp.id || a.employeeId === singleEmp.code)));
+
+      if (singleEmp) {
+        const defaultPlacement = {
+          id: `plc-${singleEmp.id || '1'}`,
+          effectiveFrom: singleEmp.hireDate || new Date().toISOString().slice(0, 10),
+          effectiveTo: null,
+          departmentId: singleEmp.departmentId || singleEmp.placement?.departmentId || null,
+          branchId: singleEmp.branchId || singleEmp.placement?.branchId || null,
+          positionId: singleEmp.positionId || singleEmp.placement?.positionId || null,
+          costCenterId: singleEmp.costCenterId || singleEmp.placement?.costCenterId || null,
+          departmentName: singleEmp.departmentName || '',
+          branchName: singleEmp.branchName || '',
+          positionTitle: singleEmp.positionTitle || '',
+          costCenterName: singleEmp.costCenterName || '',
+          managerName: null,
+          changeReason: 'التعيين الأولي وتسكين الكادر',
+        };
+        const defaultCompensation = {
+          id: `cmp-${singleEmp.id || '1'}`,
+          effectiveFrom: singleEmp.hireDate || new Date().toISOString().slice(0, 10),
+          effectiveTo: null,
+          basicSalary: singleEmp.basicSalary || singleEmp.compensation?.basicSalary || '0.00',
+          salaryCurrency: singleEmp.salaryCurrency || singleEmp.compensation?.salaryCurrency || 'SAR',
+          insuranceSalary: singleEmp.insuranceSalary || singleEmp.compensation?.insuranceSalary || '0.00',
+          insuranceCurrency: singleEmp.insuranceCurrency || singleEmp.salaryCurrency || 'SAR',
+          changeReason: 'الراتب المعتمد عند التعيين',
+          createdBy: 'المدير التنفيذي',
+          createdAt: new Date().toISOString(),
+        };
+
+        return {
+          ...singleEmp,
+          fullNameAr: singleEmp.fullNameAr || singleEmp.full_name_ar || singleEmp.nameAr || 'موظف',
+          fullNameEn: singleEmp.fullNameEn || singleEmp.full_name_en || singleEmp.nameEn || '',
+          code: singleEmp.code || targetId,
+          hireDate: singleEmp.hireDate || singleEmp.hire_date || new Date().toISOString().slice(0, 10),
+          basicSalary: singleEmp.basicSalary || '0.00',
+          salaryCurrency: singleEmp.salaryCurrency || 'SAR',
+          insuranceSalary: singleEmp.insuranceSalary || '0.00',
+          insuranceCurrency: singleEmp.insuranceCurrency || singleEmp.salaryCurrency || 'SAR',
+          placement: defaultPlacement,
+          placements: Array.isArray(singleEmp.placements) && singleEmp.placements.length > 0 ? singleEmp.placements : [defaultPlacement],
+          salary: defaultCompensation,
+          compensations: Array.isArray(singleEmp.compensations) && singleEmp.compensations.length > 0 ? singleEmp.compensations : [defaultCompensation],
+          costProfiles: Array.isArray(singleEmp.costProfiles) ? singleEmp.costProfiles : [],
+          assignments: empAsg,
+          overrides: Array.isArray(singleEmp.overrides) ? singleEmp.overrides : [],
+          custodies: Array.isArray(singleEmp.custodies) ? singleEmp.custodies : [],
+          documents: Array.isArray(singleEmp.documents) ? singleEmp.documents : [],
+          statusHistory: Array.isArray(singleEmp.statusHistory) && singleEmp.statusHistory.length > 0 ? singleEmp.statusHistory : [
+            {
+              id: `sh-${singleEmp.id || '1'}`,
+              oldStatus: null,
+              newStatus: singleEmp.status || 'ACTIVE',
+              effectiveDate: singleEmp.hireDate || new Date().toISOString().slice(0, 10),
+              reason: 'HIRED',
+              changedBy: 'المدير التنفيذي',
+              changedAt: new Date().toISOString(),
+            }
+          ],
+        };
+      }
+
+      // Safe non-crashing fallback if single employee record not found
       return {
-        ...singleEmp,
-        placement: defaultPlacement,
-        placements: Array.isArray(singleEmp.placements) && singleEmp.placements.length > 0
-          ? singleEmp.placements
-          : [defaultPlacement],
-        salary: defaultCompensation,
-        compensations: Array.isArray(singleEmp.compensations) && singleEmp.compensations.length > 0
-          ? singleEmp.compensations
-          : [defaultCompensation],
-        costProfiles: Array.isArray(singleEmp.costProfiles) ? singleEmp.costProfiles : [],
-        overrides: Array.isArray(singleEmp.overrides) ? singleEmp.overrides : [],
-        custodies: Array.isArray(singleEmp.custodies) ? singleEmp.custodies : [],
-        documents: Array.isArray(singleEmp.documents) ? singleEmp.documents : [],
-        statusHistory: Array.isArray(singleEmp.statusHistory) && singleEmp.statusHistory.length > 0
-          ? singleEmp.statusHistory
-          : defaultStatusHistory,
+        id: targetId,
+        code: targetId,
+        fullNameAr: `الموظف ${targetId}`,
+        fullNameEn: `Employee ${targetId}`,
+        status: 'ACTIVE',
+        hireDate: new Date().toISOString().slice(0, 10),
+        basicSalary: '0.00',
+        salaryCurrency: 'SAR',
+        insuranceSalary: '0.00',
+        insuranceCurrency: 'SAR',
+        placements: [],
+        compensations: [],
+        costProfiles: [],
+        assignments: empAsg,
+        overrides: [],
+        custodies: [],
+        documents: [],
+        statusHistory: [],
       };
     }
     return makeList(emps);
@@ -612,9 +965,28 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 8. Assignments & Workload (الإسناد)
   if (path.includes('/assignments')) {
-    const rows = getEntityList('assignments', []);
+    let rows = getEntityList('assignments', []);
+    const queryStr = path.includes('?') ? path.split('?')[1] : '';
+    const params = new URLSearchParams(queryStr);
+    const filterEmp = params.get('employeeId');
+    const filterPrj = params.get('projectId');
+    if (filterEmp) {
+      rows = rows.filter((a) => a.employeeId === filterEmp || a.employeeCode === filterEmp);
+    }
+    if (filterPrj) {
+      rows = rows.filter((a) => a.projectId === filterPrj || a.projectCode === filterPrj);
+    }
+    let totalDays = 0;
+    let totalRevenue = 0;
+    let totalCost = 0;
+    for (const a of rows) {
+      totalDays += Number(a.allocatedDays || 0);
+      totalRevenue += Number(a.monthlyRevenue || (Number(a.billableRate || 0) * (Number(a.allocatedDays) || 22)));
+      totalCost += Number(a.allocatedCost || 0);
+    }
+    const margin = totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue) * 100 : 0;
     return {
-      summary: { totalDays: 0, totalRevenue: 0, totalCost: 0, margin: 0 },
+      summary: { totalDays, totalRevenue, totalCost, margin: margin.toFixed(1) },
       rows,
       data: rows,
       meta: { page: 1, pageSize: 50, total: rows.length },

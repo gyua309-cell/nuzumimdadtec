@@ -102,8 +102,8 @@ export function purgeAllMockData() {
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
-        // If it contains mock items with old codes, clear them
-        if (Array.isArray(parsed) && parsed.some((x: any) => x.code?.startsWith('EMP-10') || x.code?.startsWith('EMP-00') || x.customerName?.includes('عزم') || x.nameAr?.includes('عزم'))) {
+        // Only clear obsolete legacy demo collections from old builds that had the old hardcoded demo company
+        if (Array.isArray(parsed) && parsed.some((x: any) => x.isLegacyMock === true || x.customerName === 'شركة عزم للتكنولوجيا والحلول الرقمية' || x.sellerName === 'شركة عزم للتكنولوجيا والحلول الرقمية')) {
           localStorage.removeItem(`${STORAGE_PREFIX}${key}`);
         }
       } catch {
@@ -120,20 +120,18 @@ export function purgeAllMockData() {
 }
 
 /**
- * Proactively sanitizes lingering mock records injected by previous demo builds
+ * Proactively sanitizes lingering mock records injected by obsolete demo builds
  */
 export function sanitizeLegacyMockData() {
   if (typeof window === 'undefined') return;
 
-  const mockEmployeeCodes = new Set(['EMP-001', 'EMP-002', 'EMP-003', 'EMP-101', 'EMP-102', 'EMP-103', 'EMP-104']);
-
-  // Clean employees
+  // Clean employees: ONLY remove obsolete dummy records, NEVER remove legitimate user employees
   const rawEmps = localStorage.getItem(`${STORAGE_PREFIX}employees`);
   if (rawEmps) {
     try {
       const parsed: any[] = JSON.parse(rawEmps);
       const cleaned = parsed.filter(
-        (e) => !mockEmployeeCodes.has(e.code) && !e.fullNameAr?.includes('مهندس برمجيات') && !e.fullNameAr?.includes('الدسوقي') && !e.fullNameAr?.includes('الشناوي')
+        (e) => !e.isLegacyMock && e.fullNameAr !== 'مهندس برمجيات تجريبي'
       );
       if (cleaned.length !== parsed.length) {
         localStorage.setItem(`${STORAGE_PREFIX}employees`, JSON.stringify(cleaned));
@@ -143,13 +141,13 @@ export function sanitizeLegacyMockData() {
     }
   }
 
-  // Clean invoices
+  // Clean invoices: ONLY remove obsolete dummy invoices from the old demo company
   const rawInvs = localStorage.getItem(`${STORAGE_PREFIX}invoices`);
   if (rawInvs) {
     try {
       const parsed: any[] = JSON.parse(rawInvs);
       const cleaned = parsed.filter(
-        (inv) => !inv.customerName?.includes('عزم') && !inv.sellerName?.includes('عزم') && Number(inv.totalAmount) !== 166750 && Number(inv.totalAmount) !== 92100
+        (inv) => !inv.isLegacyMock && inv.customerName !== 'شركة عزم للتكنولوجيا والحلول الرقمية' && inv.sellerName !== 'شركة عزم للتكنولوجيا والحلول الرقمية'
       );
       if (cleaned.length !== parsed.length) {
         localStorage.setItem(`${STORAGE_PREFIX}invoices`, JSON.stringify(cleaned));
