@@ -136,7 +136,7 @@ export class ExportEngine {
     if (options.includeHeaderBanner !== false) {
       // Row 1: Company Name
       const rowComp = ws.getRow(currentRow++);
-      rowComp.values = [company.nameAr || 'شركة عزم للتكنولوجيا والحلول الرقمية (AZM)'];
+      rowComp.values = [company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية (AZM)'];
       rowComp.font = { name: 'IBM Plex Sans Arabic', size: 14, bold: true, color: { argb: 'FF0F172A' } };
       rowComp.alignment = { horizontal: 'right', vertical: 'middle' };
 

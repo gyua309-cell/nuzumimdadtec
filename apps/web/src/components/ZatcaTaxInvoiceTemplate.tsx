@@ -83,7 +83,7 @@ export const ZatcaTaxInvoiceTemplate: React.FC<ZatcaTaxInvoiceTemplateProps> = (
   const isCreditNote = inv.invoiceType === 'CREDIT_NOTE';
   const isSimplified = inv.invoiceType === 'SIMPLIFIED';
 
-  const sellerName = inv.sellerName || company.nameAr || 'شركة عزم للتكنولوجيا والحلول الرقمية';
+  const sellerName = inv.sellerName || company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية';
   const sellerLegalName = inv.sellerLegalName || company.legalName || company.nameEn || 'AZM TECH & DIGITAL SOLUTIONS CO.';
   const sellerVatNumber = inv.sellerVatNumber || company.taxNumber || '310123456700003';
   const sellerCrNumber = inv.sellerCrNumber || company.commercialReg || '1010000000';

@@ -131,7 +131,7 @@ export const OfficialPrintHeader: React.FC<PrintDocumentHeaderProps> = ({
             </div>
             <div>
               <h1 className="font-extrabold text-base leading-tight text-slate-950">
-                {company.nameAr || 'شركة عزم للتكنولوجيا والحلول الرقمية'}
+                {company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية'}
               </h1>
               <p className="text-xs font-semibold text-slate-500 tracking-wide">
                 {company.nameEn || 'AZM TECH & DIGITAL SOLUTIONS'}

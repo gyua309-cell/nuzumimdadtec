@@ -58,29 +58,36 @@ export function saveEntityItem<T extends { id?: string }>(entityKey: string, ite
   if (typeof window !== 'undefined') {
     localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(list));
     window.dispatchEvent(new CustomEvent(`idham_${entityKey}_updated`, { detail: list }));
+    window.dispatchEvent(new CustomEvent('idham_entity_mutation', { detail: { entityKey, item: result } }));
   }
   return result;
 }
 
 export function deleteEntityItem(entityKey: string, id: string): boolean {
   const list = getEntityList<any>(entityKey);
-  const filtered = list.filter((x) => x.id !== id && x.code !== id);
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(filtered));
-    window.dispatchEvent(new CustomEvent(`idham_${entityKey}_updated`, { detail: filtered }));
+  const next = list.filter((x) => x.id !== id);
+  if (next.length !== list.length) {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(next));
+      window.dispatchEvent(new CustomEvent(`idham_${entityKey}_updated`, { detail: next }));
+      window.dispatchEvent(new CustomEvent('idham_entity_mutation', { detail: { entityKey, deletedId: id } }));
+    }
+    return true;
   }
-  return filtered.length !== list.length;
+  return false;
 }
 
-/** Complete purge of all demo, mock, and seed keys in user's browser (preserves company customizations) */
+/**
+ * Purges lingering demo keys while preserving company settings.
+ */
 export function purgeAllMockData() {
   if (typeof window === 'undefined') return;
-  const existingCompany = localStorage.getItem('idham_company_data') || localStorage.getItem('azm_erp_company_data');
+  const existingCompany = localStorage.getItem('idham_company_data');
   const toRemove: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (k && (k.startsWith('azm_') || k.startsWith('idham_mock_') || k.startsWith('demo_'))) {
-      if (k !== 'azm_erp_company_data' && k !== 'idham_company_data') {
+      if (k !== 'idham_company_data') {
         toRemove.push(k);
       }
     }
@@ -88,9 +95,25 @@ export function purgeAllMockData() {
   for (const k of toRemove) {
     localStorage.removeItem(k);
   }
+  // Clear any mock entity lists that had fake data
+  const mockKeysToClean = ['invoices', 'assignments', 'employees', 'projects', 'clients', 'journal_entries', 'revenue_runs', 'loans', 'custodies'];
+  for (const key of mockKeysToClean) {
+    const raw = localStorage.getItem(`${STORAGE_PREFIX}${key}`);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        // If it contains mock items with old codes, clear them
+        if (Array.isArray(parsed) && parsed.some((x: any) => x.code?.startsWith('EMP-10') || x.code?.startsWith('EMP-00') || x.customerName?.includes('عزم') || x.nameAr?.includes('عزم'))) {
+          localStorage.removeItem(`${STORAGE_PREFIX}${key}`);
+        }
+      } catch {
+        localStorage.removeItem(`${STORAGE_PREFIX}${key}`);
+      }
+    }
+  }
+
   if (existingCompany) {
     localStorage.setItem('idham_company_data', existingCompany);
-    localStorage.setItem('azm_erp_company_data', existingCompany);
   }
   sanitizeLegacyMockData();
   window.dispatchEvent(new CustomEvent('idham_all_purged'));
@@ -98,17 +121,11 @@ export function purgeAllMockData() {
 
 /**
  * Proactively sanitizes lingering mock records injected by previous demo builds
- * (e.g. EMP-001, Islam Hassan, Sarah Mansoor, Software Engineering dept, etc.)
- * while strictly preserving user-entered real records.
  */
 export function sanitizeLegacyMockData() {
   if (typeof window === 'undefined') return;
 
-  const mockEmployeeCodes = new Set(['EMP-001', 'EMP-002', 'EMP-003']);
-  const mockDeptCodes = new Set(['TECH', 'PMO', 'FIN', 'OPS']);
-  const mockDeptIds = new Set(['dept-01', 'dept-02', 'dept-03', 'dept-04']);
-  const mockCcCodes = new Set(['CC-DELIVERY', 'CC-RND', 'CC-ADMIN']);
-  const mockCcIds = new Set(['cc-01', 'cc-02', 'cc-03']);
+  const mockEmployeeCodes = new Set(['EMP-001', 'EMP-002', 'EMP-003', 'EMP-101', 'EMP-102', 'EMP-103', 'EMP-104']);
 
   // Clean employees
   const rawEmps = localStorage.getItem(`${STORAGE_PREFIX}employees`);
@@ -116,7 +133,7 @@ export function sanitizeLegacyMockData() {
     try {
       const parsed: any[] = JSON.parse(rawEmps);
       const cleaned = parsed.filter(
-        (e) => !mockEmployeeCodes.has(e.code) && !e.fullNameAr?.includes('مهندس برمجيات أول') && !e.fullNameAr?.includes('إسلام حسن')
+        (e) => !mockEmployeeCodes.has(e.code) && !e.fullNameAr?.includes('مهندس برمجيات') && !e.fullNameAr?.includes('الدسوقي') && !e.fullNameAr?.includes('الشناوي')
       );
       if (cleaned.length !== parsed.length) {
         localStorage.setItem(`${STORAGE_PREFIX}employees`, JSON.stringify(cleaned));
@@ -126,46 +143,19 @@ export function sanitizeLegacyMockData() {
     }
   }
 
-  // Clean departments
-  const rawDepts = localStorage.getItem(`${STORAGE_PREFIX}departments`);
-  if (rawDepts) {
+  // Clean invoices
+  const rawInvs = localStorage.getItem(`${STORAGE_PREFIX}invoices`);
+  if (rawInvs) {
     try {
-      const parsed: any[] = JSON.parse(rawDepts);
-      const cleaned = parsed.filter((d) => !mockDeptCodes.has(d.code) && !mockDeptIds.has(d.id));
+      const parsed: any[] = JSON.parse(rawInvs);
+      const cleaned = parsed.filter(
+        (inv) => !inv.customerName?.includes('عزم') && !inv.sellerName?.includes('عزم') && Number(inv.totalAmount) !== 166750 && Number(inv.totalAmount) !== 92100
+      );
       if (cleaned.length !== parsed.length) {
-        localStorage.setItem(`${STORAGE_PREFIX}departments`, JSON.stringify(cleaned));
+        localStorage.setItem(`${STORAGE_PREFIX}invoices`, JSON.stringify(cleaned));
       }
     } catch {
-      localStorage.removeItem(`${STORAGE_PREFIX}departments`);
-    }
-  }
-
-  // Clean cost centers
-  const rawCc = localStorage.getItem(`${STORAGE_PREFIX}cost_centers`);
-  if (rawCc) {
-    try {
-      const parsed: any[] = JSON.parse(rawCc);
-      const cleaned = parsed.filter((c) => !mockCcCodes.has(c.code) && !mockCcIds.has(c.id));
-      if (cleaned.length !== parsed.length) {
-        localStorage.setItem(`${STORAGE_PREFIX}cost_centers`, JSON.stringify(cleaned));
-      }
-    } catch {
-      localStorage.removeItem(`${STORAGE_PREFIX}cost_centers`);
-    }
-  }
-
-  // Clean mock services catalog
-  const mockSrvCodes = new Set(['SRV-DEV-01', 'SRV-ARCH-01', 'SRV-ACC-01', 'SRV-ZATCA-01']);
-  const rawSrv = localStorage.getItem('azm_services_catalog');
-  if (rawSrv) {
-    try {
-      const parsed: any[] = JSON.parse(rawSrv);
-      const cleaned = parsed.filter((s) => !mockSrvCodes.has(s.code) && !s.id?.startsWith('srv-00'));
-      if (cleaned.length !== parsed.length) {
-        localStorage.setItem('azm_services_catalog', JSON.stringify(cleaned));
-      }
-    } catch {
-      localStorage.removeItem('azm_services_catalog');
+      localStorage.removeItem(`${STORAGE_PREFIX}invoices`);
     }
   }
 }
@@ -176,7 +166,7 @@ export function sanitizeLegacyMockData() {
  */
 export function resetSystemToZero() {
   if (typeof window === 'undefined') return;
-  const company = localStorage.getItem('idham_company_data') || localStorage.getItem('azm_erp_company_data');
+  const company = localStorage.getItem('idham_company_data');
   const toDelete: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
@@ -190,7 +180,6 @@ export function resetSystemToZero() {
   purgeAllMockData();
   if (company) {
     localStorage.setItem('idham_company_data', company);
-    localStorage.setItem('azm_erp_company_data', company);
   }
   window.dispatchEvent(new CustomEvent('idham_all_purged'));
 }
@@ -234,7 +223,6 @@ export function importAllErpData(jsonContent: string): { success: boolean; messa
     const parsed = JSON.parse(jsonContent);
     if (parsed.company) {
       localStorage.setItem('idham_company_data', JSON.stringify(parsed.company));
-      localStorage.setItem('azm_erp_company_data', JSON.stringify(parsed.company));
     }
     if (parsed.entities && typeof parsed.entities === 'object') {
       for (const [key, val] of Object.entries(parsed.entities)) {
@@ -250,10 +238,9 @@ export function importAllErpData(jsonContent: string): { success: boolean; messa
 
 // Auto-run proactive purge and mock data sanitization on startup
 if (typeof window !== 'undefined') {
-  const PURGE_KEY = 'idham_clean_prod_baseline_v5';
+  const PURGE_KEY = 'idham_clean_prod_baseline_v8';
   if (!localStorage.getItem(PURGE_KEY)) {
-    purgeAllMockData();
-    sanitizeLegacyMockData();
+    resetSystemToZero();
     localStorage.setItem(PURGE_KEY, 'true');
   }
 }

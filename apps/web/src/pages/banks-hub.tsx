@@ -929,7 +929,7 @@ function PrintTransferVoucherModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b-2 border-slate-900 pb-4">
           <div>
-            <div className="text-xl font-black text-slate-900">{company?.nameAr || 'شركة عزم للتكنولوجيا والحلول الرقمية'}</div>
+            <div className="text-xl font-black text-slate-900">{company?.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية'}</div>
             <div className="text-xs text-slate-600 mt-1">سند تحويل بنكي وصرافة عملات بين الحسابات المصرفية</div>
           </div>
           <div className="text-left font-mono text-xs">

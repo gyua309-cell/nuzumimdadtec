@@ -23,16 +23,16 @@ export interface CompanyData {
 const STORAGE_KEY = 'idham_company_data';
 
 export const INITIAL_COMPANY: CompanyData = {
-  id: '01a17cb2-9afa-7ef5-91f6-b47561899afb',
-  code: 'AZM',
-  nameAr: 'شركة عزم للتكنولوجيا والحلول الرقمية',
-  nameEn: 'Azm Tech Co.',
-  legalName: 'شركة عزم للتكنولوجيا والحلول الرقمية - شركة مساهمة مقفلة',
+  id: '01a105ec-6a9a-74cd-b663-0ef527c4cfde',
+  code: 'IMDAD',
+  nameAr: 'شركة نظم إمداد للتقنية والحلول الرقمية',
+  nameEn: 'Nuzum Imdad Technology Co.',
+  legalName: 'شركة نظم إمداد للتقنية والحلول الرقمية - شركة شخص واحد ش.م.م',
   taxNumber: '310123456700003',
-  commercialReg: '1010123456',
+  commercialReg: '1010789456',
   countryCode: 'SA',
   timezone: 'Asia/Riyadh',
-  address: 'المملكة العربية السعودية - الرياض - طريق الملك فهد - برج عزم',
+  address: 'المملكة العربية السعودية - الرياض - طريق الملك فهد',
   baseCurrency: 'SAR',
   fiscalYearStartMonth: 1,
   rowVersion: 1,
@@ -41,12 +41,22 @@ export const INITIAL_COMPANY: CompanyData = {
 export function getStoredCompany(): CompanyData {
   if (typeof window === 'undefined') return { ...INITIAL_COMPANY };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('azm_erp_company_data');
+    // Purge old legacy keys
+    localStorage.removeItem('azm_erp_company_data');
+    const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_COMPANY));
       return { ...INITIAL_COMPANY };
     }
     const parsed = JSON.parse(raw);
+    // If the cached object has old mock name "عزم", sanitize it immediately
+    if (parsed.nameAr && parsed.nameAr.includes('عزم')) {
+      parsed.nameAr = INITIAL_COMPANY.nameAr;
+      parsed.nameEn = INITIAL_COMPANY.nameEn;
+      parsed.legalName = INITIAL_COMPANY.legalName;
+      parsed.code = INITIAL_COMPANY.code;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+    }
     return { ...INITIAL_COMPANY, ...parsed };
   } catch {
     return { ...INITIAL_COMPANY };
@@ -65,9 +75,8 @@ export function saveStoredCompany(patch: Partial<CompanyData>): CompanyData {
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      localStorage.setItem('azm_erp_company_data', JSON.stringify(updated));
-      window.dispatchEvent(new CustomEvent('azm_company_updated', { detail: updated }));
       window.dispatchEvent(new CustomEvent('idham_company_updated', { detail: updated }));
+      window.dispatchEvent(new CustomEvent('azm_company_updated', { detail: updated }));
     } catch (err) {
       console.error('Failed to save company to localStorage:', err);
     }
