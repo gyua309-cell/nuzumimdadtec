@@ -828,23 +828,20 @@ export function ExecutiveIntelligencePage() {
   const [periodId, setPeriodId] = useState('');
   const [activeTab, setActiveTab] = useState<'kpis' | 'feasibility' | 'margin-gap' | 'unutilized' | 'clients'>('kpis');
 
-  // Queries
+  // Queries (Unconditional loading with period filtering)
   const empProf = useQuery({
     queryKey: ['/profitability/employees', periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any>('/profitability/employees', { periodId }),
+    queryFn: () => api.get<any>('/profitability/employees', periodId ? { periodId } : {}),
   });
 
   const projectProf = useQuery({
     queryKey: ['/profitability/projects', periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any[]>('/profitability/projects', { periodId }),
+    queryFn: () => api.get<any[]>('/profitability/projects', periodId ? { periodId } : {}),
   });
 
   const clientProf = useQuery({
     queryKey: ['/profitability/clients', periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any[]>('/profitability/clients', { periodId }),
+    queryFn: () => api.get<any[]>('/profitability/clients', periodId ? { periodId } : {}),
   });
 
   const servicePrices = useQuery({

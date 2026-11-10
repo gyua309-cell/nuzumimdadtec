@@ -312,23 +312,20 @@ export function ProfitabilityPage() {
   const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
   const [showRetroModal, setShowRetroModal] = useState(false);
 
-  // Queries
+  // Queries (Unconditional loading with period filtering)
   const projectProf = useQuery({
     queryKey: ['/profitability/projects', periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any[]>('/profitability/projects', { periodId }),
+    queryFn: () => api.get<any[]>('/profitability/projects', periodId ? { periodId } : {}),
   });
 
   const empProf = useQuery({
     queryKey: ['/profitability/employees', periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any>('/profitability/employees', { periodId }),
+    queryFn: () => api.get<any>('/profitability/employees', periodId ? { periodId } : {}),
   });
 
   const clientProf = useQuery({
     queryKey: ['/profitability/clients', periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any[]>('/profitability/clients', { periodId }),
+    queryFn: () => api.get<any[]>('/profitability/clients', periodId ? { periodId } : {}),
   });
 
   const retroAdjustments = useQuery({

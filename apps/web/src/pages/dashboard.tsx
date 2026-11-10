@@ -91,11 +91,10 @@ export function DashboardPage() {
   const current = periods.data?.find((p) => !p.isAdjustmentPeriod && p.startDate <= today() && p.endDate >= today());
   const activePeriodId = current?.id || periods.data?.[0]?.id || '';
 
-  // Employee days report for utilization and contract revenue
+  // Employee days report for utilization and contract revenue (Live Contract Pipeline)
   const allocReport = useQuery({
     queryKey: ['/assignments/employee-days-report', activePeriodId],
-    queryFn: () => api.get<any>(`/assignments/employee-days-report?periodId=${activePeriodId}`),
-    enabled: Boolean(activePeriodId),
+    queryFn: () => api.get<any>(`/assignments/employee-days-report${activePeriodId ? `?periodId=${activePeriodId}` : ''}`),
   });
 
   const allocData = allocReport.data;

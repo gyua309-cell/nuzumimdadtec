@@ -49,12 +49,12 @@ export const defaultClients = [
   {
     id: 'cli-001',
     code: 'CLI-001',
-    nameAr: 'شركة عزم الرقمية للحلول التقنية',
-    nameEn: 'Azm Digital Solutions Co.',
+    nameAr: 'شركة التقنية المتقدمة للحلول الرقمية',
+    nameEn: 'Advanced Tech Digital Solutions Co.',
     currencyCode: 'SAR',
     taxNumber: '310123456700003',
     paymentTermsDays: 30,
-    email: 'billing@azm-digital.com',
+    email: 'billing@advtech.sa',
     phone: '+966112345678',
     isActive: true,
   },
@@ -102,19 +102,19 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
 
       if (method === 'PATCH' && !subAction) {
-        if (emp) {
-          const updated = {
-            ...emp,
-            ...body,
-            id: emp.id,
-            fullNameAr: body.fullNameAr || emp.fullNameAr,
-            fullNameEn: body.fullNameEn !== undefined ? body.fullNameEn : emp.fullNameEn,
-            updatedAt: new Date().toISOString(),
-            rowVersion: (emp.rowVersion || 1) + 1,
-          };
-          saveEntityItem('employees', updated);
-          return updated;
-        }
+        const targetEmp = emp || { id: empId, code: body?.code || empId };
+        const updated = {
+          ...targetEmp,
+          ...body,
+          id: targetEmp.id || empId,
+          code: targetEmp.code || empId,
+          fullNameAr: body?.fullNameAr || targetEmp.fullNameAr || ('موظف ' + empId),
+          fullNameEn: body?.fullNameEn !== undefined ? body.fullNameEn : (targetEmp.fullNameEn || ''),
+          updatedAt: new Date().toISOString(),
+          rowVersion: ((targetEmp.rowVersion) || 1) + 1,
+        };
+        saveEntityItem('employees', updated);
+        return updated;
       }
 
       if (emp) {
@@ -390,6 +390,203 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
     }
 
+
+    // --- 2.1 Robust Closing & Period Operations (Business Process Section 27, 28, 29) ---
+    if (path.includes('/closing/periods/') && path.endsWith('/close') && method === 'POST') {
+      const periodId = path.split('/')[3];
+      const periods = getEntityList('fiscal_periods', []);
+      const pIdx = periods.findIndex((p: any) => p.id === periodId);
+      const pName = pIdx >= 0 ? periods[pIdx].name : 'الفترة المالية';
+      if (pIdx >= 0) {
+        periods[pIdx].status = 'CLOSED';
+        saveEntityItem('fiscal_periods', periods[pIdx]);
+      }
+      const snap = {
+        id: `snap-${Date.now()}`,
+        periodId,
+        periodName: pName,
+        version: 1,
+        kind: 'PERIOD_CLOSE',
+        dataHash: '7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069',
+        createdAt: new Date().toISOString(),
+        createdBy: 'المدير التنفيذي',
+        hashValid: true,
+        data: {
+          periodId,
+          periodName: pName,
+          closingDate: new Date().toISOString(),
+          closedBy: 'المدير التنفيذي',
+        },
+      };
+      saveEntityItem('snapshots', snap);
+      saveEntityItem('audit_log', {
+        id: `aud-${Date.now()}`,
+        action: 'CLOSE_PERIOD',
+        tableName: 'fiscal_periods',
+        recordId: periodId,
+        actor: 'المدير التنفيذي',
+        reason: `إقفال الفترة ${pName} وتوليد اللقطة الرقمية المعتمدة`,
+        createdAt: new Date().toISOString(),
+      });
+      return { success: true, message: 'تم إقفال الفترة وحفظ اللقطة بنجاح' };
+    }
+
+    if (path.includes('/closing/periods/') && path.endsWith('/reopen') && method === 'POST') {
+      const periodId = path.split('/')[3];
+      const periods = getEntityList('fiscal_periods', []);
+      const pIdx = periods.findIndex((p: any) => p.id === periodId);
+      const pName = pIdx >= 0 ? periods[pIdx].name : 'الفترة المالية';
+      if (pIdx >= 0) {
+        periods[pIdx].status = 'OPEN';
+        saveEntityItem('fiscal_periods', periods[pIdx]);
+      }
+      saveEntityItem('audit_log', {
+        id: `aud-${Date.now()}`,
+        action: 'REOPEN_PERIOD',
+        tableName: 'fiscal_periods',
+        recordId: periodId,
+        actor: 'المدير التنفيذي',
+        reason: (body?.reason || 'إعادة فتح الفترة المالية للمراجعة والتصحيح') + ' (' + pName + ')',
+        createdAt: new Date().toISOString(),
+      });
+      return { success: true, message: 'تمت إعادة فتح الفترة بنجاح' };
+    }
+
+    // --- 2.2 Robust Monthly Variables Operations (Business Process Section 12, 13, 14, 15) ---
+    if (path.startsWith('/monthly-variables/') && path.endsWith('/approve') && method === 'POST') {
+      const mvId = path.split('/')[2];
+      const list = getEntityList('monthly_variables', []);
+      const idx = list.findIndex((m: any) => m.id === mvId);
+      if (idx >= 0) {
+        list[idx].status = 'APPROVED';
+        list[idx].approvedAt = new Date().toISOString();
+        list[idx].approvedBy = 'المدير التنفيذي';
+        saveEntityItem('monthly_variables', list[idx]);
+        saveEntityItem('audit_log', {
+          id: `aud-${Date.now()}`,
+          action: 'APPROVE_VARIABLE',
+          tableName: 'monthly_variables',
+          recordId: mvId,
+          actor: 'المدير التنفيذي',
+          reason: 'اعتماد متغير شهري لصالح الموظف ' + list[idx].employeeName,
+          createdAt: new Date().toISOString(),
+        });
+        return list[idx];
+      }
+    }
+
+    if (path.startsWith('/monthly-variables/') && method === 'DELETE') {
+      const mvId = path.split('/')[2];
+      deleteEntityItem('monthly_variables', mvId);
+      return { success: true, message: 'تم حذف المتغير بنجاح' };
+    }
+
+    // --- 2.3 Robust Revenue Runs Operations (Business Process Section 8 & Revenue Engine) ---
+    if (path === '/revenue-runs' && method === 'POST') {
+      const previewData = getDemoFallback('/revenue-runs/preview');
+      const runCount = getEntityList('revenue_runs', []).length + 1;
+      const runNo = `REV-${new Date().getFullYear()}-${String(runCount).padStart(3, '0')}`;
+      const jeNo = `JE-REV-${String(runCount).padStart(4, '0')}`;
+      const runItem = {
+        id: `revrun-${Date.now()}`,
+        runNo,
+        fiscalPeriodId: body?.fiscalPeriodId,
+        periodName: 'فترة التشغيل الحالية',
+        projectCount: previewData.projectCount,
+        employeeCount: previewData.employeeCount,
+        lineCount: previewData.lineCount,
+        totalRevenueBase: previewData.totalRevenueBase,
+        journalEntryNo: jeNo,
+        journalEntryId: `je-${Date.now()}`,
+        status: 'POSTED',
+        createdAt: new Date().toISOString(),
+        lines: previewData.lines,
+      };
+      saveEntityItem('revenue_runs', runItem);
+      saveEntityItem('journal_entries', {
+        id: runItem.journalEntryId,
+        entryNo: jeNo,
+        entryDate: new Date().toISOString().slice(0, 10),
+        description: `ترحيل إيرادات الخدمات والمشاريع للتشغيل ${runNo}`,
+        status: 'POSTED',
+        totalDebit: String(runItem.totalRevenueBase),
+        totalCredit: String(runItem.totalRevenueBase),
+        lines: [
+          { accountCode: '110301', accountName: 'إيرادات مستحقة غير مفوترة (Unbilled Revenue)', debit: String(runItem.totalRevenueBase), credit: '0.00' },
+          { accountCode: '410101', accountName: 'إيرادات عقود ومشاريع البرمجيات والخدمات', debit: '0.00', credit: String(runItem.totalRevenueBase) },
+        ],
+      });
+      saveEntityItem('audit_log', {
+        id: `aud-${Date.now()}`,
+        action: 'POST_REVENUE_RUN',
+        tableName: 'revenue_runs',
+        recordId: runItem.id,
+        actor: 'المدير التنفيذي',
+        reason: `ترحيل إيرادات الخدمات بمبلغ ${runItem.totalRevenueBase} ريال`,
+        createdAt: new Date().toISOString(),
+      });
+      return runItem;
+    }
+
+    if (path.startsWith('/revenue-runs/') && path.endsWith('/cancel') && method === 'POST') {
+      const runId = path.split('/')[2];
+      const runs = getEntityList('revenue_runs', []);
+      const idx = runs.findIndex((r: any) => r.id === runId);
+      if (idx >= 0) {
+        runs[idx].status = 'CANCELLED';
+        runs[idx].cancelReason = body?.reason || 'إلغاء ترحيل الإيراد وعكس القيد';
+        saveEntityItem('revenue_runs', runs[idx]);
+        return runs[idx];
+      }
+    }
+
+    // --- 2.4 Robust Retroactive Adjustments Operations (Business Process Section 18) ---
+    if (path.includes('/revenue-adjustments/retroactive') && method === 'POST') {
+      const emps = getEntityList('employees', []);
+      const prjs = getEntityList('projects', []);
+      const periods = getEntityList('fiscal_periods', []);
+      const emp = emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId);
+      const prj = prjs.find((p: any) => p.id === body.projectId || p.code === body.projectId);
+      const origPeriod = periods.find((p: any) => p.id === body.originalPeriodId);
+      const regPeriod = periods.find((p: any) => p.id === body.fiscalPeriodId);
+      const units = Number(body.units || 1);
+      const unitPrice = Number(body.unitPrice || 0);
+      const grossRev = units * unitPrice;
+      const retroItem = {
+        id: `retro-${Date.now()}`,
+        employeeId: body.employeeId,
+        employeeCode: emp?.code || '',
+        employeeName: emp?.fullNameAr || 'الموظف',
+        projectId: body.projectId,
+        projectCode: prj?.code || '',
+        projectName: prj?.nameAr || 'المشروع',
+        clientName: prj?.clientName || 'العميل',
+        originalPeriodId: body.originalPeriodId,
+        originalPeriodName: origPeriod?.name || 'فترة سابقة',
+        fiscalPeriodId: body.fiscalPeriodId,
+        periodName: regPeriod?.name || 'فترة حالية',
+        pricingBasis: body.pricingBasis || 'DAILY',
+        units,
+        unitPrice,
+        grossRevenueBase: grossRev,
+        currencyCode: body.currencyCode || 'SAR',
+        adjustmentReason: body.adjustmentReason || 'تسوية إيراد أثر رجعي',
+        createdAt: new Date().toISOString(),
+        createdBy: 'المدير التنفيذي',
+        status: 'RECORDED',
+      };
+      saveEntityItem('revenue_adjustments', retroItem);
+      saveEntityItem('audit_log', {
+        id: `aud-${Date.now()}`,
+        action: 'RETROACTIVE_REVENUE_ADJUSTMENT',
+        tableName: 'revenue_adjustments',
+        recordId: retroItem.id,
+        actor: 'المدير التنفيذي',
+        reason: retroItem.adjustmentReason,
+        createdAt: new Date().toISOString(),
+      });
+      return retroItem;
+    }
 
     const entityMap: Record<string, string> = {
       '/employees': 'employees',
@@ -704,6 +901,69 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           }
         }
 
+        // 2.5) Monthly variables enrichment
+        if (targetKey === 'monthly_variables') {
+          const emps = getEntityList('employees', []);
+          const prjs = getEntityList('projects', []);
+          const varTypes = getEntityList('variable_types', []);
+          const emp = emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId);
+          const prj = prjs.find((p: any) => p.id === body.projectId || p.code === body.projectId);
+          const vt = varTypes.find((v: any) => v.id === body.variableTypeId || v.code === body.variableTypeId);
+          body.id = body.id || `mv-${Date.now()}`;
+          body.employeeName = emp?.fullNameAr || body.employeeName || 'الموظف';
+          body.employeeCode = emp?.code || body.employeeCode || '';
+          body.projectName = prj?.nameAr || body.projectName || null;
+          body.variableTypeName = vt?.nameAr || body.variableTypeName || 'مكافأة / متغير';
+          body.category = vt?.category || body.category || 'EARNING';
+          body.status = body.status || 'DRAFT';
+
+          const bSal = Number(emp?.basicSalary || emp?.basic_salary || 0);
+          const dailyRate = bSal > 0 ? (bSal / 22) : 500;
+          const hourlyRate = dailyRate / 8;
+          let computed = Number(body.amount || 0);
+          if (body.hours) {
+            const mult = Number(body.multiplier || vt?.defaultMultiplier || 1.5);
+            const r = Number(body.rate || hourlyRate);
+            computed = Number(body.hours) * r * mult;
+          } else if (body.days) {
+            const mult = Number(body.multiplier || 1);
+            const r = Number(body.rate || dailyRate);
+            computed = Number(body.days) * r * mult;
+          }
+          body.computedAmount = String(computed.toFixed(2));
+        }
+
+        // 2.6) Loans enrichment
+        if (targetKey === 'loans') {
+          const emps = getEntityList('employees', []);
+          const emp = emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId);
+          const count = getEntityList('loans', []).length + 1;
+          body.id = body.id || `loan-${Date.now()}`;
+          body.loanNo = body.loanNo || `LN-${new Date().getFullYear()}-${String(count).padStart(3, '0')}`;
+          body.employeeName = emp?.fullNameAr || body.employeeName || 'الموظف';
+          body.principalBase = String(body.principalAmount || body.principalBase || '0.00');
+          body.status = body.status || 'ACTIVE';
+          const instCount = Number(body.installments || 1);
+          const monthlyDeduct = Number(body.principalBase) / instCount;
+          body.installmentsSchedule = Array.from({ length: instCount }, (_, i) => ({
+            installmentNo: i + 1,
+            amount: String(monthlyDeduct.toFixed(2)),
+            status: 'PENDING',
+          }));
+        }
+
+        // 2.7) Assets enrichment
+        if (targetKey === 'assets') {
+          const emps = getEntityList('employees', []);
+          const emp = emps.find((e: any) => e.id === body.custodianEmployeeId || e.id === body.employeeId);
+          body.id = body.id || `ast-${Date.now()}`;
+          body.custodianName = emp?.fullNameAr || body.custodianName || '—';
+          body.costBase = String(body.costBase || body.cost || '0.00');
+          body.accumulatedBase = body.accumulatedBase || '0.00';
+          body.netBookValueBase = body.costBase;
+          body.status = body.status || 'ACTIVE';
+        }
+
         // 3) Invoice enrichment
         if (targetKey === 'invoices') {
           const clients = getEntityList('clients', defaultClients);
@@ -836,8 +1096,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const assignments = getEntityList('assignments', []);
     const depts = getEntityList('departments', defaultDepartments);
     const deptMap = new Map(depts.map((d: any) => [d.id, d.nameAr]));
+    const assets = getEntityList('assets', []);
+    const monthlyVars = getEntityList('monthly_variables', []);
+    const retroAdjs = getEntityList('revenue_adjustments', []);
+    const servicePrices = getEntityList('service_prices', []);
 
-    // 1. Employee calculations (Level 1)
+    // 1. Employee calculations (Level 1 per Business Process)
     const empList: any[] = [];
     let sumEmpRev = 0;
     let sumEmpCost = 0;
@@ -847,7 +1111,23 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     for (const emp of emps) {
       const basicSalary = Number(emp.basicSalary || emp.basic_salary || emp.salary || 0);
       const insuranceSalary = Number(emp.insuranceSalary || emp.insurance_salary || 0);
-      const directCost = basicSalary + (insuranceSalary > 0 ? insuranceSalary * 0.12 : basicSalary * 0.05);
+      const insuranceCost = insuranceSalary > 0 ? insuranceSalary * 0.12 : basicSalary * 0.05;
+
+      // Section 17: Monthly Asset Depreciation added to employee cost
+      const empAssets = assets.filter((a: any) => (a.custodianEmployeeId === emp.id || a.employeeId === emp.id) && a.status === 'ACTIVE');
+      const assetDeprCost = empAssets.reduce((sum: number, a: any) => {
+        const cost = Number(a.costBase || a.cost || 0);
+        const salvage = Number(a.salvageValueBase || 0);
+        const months = Number(a.usefulLifeMonths) || 36;
+        return sum + Math.round((cost - salvage) / months);
+      }, 0);
+
+      // Section 14: General approved variables added to employee cost
+      const generalVarsCost = monthlyVars
+        .filter((v: any) => (v.employeeId === emp.id || v.employeeCode === emp.code) && v.status === 'APPROVED' && !v.projectId)
+        .reduce((sum: number, v: any) => sum + Number(v.computedAmount || 0), 0);
+
+      const directCost = basicSalary + insuranceCost + assetDeprCost + generalVarsCost;
       const overhead = Math.round(directCost * 0.10);
       const totalCost = directCost + overhead;
       const targetMargin = Number(emp.targetMarginPct || emp.requiredMarginPct || 25);
@@ -866,11 +1146,19 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       let empRev = 0;
       const empProjects: any[] = [];
       for (const a of myAsgs) {
+        // Section 6 & 8: Check project price override priority
+        const override = servicePrices.find((sp: any) => sp.employeeId === emp.id && sp.projectId === a.projectId);
+        let rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+        let basis = a.billingBasis || a.allocationBasis || 'DAILY';
+        if (override) {
+          rate = Number(override.price || rate);
+          basis = override.pricingBasis || basis;
+        }
+
         let asgRev = 0;
-        const rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
-        if (a.allocationBasis === 'DAYS') {
+        if (basis === 'DAYS' || a.allocationBasis === 'DAYS') {
           asgRev = (Number(a.allocatedDays) || 22) * rate;
-        } else if (a.allocationBasis === 'HOURLY') {
+        } else if (basis === 'HOURLY' || a.allocationBasis === 'HOURLY') {
           asgRev = (Number(a.allocatedHours) || 160) * rate;
         } else {
           const pct = Number(a.allocationPct != null ? a.allocationPct : 100);
@@ -926,6 +1214,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         unutilizedCostBase: unutilizedCost,
         isOverAllocated: totalAllocPct > 100,
         overAllocatedPct: Number(overAllocatedPct.toFixed(1)),
+        assetDepreciationBase: assetDeprCost,
+        variablesCostBase: generalVarsCost,
         projects: empProjects,
         status: empMarginPct >= targetMargin ? 'TOP_PERFORMER' : empProfit >= 0 ? 'PROFITABLE' : 'LOSS_MAKER',
       });
@@ -940,7 +1230,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       averageMarginPct: sumEmpRev > 0 ? String(((sumEmpProfit / sumEmpRev) * 100).toFixed(1)) : '0.00',
     };
 
-    // 2. Project calculations (Level 2)
+    // 2. Project calculations (Level 2 per Business Process)
     const projectList: any[] = [];
     for (const p of prjs) {
       const pAsgs = assignments.filter((a: any) => a.projectId === p.id || a.projectId === p.code || a.projectCode === p.code);
@@ -950,11 +1240,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
       for (const a of pAsgs) {
         const emp = emps.find((e: any) => e.id === a.employeeId || e.code === a.employeeId || e.code === a.employeeCode);
-        const rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+        const override = servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeId === emp?.id) && (sp.projectId === p.id || sp.projectId === p.code));
+        let rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+        let basis = a.billingBasis || a.allocationBasis || 'DAILY';
+        if (override) {
+          rate = Number(override.price || rate);
+          basis = override.pricingBasis || basis;
+        }
+
         let asgRev = 0;
-        if (a.allocationBasis === 'DAYS') {
+        if (basis === 'DAYS' || a.allocationBasis === 'DAYS') {
           asgRev = (Number(a.allocatedDays) || 22) * rate;
-        } else if (a.allocationBasis === 'HOURLY') {
+        } else if (basis === 'HOURLY' || a.allocationBasis === 'HOURLY') {
           asgRev = (Number(a.allocatedHours) || 160) * rate;
         } else {
           const pct = Number(a.allocationPct != null ? a.allocationPct : 100);
@@ -987,6 +1284,16 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         });
       }
 
+      // Section 14 & 15: Add project-linked approved variables to project cost
+      const pVars = monthlyVars.filter((v: any) => (v.projectId === p.id || v.projectId === p.code) && v.status === 'APPROVED');
+      const pVarsCost = pVars.reduce((sum: number, v: any) => sum + Number(v.computedAmount || 0), 0);
+      pDirect += pVarsCost;
+
+      // Section 18: Add retroactive adjustments registered for this project
+      const pRetros = retroAdjs.filter((r: any) => r.projectId === p.id || r.projectId === p.code);
+      const pRetroRev = pRetros.reduce((sum: number, r: any) => sum + Number(r.grossRevenueBase || 0), 0);
+      pRev += pRetroRev;
+
       const pOverhead = Math.round(pDirect * 0.10);
       const pTotal = pDirect + pOverhead;
       const pProfit = pRev - pTotal;
@@ -1007,8 +1314,9 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         currencyCode: p.currencyCode || 'SAR',
         revenueBase: pRev,
         directCostBase: pDirect,
-        employeeCostBase: pDirect,
-        projectVariablesBase: 0,
+        employeeCostBase: pDirect - pVarsCost,
+        projectVariablesBase: pVarsCost,
+        retroactiveRevenueBase: pRetroRev,
         overheadBase: pOverhead,
         overheadCostBase: pOverhead,
         totalCostBase: pTotal,
@@ -1020,10 +1328,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         teamCount: teamMembers.length,
         teamMembers,
         profitabilityStatus: pMargin >= reqMargin ? 'PROFITABLE' : pProfit > 0 ? 'MARGINAL' : 'LOSS',
+        meetsTarget: pMargin >= reqMargin,
       });
     }
 
-    // 3. Client calculations (Level 3)
+    // 3. Client calculations (Level 3 per Business Process)
     const clientList: any[] = [];
     for (const c of clients) {
       const cProjects = projectList.filter((p) => p.clientId === c.id || p.clientName === c.nameAr);
@@ -1353,7 +1662,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/fiscal-periods')) {
     const defaultFp = [
-      { id: 'fp-2026-10', name: 'أكتوبر 2026', startDate: '2026-10-01', endDate: '2026-10-31', status: 'OPEN', isAdjustmentPeriod: false },
+      { id: 'fp-2026-01', name: 'يناير 2026', startDate: '2026-01-01', endDate: '2026-01-31', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-02', name: 'فبراير 2026', startDate: '2026-02-01', endDate: '2026-02-28', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-03', name: 'مارس 2026', startDate: '2026-03-01', endDate: '2026-03-31', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-04', name: 'أبريل 2026', startDate: '2026-04-01', endDate: '2026-04-30', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-05', name: 'مايو 2026', startDate: '2026-05-01', endDate: '2026-05-31', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-06', name: 'يونيو 2026', startDate: '2026-06-01', endDate: '2026-06-30', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-07', name: 'يوليو 2026', startDate: '2026-07-01', endDate: '2026-07-31', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-08', name: 'أغسطس 2026', startDate: '2026-08-01', endDate: '2026-08-31', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-09', name: 'سبتمبر 2026', startDate: '2026-09-01', endDate: '2026-09-30', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-10', name: 'أكتوبر 2026', startDate: '2026-10-01', endDate: '2026-10-31', status: 'CLOSED', isAdjustmentPeriod: false },
+      { id: 'fp-2026-11', name: 'نوفمبر 2026', startDate: '2026-11-01', endDate: '2026-11-30', status: 'OPEN', isAdjustmentPeriod: false },
+      { id: 'fp-2026-12', name: 'ديسمبر 2026', startDate: '2026-12-01', endDate: '2026-12-31', status: 'OPEN', isAdjustmentPeriod: false },
     ];
     return makeList(getEntityList('fiscal_periods', defaultFp));
   }
@@ -1819,7 +2139,48 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/revenue-runs')) {
     if (path.includes('/preview')) {
-      return { lines: [] };
+      const asgs = getEntityList('assignments', []);
+      let totalRev = 0;
+      const lines = asgs.map((a: any, idx: number) => {
+        const rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+        const workingDays = Number(a.workingDaysInMonth || 22);
+        let units = Number(a.allocatedDays || workingDays);
+        let rev = 0;
+        if (a.allocationBasis === 'DAYS') {
+          units = Number(a.allocatedDays || workingDays);
+          rev = units * rate;
+        } else if (a.allocationBasis === 'HOURLY') {
+          units = Number(a.allocatedHours || 160);
+          rev = units * rate;
+        } else {
+          units = Number(a.allocationPct || 100);
+          rev = rate * (units / 100);
+        }
+        totalRev += rev;
+        return {
+          id: `rev-line-${idx + 1}`,
+          employeeId: a.employeeId,
+          employeeName: a.employeeName,
+          projectId: a.projectId,
+          projectName: a.projectName,
+          clientName: a.clientName || 'العميل',
+          pricingBasis: a.billingBasis || a.allocationBasis || 'DAILY',
+          units,
+          unitPrice: rate,
+          allocationPct: a.allocationPct || 100,
+          grossRevenueBase: rev,
+        };
+      });
+      const uniqueEmps = new Set(lines.map((l) => l.employeeId)).size;
+      const uniquePrjs = new Set(lines.map((l) => l.projectId)).size;
+      return {
+        lineCount: lines.length,
+        projectCount: uniquePrjs,
+        employeeCount: uniqueEmps,
+        totalRevenueBase: totalRev,
+        lines,
+        existingRunId: null,
+      };
     }
     return makeList(getEntityList('revenue_runs', []));
   }

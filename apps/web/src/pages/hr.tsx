@@ -178,6 +178,10 @@ export function EmployeesPage() {
         body.insuranceCurrency = v.insuranceCurrency || v.salaryCurrency || 'SAR';
       }
       body.costProfileId = v.costProfileId ?? null;
+      if (v.defaultBillingRate) body.defaultBillingRate = String(v.defaultBillingRate);
+      if (v.defaultBillingBasis) body.defaultBillingBasis = v.defaultBillingBasis;
+      if (v.fullNameAr) body.fullNameAr = v.fullNameAr;
+      if (v.fullNameEn) body.fullNameEn = v.fullNameEn;
       if (v.initialProjectId) {
         body.initialProjectId = v.initialProjectId;
         body.initialAllocationPct = v.initialAllocationPct || '100';

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date, downloadCsv, money, today } from '../lib/format';
+import { getStoredCompany } from '../lib/storage-company';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
 export interface CustodyTransfer {
@@ -1994,7 +1995,7 @@ function PrintCustodyModal({ custodyId, onClose }: { custodyId: string; onClose:
         {/* Header */}
         <div className="flex items-center justify-between border-b-2 border-slate-900 pb-4">
           <div>
-            <h2 className="text-xl font-black text-slate-900">شركة عزم للاتصالات وتقنية المعلومات</h2>
+            <h2 className="text-xl font-black text-slate-900">{getStoredCompany().nameAr}</h2>
             <div className="text-xs text-slate-600 mt-1">
               الإدارة المالية والمحاسبية — نظام إدارة العهد النقدية ومصروفات الفروع
             </div>
