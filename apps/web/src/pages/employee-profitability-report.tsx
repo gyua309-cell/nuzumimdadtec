@@ -1,419 +1,593 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Award, BarChart3, Calculator, Download, Printer, RefreshCw, Search, TrendingUp
+  Award, BarChart3, Calculator, Download,
+  Printer, RefreshCw, Search, TrendingUp, Users, Briefcase, Building2
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
-import { Badge, EmptyState, ErrorState, Loading, PageHeader, useToast } from '../components/ui';
-
-export interface EmployeeProfitabilityRow {
-  employeeId: string;
-  code: string;
-  nameAr: string;
-  jobTitle: string;
-  departmentName: string;
-  monthlySalaryCost: number;
-  overheadAllocation: number;
-  totalLoadedCost: number;
-  billedRevenue: number;
-  netProfit: number;
-  profitMarginPct: number;
-  targetMarginPct: number;
-  unutilizedCost: number;
-  status: 'TOP_PERFORMER' | 'PROFITABLE' | 'LOSS_MAKER';
-  activeProjectsCount: number;
-}
+import { Badge, Loading, PageHeader, useToast } from '../components/ui';
 
 export function EmployeeProfitabilityReportPage() {
   const toast = useToast();
-  const departmentFilter = 'ALL';
-  const [profitabilityFilter, setProfitabilityFilter] = useState<'ALL' | 'TOP_PERFORMER' | 'PROFITABLE' | 'LOSS_MAKER'>('ALL');
+  const [activeTab, setActiveTab] = useState<'employees' | 'projects' | 'clients'>('employees');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'TOP_PERFORMER' | 'PROFITABLE' | 'LOSS_MAKER'>('ALL');
   const [search, setSearch] = useState('');
 
-  // Queries
-  const { data: employees = [], isLoading: isEmpsLoading, error: empsError, refetch } = useQuery({
-    queryKey: ['profitability-employees'],
-    queryFn: () => api.get<any[]>('/employees', { pageSize: '100' }).then((r: any) => Array.isArray(r) ? r : (r?.data || [])).catch(() => []),
+  // 1. Employees Profitability Query (Level 1)
+  const empQ = useQuery({
+    queryKey: ['/profitability/employees'],
+    queryFn: () => api.get<any>('/profitability/employees').then((r: any) => r?.data || r || {}),
   });
 
-  const { data: assignments = [] } = useQuery({
-    queryKey: ['profitability-assignments'],
-    queryFn: () => api.get<any[]>('/assignments', { pageSize: '200' }).then((r: any) => Array.isArray(r) ? r : (r?.data || [])).catch(() => []),
+  // 2. Projects Profitability Query (Level 2)
+  const prjQ = useQuery({
+    queryKey: ['/profitability/projects'],
+    queryFn: () => api.get<any[]>('/profitability/projects').then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
   });
 
-  const { data: departments = [] } = useQuery({
-    queryKey: ['profitability-departments'],
-    queryFn: () => api.get<any[]>('/departments').then((r: any) => Array.isArray(r) ? r : (r?.data || [])).catch(() => []),
+  // 3. Clients Profitability Query (Level 3)
+  const cliQ = useQuery({
+    queryKey: ['/profitability/clients'],
+    queryFn: () => api.get<any[]>('/profitability/clients').then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
   });
 
-  // Calculate profitability per employee
-  const profitabilityRows = useMemo<EmployeeProfitabilityRow[]>(() => {
-    const deptMap = new Map<string, any>(departments.map((d: any) => [d.id, d]));
+  const isLoading = empQ.isLoading || prjQ.isLoading || cliQ.isLoading;
 
-    return employees.map((emp: any, idx: number) => {
-      const empAssignments = assignments.filter((a: any) => a.employee_id === emp.id || a.employeeId === emp.id);
-      let totalAllocatedPct = 0;
-      for (const a of empAssignments) {
-        totalAllocatedPct += parseFloat(a.allocation_pct || a.allocationPct || '0');
-      }
+  const employees: any[] = Array.isArray(empQ.data?.employees) ? empQ.data.employees : (Array.isArray(empQ.data?.data) ? empQ.data.data : (Array.isArray(empQ.data) ? empQ.data : []));
+  const empSummary = empQ.data?.summary || {
+    totalRevenueBase: '0.00',
+    totalCostBase: '0.00',
+    totalUnutilizedCostBase: '0.00',
+    totalProfitBase: '0.00',
+    averageMarginPct: '0.00',
+    employeeCount: employees.length,
+  };
 
-      // Cost and billing structures derived strictly from employee profile
-      const baseSalary = Number(emp.basic_salary || emp.base_salary || 0);
-      const overheadAllocation = baseSalary > 0 ? Math.round(baseSalary * 0.18) : 0; // 18% general & admin overhead
-      const totalLoadedCost = baseSalary + overheadAllocation;
+  const projects: any[] = Array.isArray(prjQ.data) ? prjQ.data : (prjQ.data?.data || []);
+  const clients: any[] = Array.isArray(cliQ.data) ? cliQ.data : (cliQ.data?.data || []);
 
-      // Billed revenue from active project assignments
-      const activeProjectsCount = empAssignments.length;
-      let billedRevenue = 0;
-      if (totalAllocatedPct > 0 && totalLoadedCost > 0) {
-        billedRevenue = Math.round(totalLoadedCost * (totalAllocatedPct / 100) * 1.5);
-      }
-
-      const freePct = Math.max(0, 100 - totalAllocatedPct);
-      const unutilizedCost = Math.round((freePct / 100) * baseSalary);
-
-      const netProfit = billedRevenue - totalLoadedCost;
-      const profitMarginPct = billedRevenue > 0 ? Math.round((netProfit / billedRevenue) * 100) : 0;
-      const targetMarginPct = 35; // 35% target margin
-
-      let status: 'TOP_PERFORMER' | 'PROFITABLE' | 'LOSS_MAKER' = 'PROFITABLE';
-      if (profitMarginPct >= targetMarginPct) status = 'TOP_PERFORMER';
-      else if (netProfit < 0) status = 'LOSS_MAKER';
-
-      const dept = deptMap.get(emp.department_id || emp.departmentId);
-
-      return {
-        employeeId: emp.id,
-        code: emp.code || `EMP-${idx + 101}`,
-        nameAr: emp.full_name_ar || emp.fullNameAr || 'الموظف',
-        jobTitle: emp.position_name_ar || emp.job_title || 'مطور برمجيات',
-        departmentName: dept?.name_ar || 'تقنية المعلومات والبرمجة',
-        monthlySalaryCost: baseSalary,
-        overheadAllocation,
-        totalLoadedCost,
-        billedRevenue,
-        netProfit,
-        profitMarginPct,
-        targetMarginPct,
-        unutilizedCost,
-        status,
-        activeProjectsCount,
-      };
-    });
-  }, [employees, assignments, departments]);
-
-  // Filtered rows
-  const filteredRows = useMemo(() => {
-    return profitabilityRows.filter((r) => {
-      if (profitabilityFilter !== 'ALL' && r.status !== profitabilityFilter) return false;
-      if (departmentFilter !== 'ALL' && r.departmentName !== departmentFilter) return false;
+  // Filtered employees
+  const filteredEmployees = useMemo(() => {
+    return employees.filter((e) => {
+      if (statusFilter !== 'ALL' && e.status !== statusFilter) return false;
       if (search) {
         const q = search.trim().toLowerCase();
-        if (!r.nameAr.toLowerCase().includes(q) && !r.code.toLowerCase().includes(q) && !r.jobTitle.toLowerCase().includes(q)) {
-          return false;
-        }
+        const name = (e.employeeName || e.nameAr || '').toLowerCase();
+        const code = (e.employeeCode || e.code || '').toLowerCase();
+        const pos = (e.positionTitle || '').toLowerCase();
+        if (!name.includes(q) && !code.includes(q) && !pos.includes(q)) return false;
       }
       return true;
     });
-  }, [profitabilityRows, profitabilityFilter, departmentFilter, search]);
+  }, [employees, statusFilter, search]);
 
-  // Aggregate summary
-  const summary = useMemo(() => {
-    let totalCost = 0;
-    let totalRevenue = 0;
-    let totalProfit = 0;
-    let topCount = 0;
-    let lossCount = 0;
-    let totalUnutilizedCost = 0;
+  // Filtered projects
+  const filteredProjects = useMemo(() => {
+    return projects.filter((p) => {
+      if (search) {
+        const q = search.trim().toLowerCase();
+        const name = (p.projectName || p.nameAr || '').toLowerCase();
+        const code = (p.projectCode || p.code || '').toLowerCase();
+        const client = (p.clientName || '').toLowerCase();
+        if (!name.includes(q) && !code.includes(q) && !client.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [projects, search]);
 
-    for (const r of profitabilityRows) {
-      totalCost += r.totalLoadedCost;
-      totalRevenue += r.billedRevenue;
-      totalProfit += r.netProfit;
-      totalUnutilizedCost += r.unutilizedCost;
-      if (r.status === 'TOP_PERFORMER') topCount++;
-      else if (r.status === 'LOSS_MAKER') lossCount++;
-    }
-
-    const overallMargin = totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
-
-    return {
-      totalCost,
-      totalRevenue,
-      totalProfit,
-      overallMargin,
-      topCount,
-      lossCount,
-      totalStaff: profitabilityRows.length,
-      totalUnutilizedCost,
-    };
-  }, [profitabilityRows]);
+  // Filtered clients
+  const filteredClients = useMemo(() => {
+    return clients.filter((c) => {
+      if (search) {
+        const q = search.trim().toLowerCase();
+        const name = (c.clientName || c.nameAr || '').toLowerCase();
+        const code = (c.clientCode || c.code || '').toLowerCase();
+        if (!name.includes(q) && !code.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [clients, search]);
 
   const handleExportCsv = () => {
-    const rows = [
-      ['تقرير ربحية الموظفين والكوادر ومقارنة التكلفة بالإيراد (Employee Profitability)'],
-      ['التاريخ:', today()],
-      [],
-      ['كود الموظف', 'اسم الموظف', 'المسمى الوظيفي', 'القسم', 'تكلفة الراتب المباشرة', 'الأوفر هيد المحمل', 'إجمالي التكلفة', 'الإيراد المفوتر', 'صافي ربح الموظف', 'هامش الربحية (%)', 'الحالة', 'تكلفة التفرغ الضائعة'],
-      ...filteredRows.map((r) => [
-        r.code,
-        r.nameAr,
-        r.jobTitle,
-        r.departmentName,
-        r.monthlySalaryCost,
-        r.overheadAllocation,
-        r.totalLoadedCost,
-        r.billedRevenue,
-        r.netProfit,
-        `${r.profitMarginPct}%`,
-        r.status === 'TOP_PERFORMER' ? 'محقق للمستهدف (ممتاز)' : r.status === 'PROFITABLE' ? 'رابح' : 'خاسر لا يغطي تكلفته',
-        r.unutilizedCost,
-      ]),
-      [],
-      ['الإجمالي العام', '—', '—', '—', '—', '—', summary.totalCost, summary.totalRevenue, summary.totalProfit, `${summary.overallMargin}%`, '—', summary.totalUnutilizedCost],
-    ];
-    downloadCsv(`employee_profitability_report_${today()}.csv`, rows);
-    toast.success('تم تصدير تقرير ربحية الموظفين كملف CSV');
+    if (activeTab === 'employees') {
+      const rows = [
+        ['تقرير مصفوفة ربحية الكوادر البشرية والوقت غير المستغل (Business Process L1)'],
+        ['تاريخ الاستخراج:', today()],
+        [],
+        ['كود الموظف', 'اسم الموظف', 'القسم', 'المسمى الوظيفي', 'التخصيص%', 'غير المستغل%', 'تكلفة التفرغ (Bench)', 'التكلفة المباشرة', 'المصروفات الإدارية 10%', 'إجمالي التكلفة', 'الإيراد المفوتر', 'صافي الربح', 'هامش الربح%', 'المستهدف%', 'الحالة'],
+        ...filteredEmployees.map((e) => [
+          e.employeeCode || e.code,
+          e.employeeName || e.nameAr,
+          e.departmentName || '',
+          e.positionTitle || '',
+          `${e.allocatedPct}%`,
+          `${e.unutilizedPct}%`,
+          e.unutilizedCostBase,
+          e.directCostBase,
+          e.overheadBase || e.overheadCostBase,
+          e.totalCostBase,
+          e.revenueBase,
+          e.grossProfitBase,
+          `${e.grossMarginPct}%`,
+          `${e.targetMarginPct}%`,
+          e.status === 'TOP_PERFORMER' ? 'ممتاز (فوق المستهدف)' : e.status === 'PROFITABLE' ? 'رابح' : 'خاسر',
+        ]),
+      ];
+      downloadCsv(`Employee_Profitability_${today()}.csv`, rows);
+      toast.success('تم تصدير تقرير ربحية الكوادر بنجاح');
+    } else if (activeTab === 'projects') {
+      const rows = [
+        ['تقرير ربحية المشاريع التعاقدية (Business Process L2)'],
+        ['تاريخ الاستخراج:', today()],
+        [],
+        ['كود المشروع', 'اسم المشروع', 'العميل', 'عدد الكوادر', 'إيرادات المشروع', 'تكلفة الكوادر المحملة', 'المصروفات الإدارية', 'إجمالي التكلفة', 'صافي الربح', 'هامش الربح%', 'المستهدف%', 'الحالة'],
+        ...filteredProjects.map((p) => [
+          p.projectCode || p.code,
+          p.projectName || p.nameAr,
+          p.clientName || '',
+          p.teamCount,
+          p.revenueBase,
+          p.directCostBase || p.employeeCostBase,
+          p.overheadBase || p.overheadCostBase,
+          p.totalCostBase,
+          p.grossProfitBase,
+          `${p.grossMarginPct}%`,
+          `${p.requiredMarginPct || p.targetMarginPct}%`,
+          p.profitabilityStatus || p.status,
+        ]),
+      ];
+      downloadCsv(`Project_Profitability_${today()}.csv`, rows);
+      toast.success('تم تصدير تقرير ربحية المشاريع بنجاح');
+    } else {
+      const rows = [
+        ['تقرير ربحية حسابات العملاء (Business Process L3)'],
+        ['تاريخ الاستخراج:', today()],
+        [],
+        ['كود العميل', 'اسم العميل', 'عدد المشاريع', 'إجمالي الإيرادات', 'التكلفة المباشرة', 'المصروفات الإدارية', 'إجمالي التكلفة', 'صافي الربح', 'هامش الربح%'],
+        ...filteredClients.map((c) => [
+          c.clientCode || c.code,
+          c.clientName || c.nameAr,
+          c.projectCount || c.projectsCount,
+          c.revenueBase,
+          c.directCostBase,
+          c.overheadBase,
+          c.totalCostBase,
+          c.grossProfitBase,
+          `${c.grossMarginPct}%`,
+        ]),
+      ];
+      downloadCsv(`Client_Profitability_${today()}.csv`, rows);
+      toast.success('تم تصدير تقرير ربحية العملاء بنجاح');
+    }
+  };
+
+  const refetchAll = () => {
+    empQ.refetch();
+    prjQ.refetch();
+    cliQ.refetch();
   };
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="تقرير ربحية الموظفين والكوادر ومقارنة التكلفة بالإيراد (Employee Profitability)"
-        subtitle="تحليل اقتصادي شامل لمساهمة كل مطور وكادر في أرباح الشركة: مقارنة تكلفة الراتب والأوفر هيد بالإيرادات المفوترة للعملاء ونسب الهامش وتكلفة التفرغ"
+        title="مصفوفة الربحية ثلاثية المستويات (Profitability Intelligence Hub)"
+        subtitle="تحليل اقتصادي متكامل يربط (العميل ← المشروع ← الموظف ← التخصيص ← الإيراد والتكلفة ← الربحية الفعلية) وفق وثيقة Business Process."
         actions={
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => refetch()}
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
-            >
-              <RefreshCw className="size-3.5" />
-              تحديث
+            <button onClick={refetchAll} className="btn-secondary text-xs flex items-center gap-1.5">
+              <RefreshCw className="size-3.5" /> تحديث
             </button>
-            <button
-              onClick={handleExportCsv}
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
-            >
-              <Download className="size-3.5" />
-              تصدير CSV
+            <button onClick={handleExportCsv} className="btn-secondary text-xs flex items-center gap-1.5">
+              <Download className="size-3.5" /> تصدير CSV
             </button>
-            <button
-              onClick={() => window.print()}
-              className="btn btn-primary text-xs flex items-center gap-1.5"
-            >
-              <Printer className="size-3.5" />
-              طباعة التقرير
+            <button onClick={() => window.print()} className="btn-primary text-xs flex items-center gap-1.5">
+              <Printer className="size-3.5" /> طباعة التقرير
             </button>
           </div>
         }
       />
 
-      {/* KPI Cards Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Billed Revenue */}
-        <div className="card p-5 bg-white border border-slate-200 shadow-sm rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">إجمالي إيرادات أعمال الكوادر</span>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-              <BarChart3 className="size-5" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 tracking-tight font-mono">
-              {money(summary.totalRevenue)} EGP
-            </div>
-            <div className="text-xs text-blue-700 font-semibold mt-1">مفوترة لعقود ومشاريع العملاء</div>
-          </div>
+      {/* Tabs Switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setActiveTab('employees')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition flex items-center gap-2 ${
+              activeTab === 'employees' ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Users className="size-4" />
+            المستوى 1: ربحية الكوادر البشرية ({employees.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('projects')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition flex items-center gap-2 ${
+              activeTab === 'projects' ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Briefcase className="size-4" />
+            المستوى 2: ربحية المشاريع التعاقدية ({projects.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('clients')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition flex items-center gap-2 ${
+              activeTab === 'clients' ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Building2 className="size-4" />
+            المستوى 3: ربحية حسابات العملاء ({clients.length})
+          </button>
         </div>
 
-        {/* Total Loaded Staff Cost */}
-        <div className="card p-5 bg-white border border-slate-200 shadow-sm rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">إجمالي التكلفة المحملة (Loaded Cost)</span>
-            <span className="p-2 bg-slate-100 text-slate-700 rounded-lg">
-              <Calculator className="size-5" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 tracking-tight font-mono">
-              {money(summary.totalCost)} EGP
-            </div>
-            <div className="text-xs text-slate-500 mt-1">رواتب مباشرة + أوفر هيد إداري 18%</div>
-          </div>
-        </div>
-
-        {/* Total Net Profit */}
-        <div className="card p-5 bg-white border border-slate-200 shadow-sm rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">صافي ربح مساهمة الكوادر</span>
-            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
-              <TrendingUp className="size-5" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-emerald-700 tracking-tight font-mono">
-              +{money(summary.totalProfit)} EGP
-            </div>
-            <div className="text-xs text-emerald-800 font-semibold mt-1">
-              متوسط هامش الربحية: <strong>{summary.overallMargin}%</strong>
-            </div>
-          </div>
-        </div>
-
-        {/* Top Performers vs Loss Makers */}
-        <div className="card p-5 bg-white border border-slate-200 shadow-sm rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">توزيع أداء الموظفين</span>
-            <span className="p-2 bg-purple-50 text-purple-600 rounded-lg">
-              <Award className="size-5" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-purple-900 tracking-tight font-mono">
-              {summary.topCount} <span className="text-xs font-normal text-slate-500">محقق للمستهدف</span>
-            </div>
-            <div className="text-xs text-rose-600 font-bold mt-1">
-              {summary.lossCount > 0 ? `${summary.lossCount} موظف لا يغطي تكلفته (Bench أو غير مسند)` : 'كافة الموظفين يغطون تكلفتهم'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter Strip */}
-      <div className="card p-4 bg-white border border-slate-200 shadow-sm rounded-xl flex flex-wrap items-center justify-between gap-4">
-        {/* Search */}
-        <div className="flex-1 max-w-xs">
-          <div className="relative">
+        <div className="flex items-center gap-2">
+          <div className="relative w-64">
+            <Search className="absolute start-3 top-2.5 size-3.5 text-slate-400" />
             <input
               type="text"
-              placeholder="ابحث باسم الموظف أو الكود…"
+              placeholder="بحث بالرمز أو الاسم..."
+              className="input ps-8.5 h-8 text-xs w-full"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="input text-xs w-full ps-8 py-1.5"
             />
-            <Search className="size-3.5 text-slate-400 absolute start-2.5 top-1/2 -translate-y-1/2" />
           </div>
-        </div>
-
-        {/* Profitability Tabs */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-semibold text-slate-500 me-1">تصنيف الربحية:</span>
-          {[
-            { id: 'ALL', label: `كافة الكوادر (${profitabilityRows.length})` },
-            { id: 'TOP_PERFORMER', label: `محقق للهدف (${summary.topCount})` },
-            { id: 'PROFITABLE', label: 'رابح' },
-            { id: 'LOSS_MAKER', label: `خاسر (${summary.lossCount})` },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setProfitabilityFilter(tab.id as any)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                profitabilityFilter === tab.id
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+          {activeTab === 'employees' && (
+            <select
+              className="input h-8 text-xs w-44"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
             >
-              {tab.label}
-            </button>
-          ))}
+              <option value="ALL">كل حالات الربحية</option>
+              <option value="TOP_PERFORMER">فوق المستهدف (Top)</option>
+              <option value="PROFITABLE">رابح (Profitable)</option>
+              <option value="LOSS_MAKER">خاسر لا يغطي تكلفته</option>
+            </select>
+          )}
         </div>
       </div>
 
-      {/* Main Table */}
-      {isEmpsLoading ? (
-        <div className="p-12 text-center"><Loading /></div>
-      ) : empsError ? (
-        <div className="p-8"><ErrorState error={empsError} /></div>
-      ) : filteredRows.length === 0 ? (
-        <div className="p-12 text-center card bg-white border border-slate-200 shadow-sm rounded-xl">
-          <EmptyState text="لا يوجد موظفون مطابقون لشروط التصفية والبحث المحددة." />
-        </div>
+      {isLoading ? (
+        <Loading />
       ) : (
-        <div className="card bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden p-6">
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="table w-full text-right text-xs">
-              <thead className="bg-slate-50/80 border-b border-slate-200 font-bold text-slate-700">
-                <tr>
-                  <th className="py-3 px-4">كود</th>
-                  <th className="py-3 px-4">الموظف / المطور</th>
-                  <th className="py-3 px-4">القسم</th>
-                  <th className="py-3 px-4 text-center">المشاريع</th>
-                  <th className="py-3 px-4 text-center">الراتب المباشر</th>
-                  <th className="py-3 px-4 text-center">أوفر هيد (18%)</th>
-                  <th className="py-3 px-4 text-center font-bold">إجمالي التكلفة</th>
-                  <th className="py-3 px-4 text-center font-bold text-blue-900 bg-blue-50/30">الإيراد المفوتر</th>
-                  <th className="py-3 px-4 text-center font-bold">صافي مساهمة الموظف</th>
-                  <th className="py-3 px-4 text-center font-black">هامش الربح (%)</th>
-                  <th className="py-3 px-4 text-center">الحالة</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredRows.map((r) => {
-                  const isPositive = r.netProfit > 0;
-                  return (
-                    <tr key={r.employeeId} className="hover:bg-slate-50/60">
-                      <td className="py-3 px-4 font-mono font-bold text-slate-600">{r.code}</td>
-                      <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900">{r.nameAr}</div>
-                        <div className="text-[11px] text-slate-500 font-medium">{r.jobTitle}</div>
-                      </td>
-                      <td className="py-3 px-4 text-slate-600">{r.departmentName}</td>
-                      <td className="py-3 px-4 text-center font-mono font-bold">{r.activeProjectsCount}</td>
-                      <td className="py-3 px-4 text-center font-mono">{money(r.monthlySalaryCost)}</td>
-                      <td className="py-3 px-4 text-center font-mono text-slate-500">{money(r.overheadAllocation)}</td>
-                      <td className="py-3 px-4 text-center font-mono font-bold text-slate-900">{money(r.totalLoadedCost)}</td>
-                      <td className="py-3 px-4 text-center font-mono font-black text-blue-900 bg-blue-50/20 text-sm">
-                        {money(r.billedRevenue)}
-                      </td>
-                      <td className={`py-3 px-4 text-center font-mono font-black text-sm ${isPositive ? 'text-emerald-700' : 'text-rose-600'}`}>
-                        {isPositive ? `+${money(r.netProfit)}` : money(r.netProfit)}
-                      </td>
-                      <td className="py-3 px-4 text-center font-mono font-black text-sm">
-                        <span className={`px-2 py-0.5 rounded ${
-                          r.profitMarginPct >= 35
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : r.profitMarginPct > 0
-                            ? 'bg-cyan-100 text-cyan-800'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {r.profitMarginPct}%
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        {r.status === 'TOP_PERFORMER' && <Badge color="green">ممتاز (≥35%)</Badge>}
-                        {r.status === 'PROFITABLE' && <Badge color="cyan">رابح</Badge>}
-                        {r.status === 'LOSS_MAKER' && <Badge color="red">خاسر (لا يغطي)</Badge>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot className="bg-slate-100/90 border-t-2 border-slate-900 font-bold text-xs">
-                <tr>
-                  <td colSpan={6} className="py-3 px-4 text-left font-bold text-slate-900">
-                    الإجمالي العام للتكاليف والإيرادات وهوامش الكوادر:
-                  </td>
-                  <td className="py-3 px-4 text-center font-mono font-black text-slate-950">
-                    {money(summary.totalCost)} EGP
-                  </td>
-                  <td className="py-3 px-4 text-center font-mono font-black text-blue-900">
-                    {money(summary.totalRevenue)} EGP
-                  </td>
-                  <td className="py-3 px-4 text-center font-mono font-black text-emerald-800 text-sm">
-                    +{money(summary.totalProfit)} EGP
-                  </td>
-                  <td className="py-3 px-4 text-center font-mono font-black text-emerald-800 text-sm">
-                    {summary.overallMargin}%
-                  </td>
-                  <td className="py-3 px-4 text-center font-mono text-slate-600">
-                    {summary.topCount} / {summary.totalStaff}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
+        <>
+          {/* TAB 1: EMPLOYEES PROFITABILITY */}
+          {activeTab === 'employees' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="card p-4">
+                  <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
+                    <span>إجمالي إيرادات أعمال الكوادر</span>
+                    <BarChart3 className="size-4 text-emerald-600" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-emerald-600 mt-2">
+                    {money(Number(empSummary.totalRevenueBase))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">مفوترة لعقود ومشاريع العملاء</div>
+                </div>
+
+                <div className="card p-4">
+                  <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
+                    <span>التكلفة الكلية المحملة</span>
+                    <Calculator className="size-4 text-slate-600" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-2">
+                    {money(Number(empSummary.totalCostBase))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">الرواتب المباشرة + 10% Overhead</div>
+                </div>
+
+                <div className="card p-4">
+                  <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
+                    <span>تكلفة الوقت غير المستغل (Bench)</span>
+                    <TrendingUp className="size-4 text-rose-500" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-rose-600 mt-2">
+                    {money(Number(empSummary.totalUnutilizedCostBase))}
+                  </div>
+                  <div className="text-[11px] text-rose-600 font-medium mt-1">تكلفة رواتب كوادر دون تخصيص</div>
+                </div>
+
+                <div className="card p-4">
+                  <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
+                    <span>صافي أرباح الكوادر (الهامش)</span>
+                    <Award className="size-4 text-brand-600" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-brand-600 mt-2">
+                    {money(Number(empSummary.totalProfitBase))}
+                  </div>
+                  <div className="text-[11px] text-brand-600 font-bold mt-1">
+                    متوسط الهامش: {empSummary.averageMarginPct}%
+                  </div>
+                </div>
+              </div>
+
+              <div className="card overflow-hidden">
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                  <h3 className="font-semibold text-sm">سجل ربحية وتخصيص الكوادر الفردية</h3>
+                  <span className="text-xs text-slate-500">
+                    عدد الكوادر المعروضة: <strong className="font-mono text-slate-900 dark:text-white">{filteredEmployees.length}</strong>
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>كود الكادر</th>
+                        <th>اسم الموظف</th>
+                        <th>القسم والمسمى</th>
+                        <th>التخصيص%</th>
+                        <th>غير المستغل%</th>
+                        <th>تكلفة التفرغ</th>
+                        <th>التكلفة المباشرة</th>
+                        <th>الإيراد المولد</th>
+                        <th>صافي الربح</th>
+                        <th>الهامش%</th>
+                        <th>الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredEmployees.length === 0 ? (
+                        <tr>
+                          <td colSpan={11} className="text-center text-slate-500 py-8">
+                            لا توجد بيانات كوادر مسجلة بعد.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredEmployees.map((e) => (
+                          <tr key={e.employeeId || e.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                            <td className="font-mono font-bold text-xs">{e.employeeCode || e.code}</td>
+                            <td>
+                              <Link to={`/hr/employees/${e.employeeId || e.id}`} className="font-bold text-brand-600 hover:underline">
+                                {e.employeeName || e.nameAr}
+                              </Link>
+                            </td>
+                            <td>
+                              <div className="text-xs font-medium">{e.positionTitle || 'مهندس برمجيات'}</div>
+                              <div className="text-[11px] text-slate-400">{e.departmentName}</div>
+                            </td>
+                            <td className="num font-mono">
+                              <span className={e.allocatedPct >= 100 ? 'text-emerald-600 font-bold' : 'text-slate-600'}>
+                                {e.allocatedPct}%
+                              </span>
+                            </td>
+                            <td className="num font-mono">
+                              <span className={e.unutilizedPct > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}>
+                                {e.unutilizedPct}%
+                              </span>
+                            </td>
+                            <td className="num font-mono text-rose-600 font-medium">
+                              {money(e.unutilizedCostBase)}
+                            </td>
+                            <td className="num font-mono">{money(e.directCostBase)}</td>
+                            <td className="num font-mono font-bold text-emerald-600">{money(e.revenueBase)}</td>
+                            <td className={`num font-mono font-bold ${e.grossProfitBase >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {money(e.grossProfitBase)}
+                            </td>
+                            <td className="num font-mono font-bold">
+                              <span className={e.grossMarginPct >= e.targetMarginPct ? 'text-emerald-600' : e.grossProfitBase >= 0 ? 'text-amber-600' : 'text-rose-600'}>
+                                {e.grossMarginPct}%
+                              </span>
+                            </td>
+                            <td>
+                              <Badge color={e.status === 'TOP_PERFORMER' ? 'green' : e.status === 'PROFITABLE' ? 'blue' : 'red'}>
+                                {e.status === 'TOP_PERFORMER' ? 'فوق المستهدف' : e.status === 'PROFITABLE' ? 'رابح' : 'خاسر'}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: PROJECTS PROFITABILITY */}
+          {activeTab === 'projects' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="card p-4">
+                  <div className="text-xs text-slate-500 font-medium">إجمالي إيرادات المشاريع</div>
+                  <div className="text-2xl font-bold font-mono text-emerald-600 mt-2">
+                    {money(projects.reduce((acc, p) => acc + Number(p.revenueBase || 0), 0))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">عقود العملاء المفوترة</div>
+                </div>
+
+                <div className="card p-4">
+                  <div className="text-xs text-slate-500 font-medium">تكاليف الكوادر المحملة</div>
+                  <div className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-2">
+                    {money(projects.reduce((acc, p) => acc + Number(p.directCostBase || p.employeeCostBase || 0), 0))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">حصة المشاريع من رواتب الفريق</div>
+                </div>
+
+                <div className="card p-4">
+                  <div className="text-xs text-slate-500 font-medium">المصروفات الإدارية المحملة (10%)</div>
+                  <div className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-2">
+                    {money(projects.reduce((acc, p) => acc + Number(p.overheadBase || 0), 0))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">أوفر هيد عام للمشاريع</div>
+                </div>
+
+                <div className="card p-4">
+                  <div className="text-xs text-slate-500 font-medium">إجمالي أرباح المشاريع</div>
+                  <div className="text-2xl font-bold font-mono text-brand-600 mt-2">
+                    {money(projects.reduce((acc, p) => acc + Number(p.grossProfitBase || 0), 0))}
+                  </div>
+                  <div className="text-[11px] text-brand-600 font-bold mt-1">صافي الأرباح التعاقدية</div>
+                </div>
+              </div>
+
+              <div className="card overflow-hidden">
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                  <h3 className="font-semibold text-sm">سجل ربحية المشاريع التعاقدية</h3>
+                  <span className="text-xs text-slate-500">
+                    عدد المشاريع: <strong className="font-mono text-slate-900 dark:text-white">{filteredProjects.length}</strong>
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>كود المشروع</th>
+                        <th>اسم المشروع</th>
+                        <th>العميل</th>
+                        <th>فريق العمل</th>
+                        <th>إيراد المشروع</th>
+                        <th>تكلفة الفريق المحملة</th>
+                        <th>الأوفر هيد (10%)</th>
+                        <th>إجمالي التكلفة</th>
+                        <th>صافي الربح</th>
+                        <th>الهامش%</th>
+                        <th>المستهدف%</th>
+                        <th>الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredProjects.length === 0 ? (
+                        <tr>
+                          <td colSpan={12} className="text-center text-slate-500 py-8">
+                            لا توجد مشاريع مسجلة بعد.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredProjects.map((p) => (
+                          <tr key={p.id || p.projectId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                            <td className="font-mono font-bold text-xs">{p.projectCode || p.code}</td>
+                            <td>
+                              <Link to={`/prj/projects/${p.id || p.projectId}`} className="font-bold text-brand-600 hover:underline">
+                                {p.projectName || p.nameAr}
+                              </Link>
+                            </td>
+                            <td><span className="badge-slate text-xs">{p.clientName}</span></td>
+                            <td className="num font-mono">{p.teamCount} كوادر</td>
+                            <td className="num font-mono font-bold text-emerald-600">{money(p.revenueBase)}</td>
+                            <td className="num font-mono">{money(p.directCostBase || p.employeeCostBase)}</td>
+                            <td className="num font-mono text-slate-500">{money(p.overheadBase)}</td>
+                            <td className="num font-mono text-slate-800 dark:text-slate-200">{money(p.totalCostBase)}</td>
+                            <td className={`num font-mono font-bold ${p.grossProfitBase >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {money(p.grossProfitBase)}
+                            </td>
+                            <td className="num font-mono font-bold">
+                              <span className={p.grossMarginPct >= (p.requiredMarginPct || p.targetMarginPct || 25) ? 'text-emerald-600' : 'text-amber-600'}>
+                                {p.grossMarginPct}%
+                              </span>
+                            </td>
+                            <td className="num font-mono text-slate-500">{p.requiredMarginPct || p.targetMarginPct || 25}%</td>
+                            <td>
+                              <Badge color={p.grossMarginPct >= (p.requiredMarginPct || p.targetMarginPct || 25) ? 'green' : p.grossProfitBase > 0 ? 'amber' : 'red'}>
+                                {p.grossMarginPct >= (p.requiredMarginPct || p.targetMarginPct || 25) ? 'محقق للمستهدف' : p.grossProfitBase > 0 ? 'هامشي' : 'خاسر'}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: CLIENTS PROFITABILITY */}
+          {activeTab === 'clients' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="card p-4">
+                  <div className="text-xs text-slate-500 font-medium">إجمالي إيرادات العملاء</div>
+                  <div className="text-2xl font-bold font-mono text-emerald-600 mt-2">
+                    {money(clients.reduce((acc, c) => acc + Number(c.revenueBase || 0), 0))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">مبيعات العقود المباشرة</div>
+                </div>
+
+                <div className="card p-4">
+                  <div className="text-xs text-slate-500 font-medium">إجمالي تكاليف خدمة العملاء</div>
+                  <div className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-2">
+                    {money(clients.reduce((acc, c) => acc + Number(c.totalCostBase || 0), 0))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">رواتب الكوادر + الأوفر هيد</div>
+                </div>
+
+                <div className="card p-4">
+                  <div className="text-xs text-slate-500 font-medium">صافي أرباح حسابات العملاء</div>
+                  <div className="text-2xl font-bold font-mono text-brand-600 mt-2">
+                    {money(clients.reduce((acc, c) => acc + Number(c.grossProfitBase || 0), 0))}
+                  </div>
+                  <div className="text-[11px] text-brand-600 font-bold mt-1">عائد العقود الاستثماري</div>
+                </div>
+
+                <div className="card p-4">
+                  <div className="text-xs text-slate-500 font-medium">إجمالي عملاء الشركة</div>
+                  <div className="text-2xl font-bold font-mono text-slate-900 dark:text-white mt-2">
+                    {clients.length}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">حسابات نشطة ومسجلة</div>
+                </div>
+              </div>
+
+              <div className="card overflow-hidden">
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                  <h3 className="font-semibold text-sm">سجل ربحية حسابات العملاء</h3>
+                  <span className="text-xs text-slate-500">
+                    عدد العملاء: <strong className="font-mono text-slate-900 dark:text-white">{filteredClients.length}</strong>
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>كود العميل</th>
+                        <th>اسم العميل</th>
+                        <th>عدد المشاريع</th>
+                        <th>عدد الكوادر المخصصة</th>
+                        <th>إجمالي الإيرادات</th>
+                        <th>التكلفة المباشرة</th>
+                        <th>المصروفات الإدارية</th>
+                        <th>إجمالي التكلفة</th>
+                        <th>صافي أرباح العميل</th>
+                        <th>هامش الربح%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredClients.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} className="text-center text-slate-500 py-8">
+                            لا توجد بيانات عملاء مسجلة بعد.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredClients.map((c) => (
+                          <tr key={c.id || c.clientId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                            <td className="font-mono font-bold text-xs">{c.clientCode || c.code}</td>
+                            <td className="font-bold text-slate-900 dark:text-white">{c.clientName || c.nameAr}</td>
+                            <td className="num font-mono">{c.projectCount || c.projectsCount || 0} مشاريع</td>
+                            <td className="num font-mono">{c.teamCount || 0} كوادر</td>
+                            <td className="num font-mono font-bold text-emerald-600">{money(c.revenueBase)}</td>
+                            <td className="num font-mono">{money(c.directCostBase)}</td>
+                            <td className="num font-mono text-slate-500">{money(c.overheadBase)}</td>
+                            <td className="num font-mono text-slate-800 dark:text-slate-200">{money(c.totalCostBase)}</td>
+                            <td className={`num font-mono font-bold ${c.grossProfitBase >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {money(c.grossProfitBase)}
+                            </td>
+                            <td className="num font-mono font-bold">
+                              <span className={c.grossMarginPct >= 25 ? 'text-emerald-600' : c.grossProfitBase >= 0 ? 'text-amber-600' : 'text-rose-600'}>
+                                {c.grossMarginPct}%
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

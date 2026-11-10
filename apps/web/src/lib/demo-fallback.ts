@@ -275,6 +275,63 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
     }
 
+    // --- 1.1 Robust Project Sub-routes and Mutations ---
+    if (path.startsWith('/projects/')) {
+      const cleanP = path.split('?')[0].replace(/\/$/, '');
+      const segments = cleanP.split('/').filter(Boolean); // ['projects', id, (subAction)]
+      const prjId = segments[1];
+      const subAction = segments[2];
+      const prjs = getEntityList('projects', []);
+      const prjIndex = prjs.findIndex((p: any) => p.id === prjId || p.code === prjId || p.code?.toLowerCase() === prjId?.toLowerCase());
+      const prj = prjIndex >= 0 ? { ...prjs[prjIndex] } : null;
+
+      if (method === 'DELETE' && !subAction) {
+        if (prjIndex >= 0) {
+          deleteEntityItem('projects', prjs[prjIndex].id);
+          const allAsg = getEntityList('assignments', []);
+          const remainingAsg = allAsg.filter((a: any) => a.projectId !== prjs[prjIndex].id && a.projectId !== prjs[prjIndex].code);
+          if (remainingAsg.length !== allAsg.length) {
+            localStorage.setItem('idham_prod_assignments', JSON.stringify(remainingAsg));
+          }
+        }
+        return { success: true, message: 'تم حذف المشروع بنجاح' };
+      }
+
+      if ((method === 'PATCH' || method === 'PUT') && !subAction) {
+        if (prj) {
+          const updated = {
+            ...prj,
+            ...body,
+            id: prj.id,
+            code: prj.code,
+            nameAr: body.nameAr || prj.nameAr,
+          };
+          saveEntityItem('projects', updated);
+          return updated;
+        }
+      }
+
+      if (subAction === 'status') {
+        if (prj) {
+          const oldStatus = prj.status;
+          prj.status = body.newStatus;
+          if (!Array.isArray(prj.statusHistory)) {
+            prj.statusHistory = [];
+          }
+          prj.statusHistory.unshift({
+            id: `sh-${Date.now()}`,
+            fromStatus: oldStatus,
+            toStatus: body.newStatus,
+            reason: body.reason || 'تحديث حالة المشروع',
+            changedBy: 'المدير التنفيذي',
+            changedAt: new Date().toISOString(),
+          });
+          saveEntityItem('projects', prj);
+          return prj;
+        }
+      }
+    }
+
     // --- 2. Robust Assignment Mutations ---
     if (path.startsWith('/assignments')) {
       if (method === 'DELETE') {
@@ -771,53 +828,296 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(getEntityList('positions', defaultPositions));
   }
 
-  // 3. Profitability Modules (Clean Zero Baseline)
+  // 3. Dynamic 3-Level Profitability Engine (Executive Intelligence & Business Process)
+  function computeDynamicProfitability() {
+    const emps = getEntityList('employees', []);
+    const prjs = getEntityList('projects', []);
+    const clients = getEntityList('clients', defaultClients);
+    const assignments = getEntityList('assignments', []);
+    const depts = getEntityList('departments', defaultDepartments);
+    const deptMap = new Map(depts.map((d: any) => [d.id, d.nameAr]));
+
+    // 1. Employee calculations (Level 1)
+    const empList: any[] = [];
+    let sumEmpRev = 0;
+    let sumEmpCost = 0;
+    let sumEmpProfit = 0;
+    let sumUnutilizedCost = 0;
+
+    for (const emp of emps) {
+      const basicSalary = Number(emp.basicSalary || emp.basic_salary || emp.salary || 0);
+      const insuranceSalary = Number(emp.insuranceSalary || emp.insurance_salary || 0);
+      const directCost = basicSalary + (insuranceSalary > 0 ? insuranceSalary * 0.12 : basicSalary * 0.05);
+      const overhead = Math.round(directCost * 0.10);
+      const totalCost = directCost + overhead;
+      const targetMargin = Number(emp.targetMarginPct || emp.requiredMarginPct || 25);
+
+      const myAsgs = assignments.filter((a: any) => a.employeeId === emp.id || a.employeeId === emp.code || a.employeeCode === emp.code);
+      let totalAllocPct = 0;
+      for (const a of myAsgs) {
+        const pct = Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
+        totalAllocPct += pct;
+      }
+
+      const unutilizedPct = Math.max(0, 100 - totalAllocPct);
+      const unutilizedCost = Math.round(directCost * (unutilizedPct / 100));
+      const overAllocatedPct = Math.max(0, totalAllocPct - 100);
+
+      let empRev = 0;
+      const empProjects: any[] = [];
+      for (const a of myAsgs) {
+        let asgRev = 0;
+        const rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+        if (a.allocationBasis === 'DAYS') {
+          asgRev = (Number(a.allocatedDays) || 22) * rate;
+        } else if (a.allocationBasis === 'HOURLY') {
+          asgRev = (Number(a.allocatedHours) || 160) * rate;
+        } else {
+          const pct = Number(a.allocationPct != null ? a.allocationPct : 100);
+          asgRev = rate * (pct / 100);
+        }
+        empRev += asgRev;
+
+        const normRatio = totalAllocPct > 100 ? (100 / totalAllocPct) : 1;
+        const allocPct = Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
+        const asgLoadedCost = Math.round(directCost * (allocPct / 100) * normRatio);
+
+        empProjects.push({
+          projectId: a.projectId,
+          projectCode: a.projectCode,
+          projectName: a.projectName,
+          allocationPct: allocPct,
+          allocatedDays: a.allocatedDays,
+          billableRate: rate,
+          revenueBase: asgRev,
+          directCostBase: asgLoadedCost,
+        });
+      }
+
+      const empProfit = empRev - totalCost;
+      const empMarginPct = empRev > 0 ? Number(((empProfit / empRev) * 100).toFixed(1)) : 0;
+      const deltaMargin = Number((empMarginPct - targetMargin).toFixed(1));
+
+      sumEmpRev += empRev;
+      sumEmpCost += totalCost;
+      sumEmpProfit += empProfit;
+      sumUnutilizedCost += unutilizedCost;
+
+      empList.push({
+        employeeId: emp.id,
+        employeeCode: emp.code,
+        code: emp.code,
+        employeeName: emp.fullNameAr || emp.full_name_ar || emp.nameAr || 'الموظف',
+        nameAr: emp.fullNameAr || emp.full_name_ar || emp.nameAr || 'الموظف',
+        departmentName: deptMap.get(emp.departmentId || emp.placement?.departmentId) || emp.departmentName || 'تقنية المعلومات',
+        positionTitle: emp.positionTitle || 'مهندس برمجيات',
+        directCostBase: directCost,
+        overheadBase: overhead,
+        overheadCostBase: overhead,
+        totalCostBase: totalCost,
+        revenueBase: empRev,
+        grossProfitBase: empProfit,
+        grossMarginPct: empMarginPct,
+        targetMarginPct: targetMargin,
+        requiredMarginPct: targetMargin,
+        deltaMarginPct: deltaMargin,
+        allocatedPct: Number(totalAllocPct.toFixed(1)),
+        unutilizedPct: Number(unutilizedPct.toFixed(1)),
+        unutilizedCostBase: unutilizedCost,
+        isOverAllocated: totalAllocPct > 100,
+        overAllocatedPct: Number(overAllocatedPct.toFixed(1)),
+        projects: empProjects,
+        status: empMarginPct >= targetMargin ? 'TOP_PERFORMER' : empProfit >= 0 ? 'PROFITABLE' : 'LOSS_MAKER',
+      });
+    }
+
+    const empSummary = {
+      employeeCount: emps.length,
+      totalRevenueBase: String(sumEmpRev.toFixed(2)),
+      totalCostBase: String(sumEmpCost.toFixed(2)),
+      totalUnutilizedCostBase: String(sumUnutilizedCost.toFixed(2)),
+      totalProfitBase: String(sumEmpProfit.toFixed(2)),
+      averageMarginPct: sumEmpRev > 0 ? String(((sumEmpProfit / sumEmpRev) * 100).toFixed(1)) : '0.00',
+    };
+
+    // 2. Project calculations (Level 2)
+    const projectList: any[] = [];
+    for (const p of prjs) {
+      const pAsgs = assignments.filter((a: any) => a.projectId === p.id || a.projectId === p.code || a.projectCode === p.code);
+      let pRev = 0;
+      let pDirect = 0;
+      const teamMembers: any[] = [];
+
+      for (const a of pAsgs) {
+        const emp = emps.find((e: any) => e.id === a.employeeId || e.code === a.employeeId || e.code === a.employeeCode);
+        const rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+        let asgRev = 0;
+        if (a.allocationBasis === 'DAYS') {
+          asgRev = (Number(a.allocatedDays) || 22) * rate;
+        } else if (a.allocationBasis === 'HOURLY') {
+          asgRev = (Number(a.allocatedHours) || 160) * rate;
+        } else {
+          const pct = Number(a.allocationPct != null ? a.allocationPct : 100);
+          asgRev = rate * (pct / 100);
+        }
+        pRev += asgRev;
+
+        const bSal = Number(emp?.basicSalary || emp?.basic_salary || emp?.salary || 0);
+        const iSal = Number(emp?.insuranceSalary || emp?.insurance_salary || 0);
+        const eDirect = bSal + (iSal > 0 ? iSal * 0.12 : bSal * 0.05);
+
+        const empAllAsgs = assignments.filter((x: any) => x.employeeId === a.employeeId || x.employeeCode === a.employeeCode);
+        const eTotalAlloc = empAllAsgs.reduce((acc: number, x: any) => acc + Number(x.allocationPct != null ? x.allocationPct : (x.allocationBasis === 'DAYS' ? ((Number(x.allocatedDays) || 22) / 22) * 100 : 100)), 0);
+        const norm = eTotalAlloc > 100 ? (100 / eTotalAlloc) : 1;
+        const thisAlloc = Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
+        const loadedCost = Math.round(eDirect * (thisAlloc / 100) * norm);
+        pDirect += loadedCost;
+
+        teamMembers.push({
+          employeeId: a.employeeId,
+          employeeCode: a.employeeCode || emp?.code || '',
+          employeeName: a.employeeName || emp?.fullNameAr || 'الموظف',
+          allocationBasis: a.allocationBasis || 'DAYS',
+          allocatedDays: a.allocatedDays || 22,
+          allocationPct: thisAlloc,
+          billableRate: rate,
+          revenue: asgRev,
+          directCost: loadedCost,
+          marginPct: asgRev > 0 ? Number((((asgRev - loadedCost) / asgRev) * 100).toFixed(1)) : 0,
+        });
+      }
+
+      const pOverhead = Math.round(pDirect * 0.10);
+      const pTotal = pDirect + pOverhead;
+      const pProfit = pRev - pTotal;
+      const pMargin = pRev > 0 ? Number(((pProfit / pRev) * 100).toFixed(1)) : 0;
+      const reqMargin = Number(p.requiredMarginPct || 25);
+      const pDelta = Number((pMargin - reqMargin).toFixed(1));
+
+      projectList.push({
+        id: p.id,
+        projectId: p.id,
+        code: p.code,
+        projectCode: p.code,
+        nameAr: p.nameAr,
+        projectName: p.nameAr,
+        clientName: p.clientName || 'العميل',
+        clientId: p.clientId,
+        status: p.status || 'ACTIVE',
+        currencyCode: p.currencyCode || 'SAR',
+        revenueBase: pRev,
+        directCostBase: pDirect,
+        employeeCostBase: pDirect,
+        projectVariablesBase: 0,
+        overheadBase: pOverhead,
+        overheadCostBase: pOverhead,
+        totalCostBase: pTotal,
+        grossProfitBase: pProfit,
+        grossMarginPct: pMargin,
+        requiredMarginPct: reqMargin,
+        targetMarginPct: reqMargin,
+        deltaMarginPct: pDelta,
+        teamCount: teamMembers.length,
+        teamMembers,
+        profitabilityStatus: pMargin >= reqMargin ? 'PROFITABLE' : pProfit > 0 ? 'MARGINAL' : 'LOSS',
+      });
+    }
+
+    // 3. Client calculations (Level 3)
+    const clientList: any[] = [];
+    for (const c of clients) {
+      const cProjects = projectList.filter((p) => p.clientId === c.id || p.clientName === c.nameAr);
+      const cRev = cProjects.reduce((acc, p) => acc + p.revenueBase, 0);
+      const cDirect = cProjects.reduce((acc, p) => acc + p.directCostBase, 0);
+      const cOverhead = cProjects.reduce((acc, p) => acc + p.overheadBase, 0);
+      const cTotal = cProjects.reduce((acc, p) => acc + p.totalCostBase, 0);
+      const cProfit = cRev - cTotal;
+      const cMargin = cRev > 0 ? Number(((cProfit / cRev) * 100).toFixed(1)) : 0;
+      const uniqueTeam = new Set(cProjects.flatMap((p) => p.teamMembers.map((m: any) => m.employeeId))).size;
+
+      clientList.push({
+        id: c.id,
+        clientId: c.id,
+        code: c.code,
+        clientCode: c.code,
+        nameAr: c.nameAr,
+        clientName: c.nameAr,
+        revenueBase: cRev,
+        directCostBase: cDirect,
+        overheadBase: cOverhead,
+        totalCostBase: cTotal,
+        grossProfitBase: cProfit,
+        grossMarginPct: cMargin,
+        projectCount: cProjects.length,
+        projectsCount: cProjects.length,
+        teamCount: uniqueTeam,
+        projects: cProjects,
+      });
+    }
+
+    return { empSummary, empList, projectList, clientList };
+  }
+
   if (path.includes('/profitability/projects')) {
-    return makeList(getEntityList('projects_profitability', []));
+    const { projectList } = computeDynamicProfitability();
+    return makeList(projectList);
   }
 
   if (path.includes('/profitability/clients')) {
-    return makeList(getEntityList('clients_profitability', []));
+    const { clientList } = computeDynamicProfitability();
+    return makeList(clientList);
   }
 
   if (path.includes('/profitability/employees') || path.includes('/reports/employee-profitability')) {
+    const { empSummary, empList } = computeDynamicProfitability();
     return {
-      summary: {
-        employeeCount: 0,
-        totalRevenueBase: '0.00',
-        totalCostBase: '0.00',
-        totalUnutilizedCostBase: '0.00',
-        totalProfitBase: '0.00',
-        averageMarginPct: '0.00',
-      },
-      employees: [],
-      data: [],
+      summary: empSummary,
+      employees: empList,
+      data: empList,
+      rows: empList,
+      meta: { total: empList.length },
     };
   }
 
-  // 4. Assignments Reports (Clean Zero Baseline)
+  // 4. Assignments Reports (Clean Dynamic Data)
   if (path.includes('/assignments/employee-days-report')) {
-    const stored = getEntityList('assignments_employee_days', []);
+    const { empList, empSummary } = computeDynamicProfitability();
+    const rows = empList.map((e) => ({
+      employeeId: e.employeeId,
+      employeeCode: e.employeeCode,
+      employeeName: e.employeeName,
+      departmentName: e.departmentName,
+      allocatedDays: Math.round((e.allocatedPct / 100) * 22),
+      workingDaysInPeriod: 22,
+      utilizationRate: e.allocatedPct,
+      billedRevenue: e.revenueBase,
+      directCost: e.directCostBase,
+      grossProfit: e.grossProfitBase,
+      marginPct: e.grossMarginPct,
+      unutilizedCost: e.unutilizedCostBase,
+      status: e.status,
+    }));
     return {
       summary: {
-        employeeCount: stored.length,
-        totalRevenue: 0,
-        totalCost: 0,
-        totalGrossProfit: 0,
-        averageMarginPct: 0,
-        totalAllocatedDays: 0,
+        employeeCount: empList.length,
+        totalRevenue: Number(empSummary.totalRevenueBase),
+        totalCost: Number(empSummary.totalCostBase),
+        totalGrossProfit: Number(empSummary.totalProfitBase),
+        averageMarginPct: Number(empSummary.averageMarginPct),
+        totalAllocatedDays: rows.reduce((acc: number, r: any) => acc + r.allocatedDays, 0),
         workingDaysInPeriod: 22,
-        utilizationRate: 0,
+        utilizationRate: empList.length > 0 ? (rows.reduce((acc: number, r: any) => acc + r.utilizationRate, 0) / empList.length) : 0,
         pendingInvoiceCount: 0,
         pendingInvoiceAmount: 0,
       },
-      rows: stored,
-      meta: { total: stored.length },
+      rows,
+      meta: { total: rows.length },
     };
   }
 
   if (path.includes('/assignments/utilization')) {
-    return makeList(getEntityList('assignments_utilization', []));
+    const { empList } = computeDynamicProfitability();
+    return makeList(empList);
   }
 
   // 5. Employees & Placement (Clean Dynamic List)
@@ -942,17 +1242,41 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   // 6. Projects (المشاريع)
   if (path.includes('/projects')) {
     const projects = getEntityList('projects', []);
-    const singleProj: any = projects.find((p: any) => path.endsWith(`/${p.id}`) || path.endsWith(`/${p.code}`));
+    const allAsg = getEntityList('assignments', []);
+    const allPrices = getEntityList('service_prices', []);
+    const emps = getEntityList('employees', []);
+
+    const singleProj: any = projects.find((p: any) => path.endsWith(`/${p.id}`) || path.endsWith(`/${p.code}`) || path.includes(`/${p.id}/`) || path.includes(`/${p.code}/`));
     if (singleProj) {
+      const prjAsgs = allAsg.filter((a: any) => a.projectId === singleProj.id || a.projectId === singleProj.code || a.projectCode === singleProj.code).map((a: any) => {
+        const emp = emps.find((e: any) => e.id === a.employeeId || e.code === a.employeeId || e.code === a.employeeCode);
+        return {
+          ...a,
+          employeeName: a.employeeName || emp?.fullNameAr || emp?.nameAr || 'الموظف',
+          employeeCode: a.employeeCode || emp?.code || '',
+        };
+      });
+      const prjPrices = allPrices.filter((sp: any) => sp.projectId === singleProj.id || sp.projectId === singleProj.code);
       return {
         ...singleProj,
-        assignments: Array.isArray(singleProj.assignments) ? singleProj.assignments : [],
-        servicePrices: Array.isArray(singleProj.servicePrices) ? singleProj.servicePrices : (Array.isArray(singleProj.prices) ? singleProj.prices : []),
-        prices: Array.isArray(singleProj.prices) ? singleProj.prices : [],
-        history: Array.isArray(singleProj.history) ? singleProj.history : [],
+        assignments: prjAsgs,
+        activeAssignmentCount: prjAsgs.length,
+        servicePrices: prjPrices.length > 0 ? prjPrices : (Array.isArray(singleProj.servicePrices) ? singleProj.servicePrices : []),
+        prices: prjPrices.length > 0 ? prjPrices : (Array.isArray(singleProj.prices) ? singleProj.prices : []),
+        statusHistory: Array.isArray(singleProj.statusHistory) ? singleProj.statusHistory : (Array.isArray(singleProj.history) ? singleProj.history : []),
+        history: Array.isArray(singleProj.statusHistory) ? singleProj.statusHistory : (Array.isArray(singleProj.history) ? singleProj.history : []),
       };
     }
-    return makeList(projects);
+
+    const enrichedProjects = projects.map((p: any) => {
+      const pCount = allAsg.filter((a: any) => a.projectId === p.id || a.projectId === p.code || a.projectCode === p.code).length;
+      return {
+        ...p,
+        activeAssignmentCount: pCount,
+      };
+    });
+
+    return makeList(enrichedProjects);
   }
 
   // 7. Clients (العملاء)

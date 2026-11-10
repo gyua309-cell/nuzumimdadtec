@@ -253,10 +253,12 @@ const STATUS_TRANSITIONS: Record<string, { label: string; value: string }[]> = {
 
 export function ProjectDetailPage() {
   const { id } = useParams();
+  const nav = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
-  const [tab, setTab] = useState<'info' | 'assignments' | 'prices' | 'history'>('info');
+  const [tab, setTab] = useState<'profitability' | 'assignments' | 'info' | 'prices' | 'history'>('profitability');
   const [modal, setModal] = useState<string | null>(null);
+  const [editProjectModal, setEditProjectModal] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -275,6 +277,43 @@ export function ProjectDetailPage() {
   const servicePrices = Array.isArray(p?.servicePrices) ? p.servicePrices : (Array.isArray(p?.prices) ? p.prices : []);
   const statusHistory = Array.isArray(p?.statusHistory) ? p.statusHistory : (Array.isArray(p?.history) ? p.history : []);
   const transitions = STATUS_TRANSITIONS[p?.status] ?? [];
+
+  // Real-time Profitability calculations (Level 2: Project Profitability per Business Process)
+  let projectRevenue = 0;
+  let projectDirectCost = 0;
+  const teamRows = assignments.map((a: any) => {
+    const rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+    let asgRev = 0;
+    if (a.allocationBasis === 'DAYS') {
+      asgRev = (Number(a.allocatedDays) || 22) * rate;
+    } else if (a.allocationBasis === 'HOURLY') {
+      asgRev = (Number(a.allocatedHours) || 160) * rate;
+    } else {
+      const pct = Number(a.allocationPct != null ? a.allocationPct : 100);
+      asgRev = rate * (pct / 100);
+    }
+    projectRevenue += asgRev;
+
+    const loadedCost = Number(a.allocatedCost || a.directCost || Math.round(asgRev * 0.55));
+    projectDirectCost += loadedCost;
+
+    const rowMargin = asgRev > 0 ? Number((((asgRev - loadedCost) / asgRev) * 100).toFixed(1)) : 0;
+
+    return {
+      ...a,
+      asgRev,
+      loadedCost,
+      rowMargin,
+    };
+  });
+
+  const projectOverhead = Math.round(projectDirectCost * 0.10);
+  const projectTotalCost = projectDirectCost + projectOverhead;
+  const projectGrossProfit = projectRevenue - projectTotalCost;
+  const projectMarginPct = projectRevenue > 0 ? Number(((projectGrossProfit / projectRevenue) * 100).toFixed(1)) : 0;
+  const targetMarginPct = Number(p.requiredMarginPct || 25);
+  const deltaMarginPct = Number((projectMarginPct - targetMarginPct).toFixed(1));
+  const isTargetAchieved = projectMarginPct >= targetMarginPct;
 
   const changeStatus = async () => {
     if (!newStatus) return;
@@ -302,9 +341,10 @@ export function ProjectDetailPage() {
       default: 'DAYS',
       required: true,
     },
-    { name: 'allocatedDays', label: 'عدد أيام العمل المخصصة', type: 'decimal', hint: 'مثال: 18 يوم بالمشروع الحالي و 3 أيام بمشروع آخر' },
+    { name: 'allocatedDays', label: 'عدد أيام العمل المخصصة', type: 'decimal', default: 22, hint: 'مثال: 18 يوم بالمشروع الحالي و 3 أيام بمشروع آخر' },
     { name: 'workingDaysInMonth', label: 'أيام العمل الشهرية للمقارنة', type: 'number', default: 22, hint: 'الافتراضي 22 يوم' },
     { name: 'allocationPct', label: 'نسبة التخصيص %', type: 'decimal', default: '100', hint: 'إن تُركت فارغة تُحسب آلياً: (الأيام / أيام الشهر × 100)' },
+    { name: 'billableRate', label: 'سعر المحاسبة للعميل (SAR)', type: 'decimal', default: 1500, required: true, hint: 'السعر اليومي أو الشهري' },
     { name: 'startDate', label: 'من تاريخ', type: 'date', required: true },
     { name: 'endDate', label: 'إلى تاريخ', type: 'date' },
     { name: 'notes', label: 'ملاحظات وتفاصيل التكليف', type: 'textarea' },
@@ -320,21 +360,57 @@ export function ProjectDetailPage() {
     { name: 'reason', label: 'السبب / المبرر', type: 'text', required: true, default: 'تحديد سعر الخدمة' },
   ];
 
+  const editFields: FieldDef[] = [
+    { name: 'nameAr', label: 'اسم المشروع بالعربية', type: 'text', required: true, default: p.nameAr },
+    { name: 'nameEn', label: 'اسم المشروع بالإنجليزية', type: 'text', default: p.nameEn || '' },
+    { name: 'requiredMarginPct', label: 'الهامش المستهدف %', type: 'decimal', required: true, default: p.requiredMarginPct || 25 },
+    { name: 'startDate', label: 'تاريخ البداية', type: 'date', default: p.startDate },
+    { name: 'endDate', label: 'تاريخ النهاية المتوقع', type: 'date', default: p.endDate },
+    { name: 'notes', label: 'ملاحظات وتفاصيل المشروع', type: 'textarea', default: p.notes },
+  ];
+
   return (
     <div className="space-y-4">
       <PageHeader
         title={`${p.code} — ${p.nameAr}`}
         subtitle={`${p.clientName} • ${p.currencyCode}${p.managerName ? ` • مدير: ${p.managerName}` : ''}`}
         actions={
-          <>
+          <div className="flex flex-wrap items-center gap-2">
             <ProjStatus s={p.status} />
+            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => setEditProjectModal(true)} title="تعديل المشروع">
+              <Pencil className="size-3.5" /> تعديل
+            </button>
+            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAddAssign(true)} title="إسناد كادر">
+              <Plus className="size-3.5" /> إسناد كادر
+            </button>
+            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
+              <Printer className="size-3.5" /> طباعة
+            </button>
+            <button
+              className="btn-secondary text-rose-600 hover:bg-rose-50 text-xs flex items-center gap-1.5"
+              title="حذف المشروع"
+              onClick={async () => {
+                if (confirm(`هل أنت متأكد من حذف المشروع ${p.nameAr} وجميع تخصيصاته المرتبطة؟`)) {
+                  try {
+                    await api.del(`/projects/${id}`);
+                    toast.success('تم حذف المشروع بنجاح');
+                    qc.invalidateQueries({ queryKey: ['/projects'] });
+                    nav('/prj/projects');
+                  } catch (e) {
+                    toast.error(e);
+                  }
+                }
+              }}
+            >
+              <Trash2 className="size-3.5" /> حذف
+            </button>
             {transitions.length > 0 && (
-              <button className="btn-secondary" onClick={() => { setNewStatus(transitions[0].value); setModal('status'); }}>
+              <button className="btn-secondary text-xs" onClick={() => { setNewStatus(transitions[0].value); setModal('status'); }}>
                 تغيير الحالة
               </button>
             )}
-            <Link to="/prj/projects" className="btn-secondary"><ArrowRight className="size-4" /> المشاريع</Link>
-          </>
+            <Link to="/prj/projects" className="btn-secondary text-xs"><ArrowRight className="size-3.5" /> المشاريع</Link>
+          </div>
         }
       />
 
@@ -342,13 +418,19 @@ export function ProjectDetailPage() {
         <Stat label="الهامش المستهدف" value={p.requiredMarginPct != null ? `${p.requiredMarginPct}%` : '—'} hint="نسبة الربحية المطلوبة" />
         <Stat label="البداية" value={p.startDate ? date(p.startDate) : '—'} />
         <Stat label="النهاية المتوقعة" value={p.endDate ? date(p.endDate) : '—'} />
-        <Stat label="التخصيصات النشطة" value={String(p.activeAssignmentCount ?? '—')} tone="blue" />
+        <Stat label="التخصيصات النشطة" value={String(p.activeAssignmentCount ?? assignments.length)} tone="blue" />
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
-        {(['info', 'assignments', 'prices', 'history'] as const).map((t) => {
-          const labels: Record<string, string> = { info: 'معلومات المشروع', assignments: 'التخصيصات', prices: 'أسعار الخدمات', history: 'سجل الحالات' };
+        {(['profitability', 'assignments', 'info', 'prices', 'history'] as const).map((t) => {
+          const labels: Record<string, string> = {
+            profitability: 'ربحية وتكلفة المشروع',
+            assignments: 'فريق العمل والتخصيصات',
+            info: 'معلومات العقد',
+            prices: 'أسعار الخدمات (Override)',
+            history: 'سجل الحالات',
+          };
           return (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === t ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
@@ -357,6 +439,112 @@ export function ProjectDetailPage() {
           );
         })}
       </div>
+
+      {/* Profitability tab (Level 2: Project Profitability) */}
+      {tab === 'profitability' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Stat label="إيرادات المشروع الشهرية" value={money(projectRevenue)} tone="green" hint="المفوترة من تخصيصات الكوادر" />
+            <Stat label="التكلفة المباشرة للفريق" value={money(projectDirectCost)} tone="slate" hint="رواتب وبدلات الكوادر المحملة" />
+            <Stat label="المصروفات الإدارية (10%)" value={money(projectOverhead)} tone="slate" hint="حصة المشروع من الـ Overhead" />
+            <Stat label="إجمالي تكلفة المشروع" value={money(projectTotalCost)} tone="amber" hint="المباشرة + الإدارية" />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="card p-4 flex flex-col justify-between">
+              <div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">صافي الربح الإجمالي (Gross Profit)</div>
+                <div className={`text-2xl font-bold font-mono mt-2 ${projectGrossProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {money(projectGrossProfit)}
+                </div>
+              </div>
+              <div className="mt-3 text-xs text-slate-500">
+                الأرباح المحققة بعد خصم التكاليف المحملة من إجمالي إيرادات الفريق التعاقدية.
+              </div>
+            </div>
+
+            <div className="card p-4 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">هامش الربحية المحقق vs المستهدف</div>
+                  <Badge color={isTargetAchieved ? 'green' : 'amber'}>
+                    {isTargetAchieved ? 'محقق للمستهدف' : 'أقل من المستهدف'}
+                  </Badge>
+                </div>
+                <div className="flex items-baseline gap-3 mt-2">
+                  <span className="text-2xl font-bold font-mono text-brand-600">{projectMarginPct}%</span>
+                  <span className="text-xs text-slate-500 font-mono">المستهدف: {targetMarginPct}%</span>
+                  <span className={`text-xs font-mono font-bold ${deltaMarginPct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {deltaMarginPct >= 0 ? `+${deltaMarginPct}%` : `${deltaMarginPct}%`}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-3 text-xs text-slate-500">
+                الفارق الإيجابي يعني تحقيق عائد أعلى من سياسة التسعير المعتمدة للشركة.
+              </div>
+            </div>
+          </div>
+
+          {/* Team profitability breakdown */}
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
+              <h3 className="font-semibold text-sm">تفصيل ربحية ومساهمة أعضاء الفريق في المشروع</h3>
+              <button className="btn-primary h-7 text-xs flex items-center gap-1" onClick={() => setAddAssign(true)}>
+                <Plus className="size-3.5" /> إسناد عضو جديد
+              </button>
+            </div>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>الموظف / الكادر</th>
+                  <th>أساس التخصيص</th>
+                  <th>حجم التخصيص</th>
+                  <th>سعر الخدمة التعاقدي</th>
+                  <th>الإيراد المحقق</th>
+                  <th>التكلفة المحملة</th>
+                  <th>هامش المساهمة %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center text-slate-500 py-6">
+                      لم يتم إسناد كوادر لهذا المشروع بعد. اضغط على زر "إسناد كادر" للبدء.
+                    </td>
+                  </tr>
+                ) : (
+                  teamRows.map((r: any) => (
+                    <tr key={r.id}>
+                      <td>
+                        <Link to={`/hr/employees/${r.employeeId}`} className="text-brand-600 font-medium hover:underline">
+                          {r.employeeName || 'كادر تقني'}
+                        </Link>
+                        {r.employeeCode && <span className="ms-1.5 font-mono text-xs text-slate-400">({r.employeeCode})</span>}
+                      </td>
+                      <td>
+                        <span className="badge-slate text-[11px]">
+                          {r.allocationBasis === 'DAYS' ? 'أيام عمل فعلية' : r.allocationBasis === 'HOURLY' ? 'ساعات' : 'نسبة مئوية'}
+                        </span>
+                      </td>
+                      <td className="num font-mono">
+                        {r.allocationBasis === 'DAYS' ? `${r.allocatedDays || 22} يوم` : `${r.allocationPct}%`}
+                      </td>
+                      <td className="num font-mono">{money(r.billableRate || 0)}</td>
+                      <td className="num font-mono font-bold text-emerald-600">{money(r.asgRev)}</td>
+                      <td className="num font-mono text-slate-700 dark:text-slate-300">{money(r.loadedCost)}</td>
+                      <td className="num font-mono font-bold">
+                        <span className={r.rowMargin >= targetMarginPct ? 'text-emerald-600' : 'text-amber-600'}>
+                          {r.rowMargin}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Info tab */}
       {tab === 'info' && (
@@ -404,14 +592,6 @@ export function ProjectDetailPage() {
                 ))}
             </tbody>
           </table>
-          <FormModal
-            open={addAssign} title="إضافة تخصيص" fields={assignFields}
-            onClose={() => setAddAssign(false)}
-            onSubmit={async (b) => {
-              await api.post('/assignments', { ...b, projectId: id });
-              qc.invalidateQueries({ queryKey: key });
-            }}
-          />
         </div>
       )}
 
@@ -450,14 +630,6 @@ export function ProjectDetailPage() {
                 ))}
             </tbody>
           </table>
-          <FormModal
-            open={addPrice} title="إضافة سعر خدمة للمشروع" fields={priceFields}
-            onClose={() => setAddPrice(false)}
-            onSubmit={async (b) => {
-              await api.post('/service-prices', { ...b, projectId: id });
-              qc.invalidateQueries({ queryKey: key });
-            }}
-          />
         </div>
       )}
 
@@ -500,19 +672,61 @@ export function ProjectDetailPage() {
         <div className="space-y-4 text-xs">
           <Field label="الحالة الجديدة">
             <select className="input" value={newStatus} onChange={(e) => setNewStatus(e.target.value)}>
-              {transitions.map((t) => <option key={t.value} value={t.value}>{t.label} ({t.value})</option>)}
+              <option value="">— اختر —</option>
+              {transitions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </Field>
-          <Field label="السبب">
-            <textarea className="input h-20 py-2" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Field label="السبب (إلزامي)">
+            <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="مثلاً: موافقة العميل على بدء العمل" />
           </Field>
         </div>
       </Modal>
+
+      {/* Assignment Modal */}
+      <FormModal
+        open={addAssign} title="إسناد كادر إلى المشروع" fields={assignFields}
+        onClose={() => setAddAssign(false)}
+        onSubmit={async (b) => {
+          await api.post('/assignments', { ...b, projectId: id });
+          toast.success('تم إسناد الكادر إلى المشروع');
+          setAddAssign(false);
+          refresh();
+        }}
+      />
+
+      {/* Price Override Modal */}
+      <FormModal
+        open={addPrice} title="إضافة سعر خدمة override للمشروع" fields={priceFields}
+        onClose={() => setAddPrice(false)}
+        onSubmit={async (b) => {
+          await api.post('/service-prices', { ...b, projectId: id });
+          toast.success('تم حفظ سعر الخدمة للمشروع');
+          setAddPrice(false);
+          refresh();
+        }}
+      />
+
+      {/* Edit Project Modal */}
+      <FormModal
+        open={editProjectModal}
+        title="تعديل بيانات المشروع التعاقدي"
+        fields={editFields}
+        onClose={() => setEditProjectModal(false)}
+        onSubmit={async (b) => {
+          try {
+            await api.patch(`/projects/${id}`, b);
+            toast.success('تم تحديث بيانات المشروع بنجاح');
+            setEditProjectModal(false);
+            refresh();
+          } catch (e) {
+            toast.error(e);
+          }
+        }}
+      />
     </div>
   );
 }
 
-// ------------------------------------------------------------------ all assignments
 export function AssignmentsPage() {
   const qc = useQueryClient();
   const toast = useToast();
