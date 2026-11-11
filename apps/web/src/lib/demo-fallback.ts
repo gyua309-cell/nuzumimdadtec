@@ -1,5 +1,29 @@
 import { getStoredCompany, saveStoredCompany } from './storage-company';
 import { getEntityList, saveEntityItem, deleteEntityItem } from './local-store';
+import {
+  sha256Hex,
+  recordAudit,
+  defaultCurrenciesList,
+  defaultExchangeRatesList,
+  defaultCostComponentsList,
+  defaultCostProfilesList,
+  defaultFiscalPeriodsList,
+  getOverheadPolicy,
+  saveOverheadPolicy,
+  getNormalizedAccounts,
+  convertToBase,
+  resolvePeriodByIdOrDate,
+  assertPeriodOpen,
+  computeEmployeeCostBreakdown,
+  normalizeJournalEntry,
+  createAutoPostedJournalEntry,
+  createReversalJournalEntry,
+  computeTrialBalance,
+  computeIncomeStatement,
+  computeBalanceSheet,
+  computeAccountStatement,
+  evaluatePeriodClosingChecks,
+} from './fallback-engine';
 
 /**
  * Clean Production In-Browser Engine (GitHub Pages)
@@ -36,9 +60,7 @@ export const defaultPositions = [
   { id: 'pos-pm', code: 'POS-PM', titleAr: 'مدير مشروع تقني (Technical PM)', titleEn: 'Technical Project Manager', departmentId: 'dept-pmo', isActive: true },
 ];
 
-export const defaultCostProfiles = [
-  { id: 'cp-tech', code: 'CP-TECH', nameAr: 'ملف الكوادر التقنية القياسي (تأمينات + بدلات)', currencyCode: 'SAR', isActive: true },
-];
+export const defaultCostProfiles = defaultCostProfilesList;
 
 export const defaultCostCenters = [
   { id: 'cc-del', code: 'CC-DEL', nameAr: 'مركز تكلفة التسليم والمشاريع', nameEn: 'Delivery Cost Center', isActive: true },
@@ -393,165 +415,555 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
     // --- 2.1 Robust Closing & Period Operations (Business Process Section 27, 28, 29) ---
     if (path.includes('/closing/periods/') && path.endsWith('/close') && method === 'POST') {
-      const periodId = path.split('/')[3];
-      const periods = getEntityList('fiscal_periods', []);
+      const periodId = path.split('?')[0].split('/')[3];
+      const periods = getEntityList('fiscal_periods', defaultFiscalPeriodsList);
       const pIdx = periods.findIndex((p: any) => p.id === periodId);
-      const pName = pIdx >= 0 ? periods[pIdx].name : 'الفترة المالية';
+      const periodObj = pIdx >= 0 ? periods[pIdx] : { id: periodId, name: 'الفترة المالية', startDate: '2026-01-01', endDate: new Date().toISOString().slice(0, 10) };
+      const checks = evaluatePeriodClosingChecks(periodObj.id);
+      if (!checks.canClose) {
+        const failed = checks.results.find((r: any) => r.status === 'FAIL');
+        throw new Error(failed?.message || 'لا يمكن إقفال الفترة لعدم استيفاء فحوصات ما قبل الإقفال');
+      }
       if (pIdx >= 0) {
         periods[pIdx].status = 'CLOSED';
         saveEntityItem('fiscal_periods', periods[pIdx]);
+      } else {
+        saveEntityItem('fiscal_periods', { ...periodObj, status: 'CLOSED' });
       }
+      const prevSnaps = getEntityList<any>('snapshots', []).filter((s) => s.periodId === periodId);
+      const tbFinancial = computeTrialBalance({ from: periodObj.startDate, to: periodObj.endDate, ledger: 'FINANCIAL' });
+      const isPeriod = computeIncomeStatement({ from: periodObj.startDate, to: periodObj.endDate });
+      const bsPeriod = computeBalanceSheet({ asOf: periodObj.endDate });
+      const snapData = {
+        periodId,
+        periodName: periodObj.name,
+        startDate: periodObj.startDate,
+        endDate: periodObj.endDate,
+        closingDate: new Date().toISOString(),
+        closedBy: 'المدير التنفيذي',
+        trialBalance: { financial: tbFinancial },
+        incomeStatement: { period: isPeriod },
+        balanceSheet: bsPeriod,
+      };
+      const snapHash = sha256Hex(JSON.stringify(snapData));
       const snap = {
         id: `snap-${Date.now()}`,
         periodId,
-        periodName: pName,
-        version: 1,
+        periodName: periodObj.name,
+        version: prevSnaps.length + 1,
         kind: 'PERIOD_CLOSE',
-        dataHash: '7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069',
-        createdAt: new Date().toISOString(),
+        dataHash: snapHash,
+        createdAt: snapData.closingDate,
         createdBy: 'المدير التنفيذي',
         hashValid: true,
-        data: {
-          periodId,
-          periodName: pName,
-          closingDate: new Date().toISOString(),
-          closedBy: 'المدير التنفيذي',
-        },
+        data: snapData,
       };
       saveEntityItem('snapshots', snap);
-      saveEntityItem('audit_log', {
-        id: `aud-${Date.now()}`,
+      recordAudit({
         action: 'CLOSE_PERIOD',
+        schemaName: 'acc',
         tableName: 'fiscal_periods',
-        recordId: periodId,
-        actor: 'المدير التنفيذي',
-        reason: `إقفال الفترة ${pName} وتوليد اللقطة الرقمية المعتمدة`,
-        createdAt: new Date().toISOString(),
+        entityId: periodId,
+        oldValues: { status: 'OPEN' },
+        newValues: { status: 'CLOSED', snapshotId: snap.id, dataHash: snapHash },
+        reason: `إقفال الفترة ${periodObj.name} وتوليد اللقطة الرقمية المحمية ببصمة SHA-256`,
       });
-      return { success: true, message: 'تم إقفال الفترة وحفظ اللقطة بنجاح' };
+      return { success: true, snapshot: snap, message: 'تم إقفال الفترة وحفظ اللقطة بنجاح' };
     }
 
     if (path.includes('/closing/periods/') && path.endsWith('/reopen') && method === 'POST') {
-      const periodId = path.split('/')[3];
-      const periods = getEntityList('fiscal_periods', []);
+      const periodId = path.split('?')[0].split('/')[3];
+      const reasonText = String(body?.reason || '').trim();
+      if (reasonText.length < 3) {
+        throw new Error('إعادة فتح فترة مقفلة يتطلب توثيق السبب (3 أحرف على الأقل)');
+      }
+      const periods = getEntityList('fiscal_periods', defaultFiscalPeriodsList);
       const pIdx = periods.findIndex((p: any) => p.id === periodId);
       const pName = pIdx >= 0 ? periods[pIdx].name : 'الفترة المالية';
       if (pIdx >= 0) {
         periods[pIdx].status = 'OPEN';
         saveEntityItem('fiscal_periods', periods[pIdx]);
       }
-      saveEntityItem('audit_log', {
-        id: `aud-${Date.now()}`,
+      recordAudit({
         action: 'REOPEN_PERIOD',
+        schemaName: 'acc',
         tableName: 'fiscal_periods',
-        recordId: periodId,
-        actor: 'المدير التنفيذي',
-        reason: (body?.reason || 'إعادة فتح الفترة المالية للمراجعة والتصحيح') + ' (' + pName + ')',
-        createdAt: new Date().toISOString(),
+        entityId: periodId,
+        oldValues: { status: 'CLOSED' },
+        newValues: { status: 'OPEN' },
+        reason: `${reasonText} (${pName})`,
       });
       return { success: true, message: 'تمت إعادة فتح الفترة بنجاح' };
     }
 
     // --- 2.2 Robust Monthly Variables Operations (Business Process Section 12, 13, 14, 15) ---
     if (path.startsWith('/monthly-variables/') && path.endsWith('/approve') && method === 'POST') {
-      const mvId = path.split('/')[2];
+      const mvId = path.split('?')[0].split('/')[2];
       const list = getEntityList('monthly_variables', []);
       const idx = list.findIndex((m: any) => m.id === mvId);
       if (idx >= 0) {
+        assertPeriodOpen(list[idx].fiscalPeriodId, 'اعتماد المتغير الشهري');
         list[idx].status = 'APPROVED';
         list[idx].approvedAt = new Date().toISOString();
         list[idx].approvedBy = 'المدير التنفيذي';
         saveEntityItem('monthly_variables', list[idx]);
-        saveEntityItem('audit_log', {
-          id: `aud-${Date.now()}`,
+        recordAudit({
           action: 'APPROVE_VARIABLE',
+          schemaName: 'pay',
           tableName: 'monthly_variables',
-          recordId: mvId,
-          actor: 'المدير التنفيذي',
+          entityId: mvId,
+          oldValues: { status: 'DRAFT' },
+          newValues: { status: 'APPROVED', computedAmount: list[idx].computedAmount },
           reason: 'اعتماد متغير شهري لصالح الموظف ' + list[idx].employeeName,
-          createdAt: new Date().toISOString(),
         });
         return list[idx];
       }
     }
 
     if (path.startsWith('/monthly-variables/') && method === 'DELETE') {
-      const mvId = path.split('/')[2];
+      const mvId = path.split('?')[0].split('/')[2];
+      const list = getEntityList('monthly_variables', []);
+      const existing = list.find((m: any) => m.id === mvId);
+      if (existing) assertPeriodOpen(existing.fiscalPeriodId, 'حذف المتغير الشهري');
       deleteEntityItem('monthly_variables', mvId);
+      recordAudit({
+        action: 'DELETE',
+        schemaName: 'pay',
+        tableName: 'monthly_variables',
+        entityId: mvId,
+        oldValues: existing || null,
+        reason: 'حذف متغير شهري',
+      });
       return { success: true, message: 'تم حذف المتغير بنجاح' };
     }
 
     // --- 2.3 Robust Revenue Runs Operations (Business Process Section 8 & Revenue Engine) ---
-    if (path === '/revenue-runs' && method === 'POST') {
-      const previewData = getDemoFallback('/revenue-runs/preview');
+    if (path.split('?')[0] === '/revenue-runs' && method === 'POST') {
+      const targetPeriodId = body?.fiscalPeriodId || body?.periodId;
+      const pObj = assertPeriodOpen(targetPeriodId, 'ترحيل تشغيل الإيرادات');
+      const resolvedPeriod = pObj || resolvePeriodByIdOrDate(targetPeriodId, null);
+      const existingPosted = getEntityList<any>('revenue_runs', []).find(
+        (r) => r.fiscalPeriodId === resolvedPeriod?.id && r.status === 'POSTED',
+      );
+      if (existingPosted) {
+        throw new Error(`يوجد تشغيل إيرادات مرحّل مسبقاً للفترة (${resolvedPeriod?.name})؛ ألغِه أولاً لإعادة التشغيل.`);
+      }
+
+      const previewData = getDemoFallback(`/revenue-runs/preview?periodId=${resolvedPeriod?.id || ''}`);
       const runCount = getEntityList('revenue_runs', []).length + 1;
       const runNo = `REV-${new Date().getFullYear()}-${String(runCount).padStart(3, '0')}`;
-      const jeNo = `JE-REV-${String(runCount).padStart(4, '0')}`;
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const entryDate = resolvedPeriod
+        ? (todayIso >= resolvedPeriod.startDate && todayIso <= resolvedPeriod.endDate ? todayIso : resolvedPeriod.endDate)
+        : todayIso;
+
+      const je = createAutoPostedJournalEntry({
+        entryDate,
+        fiscalPeriodId: resolvedPeriod?.id,
+        journalType: 'REVENUE',
+        sourceModule: 'REV',
+        sourceType: 'REVENUE_RUN',
+        postingEvent: 'REVENUE_RECOGNIZED',
+        reference: runNo,
+        description: `ترحيل إيرادات الخدمات والمشاريع للتشغيل ${runNo} — ${resolvedPeriod?.name || ''}`,
+        lines: [
+          { accountCode: '110301', debit: Number(previewData.totalRevenueBase || 0), credit: 0, description: `إيرادات مستحقة غير مفوترة (${runNo})` },
+          { accountCode: '410101', debit: 0, credit: Number(previewData.totalRevenueBase || 0), description: `إيرادات عقود ومشاريع (${runNo})` },
+        ],
+      });
+
       const runItem = {
         id: `revrun-${Date.now()}`,
         runNo,
-        fiscalPeriodId: body?.fiscalPeriodId,
-        periodName: 'فترة التشغيل الحالية',
+        fiscalPeriodId: resolvedPeriod?.id || targetPeriodId,
+        periodName: resolvedPeriod?.name || 'فترة التشغيل الحالية',
         projectCount: previewData.projectCount,
         employeeCount: previewData.employeeCount,
         lineCount: previewData.lineCount,
         totalRevenueBase: previewData.totalRevenueBase,
-        journalEntryNo: jeNo,
-        journalEntryId: `je-${Date.now()}`,
+        journalEntryNo: je.entryNo,
+        journalEntryId: je.id,
         status: 'POSTED',
         createdAt: new Date().toISOString(),
         lines: previewData.lines,
       };
       saveEntityItem('revenue_runs', runItem);
-      saveEntityItem('journal_entries', {
-        id: runItem.journalEntryId,
-        entryNo: jeNo,
-        entryDate: new Date().toISOString().slice(0, 10),
-        description: `ترحيل إيرادات الخدمات والمشاريع للتشغيل ${runNo}`,
-        status: 'POSTED',
-        totalDebit: String(runItem.totalRevenueBase),
-        totalCredit: String(runItem.totalRevenueBase),
-        lines: [
-          { accountCode: '110301', accountName: 'إيرادات مستحقة غير مفوترة (Unbilled Revenue)', debit: String(runItem.totalRevenueBase), credit: '0.00' },
-          { accountCode: '410101', accountName: 'إيرادات عقود ومشاريع البرمجيات والخدمات', debit: '0.00', credit: String(runItem.totalRevenueBase) },
-        ],
-      });
-      saveEntityItem('audit_log', {
-        id: `aud-${Date.now()}`,
+      recordAudit({
         action: 'POST_REVENUE_RUN',
+        schemaName: 'revenue',
         tableName: 'revenue_runs',
-        recordId: runItem.id,
-        actor: 'المدير التنفيذي',
+        entityId: runItem.id,
+        newValues: { runNo, totalRevenueBase: runItem.totalRevenueBase, journalEntryNo: je.entryNo },
         reason: `ترحيل إيرادات الخدمات بمبلغ ${runItem.totalRevenueBase} ريال`,
-        createdAt: new Date().toISOString(),
       });
       return runItem;
     }
 
     if (path.startsWith('/revenue-runs/') && path.endsWith('/cancel') && method === 'POST') {
-      const runId = path.split('/')[2];
+      const runId = path.split('?')[0].split('/')[2];
       const runs = getEntityList('revenue_runs', []);
       const idx = runs.findIndex((r: any) => r.id === runId);
       if (idx >= 0) {
+        assertPeriodOpen(runs[idx].fiscalPeriodId, 'إلغاء تشغيل الإيرادات');
+        const reasonText = body?.reason || 'إلغاء ترحيل الإيراد وعكس القيد';
+        let revJe: any = null;
+        if (runs[idx].journalEntryId) {
+          try {
+            revJe = createReversalJournalEntry(runs[idx].journalEntryId, reasonText);
+          } catch { /* already reversed or manual */ }
+        }
         runs[idx].status = 'CANCELLED';
-        runs[idx].cancelReason = body?.reason || 'إلغاء ترحيل الإيراد وعكس القيد';
+        runs[idx].cancelReason = reasonText;
+        runs[idx].reversalJournalEntryId = revJe?.id || null;
         saveEntityItem('revenue_runs', runs[idx]);
+        recordAudit({
+          action: 'CANCEL_REVENUE_RUN',
+          schemaName: 'revenue',
+          tableName: 'revenue_runs',
+          entityId: runs[idx].id,
+          reason: reasonText,
+        });
         return runs[idx];
+      }
+    }
+
+    // --- 2.35 Overhead Policy Update (Business Process Section 19) ---
+    if (path.includes('/overhead-policy') && (method === 'PUT' || method === 'POST' || method === 'PATCH')) {
+      return saveOverheadPolicy(body || {});
+    }
+
+    // --- 2.36 Cost Profile Lines CRUD (Business Process Section 4 & 5) ---
+    if (path.startsWith('/cost-profiles/') && path.includes('/lines')) {
+      const cleanP = path.split('?')[0].replace(/\/$/, '');
+      const segs = cleanP.split('/').filter(Boolean); // ['cost-profiles', profileId, 'lines', lineId?, 'end'?]
+      const profileId = segs[1];
+      const lineId = segs[3];
+      const profiles = getEntityList<any>('cost_profiles', defaultCostProfilesList);
+      const pIdx = profiles.findIndex((p) => p.id === profileId || p.code === profileId);
+      if (pIdx >= 0) {
+        const prf = { ...profiles[pIdx], lines: Array.isArray(profiles[pIdx].lines) ? [...profiles[pIdx].lines] : [] };
+        if (method === 'DELETE' && lineId) {
+          prf.lines = prf.lines.filter((l: any) => l.id !== lineId);
+          saveEntityItem('cost_profiles', prf);
+          recordAudit({ action: 'DELETE', schemaName: 'cost', tableName: 'cost_profile_lines', entityId: lineId, reason: 'حذف بند من ملف التكلفة' });
+          return { success: true };
+        }
+        if (method === 'POST' && cleanP.endsWith('/end') && lineId) {
+          prf.lines = prf.lines.map((l: any) => (l.id === lineId ? { ...l, effectiveTo: body?.effectiveTo || new Date().toISOString().slice(0, 10) } : l));
+          saveEntityItem('cost_profiles', prf);
+          recordAudit({ action: 'UPDATE', schemaName: 'cost', tableName: 'cost_profile_lines', entityId: lineId, newValues: { effectiveTo: body?.effectiveTo }, reason: 'إنهاء سريان بند في ملف التكلفة' });
+          return prf;
+        }
+        if (method === 'POST') {
+          const comps = getEntityList<any>('cost_components', defaultCostComponentsList);
+          const comp = comps.find((c) => c.id === body?.componentId || c.code === body?.componentId);
+          const newLine = {
+            id: `cpl-${Date.now()}`,
+            componentId: comp?.id || body?.componentId,
+            componentCode: comp?.code || 'CMP',
+            componentName: comp?.nameAr || 'مكون تكلفة',
+            calcMethod: body?.calcMethod || comp?.defaultMethod || 'FIXED',
+            nature: comp?.nature || 'EMPLOYER_COST',
+            ratePct: body?.ratePct != null && body.ratePct !== '' ? String(body.ratePct) : null,
+            amount: body?.amount != null && body.amount !== '' ? String(body.amount) : null,
+            currencyCode: body?.currencyCode || prf.currencyCode || 'SAR',
+            minAmount: body?.minAmount || null,
+            maxAmount: body?.maxAmount || null,
+            effectiveFrom: body?.effectiveFrom || new Date().toISOString().slice(0, 10),
+            effectiveTo: null,
+          };
+          prf.lines.push(newLine);
+          saveEntityItem('cost_profiles', prf);
+          recordAudit({ action: 'INSERT', schemaName: 'cost', tableName: 'cost_profile_lines', entityId: newLine.id, newValues: newLine, reason: `إضافة مكون (${newLine.componentName}) إلى ملف التكلفة ${prf.nameAr}` });
+          return newLine;
+        }
+      }
+    }
+
+    // --- 2.37 Loans Cancel & Installment Postpone (Business Process Section 16) ---
+    if (path.startsWith('/loans/') && path.endsWith('/cancel') && method === 'POST') {
+      const loanId = path.split('?')[0].split('/')[2];
+      const loans = getEntityList<any>('loans', []);
+      const idx = loans.findIndex((l) => l.id === loanId);
+      if (idx >= 0) {
+        loans[idx].status = 'CANCELLED';
+        loans[idx].cancelReason = body?.reason || 'إلغاء القرض إدارياً';
+        const list = Array.isArray(loans[idx].installments_list) ? loans[idx].installments_list : [];
+        loans[idx].installments_list = list.map((inst: any) => (inst.status === 'PENDING' ? { ...inst, status: 'CANCELLED' } : inst));
+        saveEntityItem('loans', loans[idx]);
+        recordAudit({ action: 'CANCEL_LOAN', schemaName: 'pay', tableName: 'loans', entityId: loanId, reason: loans[idx].cancelReason });
+        return loans[idx];
+      }
+    }
+
+    if (path.includes('/loans/installments/') && path.endsWith('/postpone') && method === 'POST') {
+      const instId = path.split('?')[0].split('/')[3];
+      const toPeriod = resolvePeriodByIdOrDate(body?.toPeriodId, null);
+      if (!toPeriod) throw new Error('يرجى تحديد الفترة المالية المستهدفة لتأجيل القسط');
+      assertPeriodOpen(toPeriod.id, 'تأجيل قسط سلفة إلى فترة لاحقة');
+
+      const loans = getEntityList<any>('loans', []);
+      for (const loan of loans) {
+        const list = Array.isArray(loan.installments_list) ? [...loan.installments_list] : [];
+        const instIdx = list.findIndex((x: any) => x.id === instId);
+        if (instIdx >= 0) {
+          const origInst = list[instIdx];
+          list[instIdx] = { ...origInst, status: 'POSTPONED', postponedReason: body?.reason || 'تأجيل إداري' };
+          list.push({
+            id: `${loan.id}-inst-${Date.now()}`,
+            installmentNo: origInst.installmentNo,
+            periodId: toPeriod.id,
+            periodName: toPeriod.name,
+            dueAmount: origInst.dueAmount,
+            status: 'PENDING',
+            postponedFrom: origInst.periodName,
+          });
+          loan.installments_list = list;
+          saveEntityItem('loans', loan);
+          recordAudit({
+            action: 'POSTPONE_INSTALLMENT',
+            schemaName: 'pay',
+            tableName: 'loan_installments',
+            entityId: instId,
+            oldValues: { periodId: origInst.periodId, status: 'PENDING' },
+            newValues: { toPeriodId: toPeriod.id, toPeriodName: toPeriod.name },
+            reason: body?.reason || `تأجيل قسط ${loan.loanNo} إلى ${toPeriod.name}`,
+          });
+          return loan;
+        }
+      }
+    }
+
+    // --- 2.38 Payroll Run Execution & Reversal (Business Process Section 12-16 & Accounting) ---
+    if (path.split('?')[0] === '/payroll-runs' && method === 'POST') {
+      const targetPeriodId = body?.periodId || body?.fiscalPeriodId;
+      const period = assertPeriodOpen(targetPeriodId, 'تشغيل مسيّر الرواتب');
+      const resolvedPeriod = period || resolvePeriodByIdOrDate(targetPeriodId, null);
+      const existing = getEntityList<any>('payroll_runs', []).find((r) => r.fiscalPeriodId === resolvedPeriod?.id && r.status === 'POSTED');
+      if (existing) {
+        throw new Error(`تم تشغيل مسيّر الرواتب للفترة (${resolvedPeriod?.name}) مسبقاً؛ ألغِه أولاً لإعادة التشغيل.`);
+      }
+
+      const preview = getDemoFallback(`/payroll-runs/preview?periodId=${resolvedPeriod?.id || ''}`);
+      if (!preview.lines || preview.lines.length === 0) {
+        throw new Error('لا يوجد موظفون نشطون لحساب مسيّر الرواتب في هذه الفترة.');
+      }
+
+      const runCount = getEntityList('payroll_runs', []).length + 1;
+      const runNo = `PAY-${(resolvedPeriod?.startDate || new Date().toISOString()).slice(0, 7).replace('-', '')}-${String(runCount).padStart(2, '0')}`;
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const entryDate = resolvedPeriod
+        ? (todayIso >= resolvedPeriod.startDate && todayIso <= resolvedPeriod.endDate ? todayIso : resolvedPeriod.endDate)
+        : todayIso;
+
+      const totalGross = preview.lines.reduce((s: number, l: any) => s + Number(l.grossBase || 0), 0);
+      const totalLoanDed = Number(preview.totalLoanDeductionsBase || 0);
+      const netPayable = Number(preview.netPayableBase || 0);
+      const otherDeductions = Math.max(0, totalGross - totalLoanDed - netPayable);
+
+      const jeLines: Array<{ accountCode: string; debit: number; credit: number; description?: string }> = [
+        { accountCode: '50101', debit: totalGross, credit: 0, description: `رواتب وأجور ومتغيرات ${resolvedPeriod?.name}` },
+      ];
+      if (totalLoanDed > 0) {
+        jeLines.push({ accountCode: '10401', debit: 0, credit: totalLoanDed, description: `استقطاع أقساط السلف المستحقة (${runNo}) — ليست تكلفة ربحية` });
+      }
+      if (otherDeductions > 0.005) {
+        jeLines.push({ accountCode: '20301', debit: 0, credit: otherDeductions, description: `استقطاعات وخصومات إدارية (${runNo})` });
+      }
+      jeLines.push({ accountCode: '20401', debit: 0, credit: netPayable, description: `صافي الرواتب المستحقة للدفع (${runNo})` });
+
+      const je = createAutoPostedJournalEntry({
+        entryDate,
+        fiscalPeriodId: resolvedPeriod?.id,
+        journalType: 'PAYROLL',
+        sourceModule: 'PAY',
+        sourceType: 'PAYROLL_RUN',
+        postingEvent: 'PAYROLL_POSTED',
+        reference: runNo,
+        description: `قيد مسيّر الرواتب الشهري ${runNo} — ${resolvedPeriod?.name}`,
+        lines: jeLines,
+      });
+
+      const runId = `payrun-${Date.now()}`;
+      // Mark due PENDING loan installments in this period as DEDUCTED
+      const loans = getEntityList<any>('loans', []);
+      for (const loan of loans) {
+        if (loan.status !== 'ACTIVE') continue;
+        let touched = false;
+        const list = (Array.isArray(loan.installments_list) ? loan.installments_list : []).map((inst: any) => {
+          if (inst.status === 'PENDING' && inst.periodId === resolvedPeriod?.id) {
+            touched = true;
+            return { ...inst, status: 'DEDUCTED', payrollRunId: runId };
+          }
+          return inst;
+        });
+        if (touched) {
+          loan.installments_list = list;
+          if (list.every((x: any) => x.status !== 'PENDING')) loan.status = 'COMPLETED';
+          saveEntityItem('loans', loan);
+        }
+      }
+
+      const runItem = {
+        id: runId,
+        runNo,
+        fiscalPeriodId: resolvedPeriod?.id,
+        periodName: resolvedPeriod?.name || 'الفترة الحالية',
+        employeeCount: preview.employeeCount,
+        totalSalaryBase: preview.totalSalaryBase,
+        totalVariablesBase: preview.totalVariablesBase,
+        totalLoanDeductionsBase: preview.totalLoanDeductionsBase,
+        netPayableBase: preview.netPayableBase,
+        journalEntryId: je.id,
+        journalEntryNo: je.entryNo,
+        status: 'POSTED',
+        createdAt: new Date().toISOString(),
+        lines: preview.lines,
+      };
+      saveEntityItem('payroll_runs', runItem);
+      recordAudit({
+        action: 'POST_PAYROLL_RUN',
+        schemaName: 'pay',
+        tableName: 'payroll_runs',
+        entityId: runId,
+        newValues: { runNo, netPayableBase: runItem.netPayableBase, totalLoanDeductionsBase: runItem.totalLoanDeductionsBase, journalEntryNo: je.entryNo },
+        reason: `ترحيل مسيّر الرواتب ${runNo} للفترة ${resolvedPeriod?.name}`,
+      });
+      return runItem;
+    }
+
+    if (path.startsWith('/payroll-runs/') && path.endsWith('/cancel') && method === 'POST') {
+      const runId = path.split('?')[0].split('/')[2];
+      const runs = getEntityList<any>('payroll_runs', []);
+      const idx = runs.findIndex((r) => r.id === runId);
+      if (idx >= 0) {
+        assertPeriodOpen(runs[idx].fiscalPeriodId, 'إلغاء مسيّر الرواتب');
+        const reasonText = body?.reason || 'إلغاء مسيّر الرواتب وعكس القيد';
+        let revJe: any = null;
+        if (runs[idx].journalEntryId) {
+          try {
+            revJe = createReversalJournalEntry(runs[idx].journalEntryId, reasonText);
+          } catch { /* already reversed */ }
+        }
+        // Restore DEDUCTED loan installments tied to this run back to PENDING
+        const loans = getEntityList<any>('loans', []);
+        for (const loan of loans) {
+          let touched = false;
+          const list = (Array.isArray(loan.installments_list) ? loan.installments_list : []).map((inst: any) => {
+            if (inst.payrollRunId === runId && inst.status === 'DEDUCTED') {
+              touched = true;
+              const { payrollRunId: _omit, ...rest } = inst;
+              return { ...rest, status: 'PENDING' };
+            }
+            return inst;
+          });
+          if (touched) {
+            loan.installments_list = list;
+            if (loan.status === 'COMPLETED') loan.status = 'ACTIVE';
+            saveEntityItem('loans', loan);
+          }
+        }
+        runs[idx].status = 'CANCELLED';
+        runs[idx].cancelReason = reasonText;
+        runs[idx].reversalJournalEntryId = revJe?.id || null;
+        saveEntityItem('payroll_runs', runs[idx]);
+        recordAudit({ action: 'CANCEL_PAYROLL_RUN', schemaName: 'pay', tableName: 'payroll_runs', entityId: runId, reason: reasonText });
+        return runs[idx];
+      }
+    }
+
+    // --- 2.39 Journal Entries Manual CRUD, Post, Cancel & Reverse ---
+    if (path.startsWith('/journal-entries')) {
+      const cleanP = path.split('?')[0].replace(/\/$/, '');
+      const segs = cleanP.split('/').filter(Boolean); // ['journal-entries', id?, action?]
+      const jeId = segs[1];
+      const action = segs[2];
+      const accounts = getNormalizedAccounts();
+
+      if (jeId && action === 'post' && method === 'POST') {
+        const list = getEntityList<any>('journal_entries', []);
+        const idx = list.findIndex((j) => j.id === jeId);
+        if (idx < 0) throw new Error('القيد غير موجود');
+        const je = normalizeJournalEntry(list[idx], accounts);
+        assertPeriodOpen(je.entryDate, 'ترحيل القيد المحاسبي');
+        if (Math.abs(Number(je.totalDebitBase) - Number(je.totalCreditBase)) > 0.01 || Number(je.totalDebitBase) <= 0) {
+          throw new Error('لا يمكن ترحيل قيد غير متوازن (مجموع المدين لا يساوي مجموع الدائن) أو صفري');
+        }
+        const seq = list.filter((j) => j.status === 'POSTED').length + 1;
+        const year = (je.entryDate || new Date().toISOString().slice(0, 10)).slice(0, 4);
+        je.status = 'POSTED';
+        je.entryNo = je.entryNo || `JE-${year}-${String(seq).padStart(4, '0')}`;
+        je.postedAt = new Date().toISOString();
+        je.rowVersion = (je.rowVersion || 1) + 1;
+        saveEntityItem('journal_entries', je);
+        recordAudit({ action: 'POST', schemaName: 'acc', tableName: 'journal_entries', entityId: je.id, newValues: { entryNo: je.entryNo, status: 'POSTED' }, reason: `ترحيل القيد ${je.entryNo}` });
+        return je;
+      }
+
+      if (jeId && action === 'cancel' && method === 'POST') {
+        const list = getEntityList<any>('journal_entries', []);
+        const idx = list.findIndex((j) => j.id === jeId);
+        if (idx < 0) throw new Error('القيد غير موجود');
+        if (list[idx].status !== 'DRAFT') throw new Error('لا يمكن إلغاء قيد مرحّل؛ استخدم القيد العكسي بدلاً من ذلك');
+        list[idx].status = 'CANCELLED';
+        list[idx].cancelReason = body?.reason || 'إلغاء مسودة القيد';
+        saveEntityItem('journal_entries', list[idx]);
+        recordAudit({ action: 'CANCEL', schemaName: 'acc', tableName: 'journal_entries', entityId: jeId, reason: list[idx].cancelReason });
+        return list[idx];
+      }
+
+      if (jeId && action === 'reverse' && method === 'POST') {
+        return createReversalJournalEntry(jeId, body?.reason || 'قيد عكسي يدوي', body?.reversalDate);
+      }
+
+      if (method === 'DELETE' && jeId && !action) {
+        const list = getEntityList<any>('journal_entries', []);
+        const target = list.find((j) => j.id === jeId);
+        if (target?.status === 'POSTED') throw new Error('لا يمكن حذف قيد مرحّل نهائياً؛ استخدم القيد العكسي حفاظاً على سجل التدقيق');
+        deleteEntityItem('journal_entries', jeId);
+        recordAudit({ action: 'DELETE', schemaName: 'acc', tableName: 'journal_entries', entityId: jeId, reason: 'حذف مسودة قيد يومي' });
+        return { success: true };
+      }
+
+      if ((method === 'POST' || method === 'PUT' || method === 'PATCH') && !action) {
+        assertPeriodOpen(body?.entryDate, 'حفظ قيد يومية');
+        const list = getEntityList<any>('journal_entries', []);
+        const existing = jeId ? list.find((j) => j.id === jeId) : null;
+        if (existing && existing.status !== 'DRAFT') throw new Error('لا يمكن تعديل قيد غير مسودة');
+        const built = normalizeJournalEntry({
+          ...(existing || {}),
+          ...body,
+          id: existing?.id || `je-${Date.now()}`,
+          status: existing?.status || 'DRAFT',
+          entryNo: existing?.entryNo || null,
+          rowVersion: ((existing?.rowVersion) || 0) + 1,
+        }, accounts);
+        saveEntityItem('journal_entries', built);
+        recordAudit({
+          action: existing ? 'UPDATE' : 'INSERT',
+          schemaName: 'acc',
+          tableName: 'journal_entries',
+          entityId: built.id,
+          newValues: { description: built.description, totalDebitBase: built.totalDebitBase },
+          reason: built.description,
+        });
+        return built;
       }
     }
 
     // --- 2.4 Robust Retroactive Adjustments Operations (Business Process Section 18) ---
     if (path.includes('/revenue-adjustments/retroactive') && method === 'POST') {
+      assertPeriodOpen(body.fiscalPeriodId, 'تسجيل تسوية إيراد بأثر رجعي');
       const emps = getEntityList('employees', []);
       const prjs = getEntityList('projects', []);
-      const periods = getEntityList('fiscal_periods', []);
+      const periods = getEntityList('fiscal_periods', defaultFiscalPeriodsList);
       const emp = emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId);
       const prj = prjs.find((p: any) => p.id === body.projectId || p.code === body.projectId);
       const origPeriod = periods.find((p: any) => p.id === body.originalPeriodId);
       const regPeriod = periods.find((p: any) => p.id === body.fiscalPeriodId);
       const units = Number(body.units || 1);
       const unitPrice = Number(body.unitPrice || 0);
-      const grossRev = units * unitPrice;
+      const { amountBase: grossRev } = convertToBase(units * unitPrice, body.currencyCode || 'SAR');
       const retroItem = {
         id: `retro-${Date.now()}`,
         employeeId: body.employeeId,
@@ -576,14 +988,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         status: 'RECORDED',
       };
       saveEntityItem('revenue_adjustments', retroItem);
-      saveEntityItem('audit_log', {
-        id: `aud-${Date.now()}`,
+      recordAudit({
         action: 'RETROACTIVE_REVENUE_ADJUSTMENT',
+        schemaName: 'revenue',
         tableName: 'revenue_adjustments',
-        recordId: retroItem.id,
-        actor: 'المدير التنفيذي',
+        entityId: retroItem.id,
+        newValues: { originalPeriodId: retroItem.originalPeriodId, fiscalPeriodId: retroItem.fiscalPeriodId, grossRevenueBase: retroItem.grossRevenueBase },
         reason: retroItem.adjustmentReason,
-        createdAt: new Date().toISOString(),
       });
       return retroItem;
     }
@@ -794,10 +1205,21 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     }
 
     if (targetKey) {
+      if (targetKey === 'exchange_rates') getEntityList('exchange_rates', defaultExchangeRatesList);
+      if (targetKey === 'cost_components') getEntityList('cost_components', defaultCostComponentsList);
+      if (targetKey === 'cost_profiles') getEntityList('cost_profiles', defaultCostProfilesList);
       if (method === 'DELETE') {
-        const id = path.split('/').filter(Boolean).pop();
-        if (id) deleteEntityItem(targetKey, id);
+        const id = path.split('?')[0].split('/').filter(Boolean).pop();
+        if (id) {
+          deleteEntityItem(targetKey, id);
+          recordAudit({ action: 'DELETE', tableName: targetKey, entityId: id, reason: `حذف سجل من ${targetKey}` });
+        }
         return { success: true };
+      }
+      if ((method === 'PATCH' || method === 'PUT') && typeof body === 'object' && body !== null && !body.id) {
+        const urlId = path.split('?')[0].split('/').filter(Boolean).pop();
+        if (urlId && !urlId.startsWith(targetKey.replace('_', '-'))) body.id = urlId;
+        else if (urlId && path.split('?')[0].split('/').filter(Boolean).length >= 2) body.id = urlId;
       }
       if (typeof body === 'object' && body !== null) {
         // 1) Employee enrichment
@@ -903,6 +1325,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
         // 2.5) Monthly variables enrichment
         if (targetKey === 'monthly_variables') {
+          if (body.fiscalPeriodId) assertPeriodOpen(body.fiscalPeriodId, 'تسجيل متغير شهري');
           const emps = getEntityList('employees', []);
           const prjs = getEntityList('projects', []);
           const varTypes = getEntityList('variable_types', []);
@@ -933,23 +1356,37 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           body.computedAmount = String(computed.toFixed(2));
         }
 
-        // 2.6) Loans enrichment
+        // 2.6) Loans enrichment (Business Process Section 16: Installment schedule tied to fiscal periods)
         if (targetKey === 'loans') {
           const emps = getEntityList('employees', []);
+          const periods = getEntityList('fiscal_periods', defaultFiscalPeriodsList).filter((p: any) => !p.isAdjustmentPeriod);
           const emp = emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId);
           const count = getEntityList('loans', []).length + 1;
           body.id = body.id || `loan-${Date.now()}`;
           body.loanNo = body.loanNo || `LN-${new Date().getFullYear()}-${String(count).padStart(3, '0')}`;
           body.employeeName = emp?.fullNameAr || body.employeeName || 'الموظف';
-          body.principalBase = String(body.principalAmount || body.principalBase || '0.00');
+          const { amountBase: principalNum } = convertToBase(body.principalAmount || body.principalBase || 0, body.currencyCode || 'SAR');
+          body.principalBase = principalNum.toFixed(2);
           body.status = body.status || 'ACTIVE';
-          const instCount = Number(body.installments || 1);
-          const monthlyDeduct = Number(body.principalBase) / instCount;
-          body.installmentsSchedule = Array.from({ length: instCount }, (_, i) => ({
-            installmentNo: i + 1,
-            amount: String(monthlyDeduct.toFixed(2)),
-            status: 'PENDING',
-          }));
+          const instCount = Math.max(1, Number(body.installments || 1));
+          body.installments = instCount;
+          const monthlyDeduct = principalNum / instCount;
+          body.installmentAmount = monthlyDeduct.toFixed(2);
+
+          let startIdx = body.startPeriodId ? periods.findIndex((p: any) => p.id === body.startPeriodId) : periods.findIndex((p: any) => p.status === 'OPEN');
+          if (startIdx < 0) startIdx = 0;
+
+          body.installments_list = Array.from({ length: instCount }, (_, i) => {
+            const p = periods[startIdx + i];
+            return {
+              id: `${body.id}-inst-${i + 1}`,
+              installmentNo: i + 1,
+              periodId: p?.id || `fp-future-${i + 1}`,
+              periodName: p?.name || `فترة لاحقة +${i + 1}`,
+              dueAmount: monthlyDeduct.toFixed(2),
+              status: 'PENDING',
+            };
+          });
         }
 
         // 2.7) Assets enrichment
@@ -1089,17 +1526,19 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   // 3. Dynamic 3-Level Profitability Engine (Executive Intelligence & Business Process)
-  function computeDynamicProfitability() {
+  function computeDynamicProfitability(periodFilterId?: string | null) {
     const emps = getEntityList('employees', []);
     const prjs = getEntityList('projects', []);
     const clients = getEntityList('clients', defaultClients);
     const assignments = getEntityList('assignments', []);
     const depts = getEntityList('departments', defaultDepartments);
     const deptMap = new Map(depts.map((d: any) => [d.id, d.nameAr]));
-    const assets = getEntityList('assets', []);
     const monthlyVars = getEntityList('monthly_variables', []);
     const retroAdjs = getEntityList('revenue_adjustments', []);
     const servicePrices = getEntityList('service_prices', []);
+    const overheadPolicy = getOverheadPolicy();
+    const targetPeriod = periodFilterId ? resolvePeriodByIdOrDate(periodFilterId, null) : undefined;
+    const empBreakdownMap = new Map<string, ReturnType<typeof computeEmployeeCostBreakdown>>();
 
     // 1. Employee calculations (Level 1 per Business Process)
     const empList: any[] = [];
@@ -1109,26 +1548,17 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     let sumUnutilizedCost = 0;
 
     for (const emp of emps) {
-      const basicSalary = Number(emp.basicSalary || emp.basic_salary || emp.salary || 0);
-      const insuranceSalary = Number(emp.insuranceSalary || emp.insurance_salary || 0);
-      const insuranceCost = insuranceSalary > 0 ? insuranceSalary * 0.12 : basicSalary * 0.05;
-
-      // Section 17: Monthly Asset Depreciation added to employee cost
-      const empAssets = assets.filter((a: any) => (a.custodianEmployeeId === emp.id || a.employeeId === emp.id) && a.status === 'ACTIVE');
-      const assetDeprCost = empAssets.reduce((sum: number, a: any) => {
-        const cost = Number(a.costBase || a.cost || 0);
-        const salvage = Number(a.salvageValueBase || 0);
-        const months = Number(a.usefulLifeMonths) || 36;
-        return sum + Math.round((cost - salvage) / months);
-      }, 0);
-
-      // Section 14: General approved variables added to employee cost
-      const generalVarsCost = monthlyVars
-        .filter((v: any) => (v.employeeId === emp.id || v.employeeCode === emp.code) && v.status === 'APPROVED' && !v.projectId)
-        .reduce((sum: number, v: any) => sum + Number(v.computedAmount || 0), 0);
-
-      const directCost = basicSalary + insuranceCost + assetDeprCost + generalVarsCost;
-      const overhead = Math.round(directCost * 0.10);
+      const bd = computeEmployeeCostBreakdown(emp, targetPeriod, overheadPolicy);
+      empBreakdownMap.set(emp.id, bd);
+      if (emp.code) empBreakdownMap.set(emp.code, bd);
+      const directCost = bd.distributableCostBase;
+      const assetDeprCost = bd.assetDepreciationBase;
+      const generalVarsCost = bd.generalVariablesBase;
+      const overhead = overheadPolicy.method === 'PERCENTAGE'
+        ? Math.round(directCost * (Number(overheadPolicy.rate || 0) / 100))
+        : overheadPolicy.method === 'FIXED_PER_EMPLOYEE'
+          ? Math.round(Number(overheadPolicy.rate || 0))
+          : Math.round(prjs.length > 0 && emps.length > 0 ? (Number(overheadPolicy.rate || 0) * prjs.length) / emps.length : 0);
       const totalCost = directCost + overhead;
       const targetMargin = Number(emp.targetMarginPct || emp.requiredMarginPct || 25);
 
@@ -1146,19 +1576,23 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       let empRev = 0;
       const empProjects: any[] = [];
       for (const a of myAsgs) {
-        // Section 6 & 8: Check project price override priority
-        const override = servicePrices.find((sp: any) => sp.employeeId === emp.id && sp.projectId === a.projectId);
-        let rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+        // Section 6 & 8: Check project price override priority + FX conversion to Base SAR
+        const override = servicePrices.find((sp: any) => sp.employeeId === emp.id && sp.projectId === a.projectId)
+          || servicePrices.find((sp: any) => sp.employeeId === emp.id && !sp.projectId);
+        let rawRate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
         let basis = a.billingBasis || a.allocationBasis || 'DAILY';
+        let rateCur = a.billingCurrency || 'SAR';
         if (override) {
-          rate = Number(override.price || rate);
+          rawRate = Number(override.price || rawRate);
           basis = override.pricingBasis || basis;
+          rateCur = override.currencyCode || rateCur;
         }
+        const rate = convertToBase(rawRate, rateCur, targetPeriod?.endDate).amountBase;
 
         let asgRev = 0;
-        if (basis === 'DAYS' || a.allocationBasis === 'DAYS') {
+        if (basis === 'DAYS' || basis === 'DAILY' || a.allocationBasis === 'DAYS') {
           asgRev = (Number(a.allocatedDays) || 22) * rate;
-        } else if (basis === 'HOURLY' || a.allocationBasis === 'HOURLY') {
+        } else if (basis === 'HOURLY' || basis === 'HOURS' || a.allocationBasis === 'HOURLY') {
           asgRev = (Number(a.allocatedHours) || 160) * rate;
         } else {
           const pct = Number(a.allocationPct != null ? a.allocationPct : 100);
@@ -1240,18 +1674,22 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
       for (const a of pAsgs) {
         const emp = emps.find((e: any) => e.id === a.employeeId || e.code === a.employeeId || e.code === a.employeeCode);
-        const override = servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeId === emp?.id) && (sp.projectId === p.id || sp.projectId === p.code));
-        let rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+        const override = servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeId === emp?.id) && (sp.projectId === p.id || sp.projectId === p.code))
+          || servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeId === emp?.id) && !sp.projectId);
+        let rawRate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
         let basis = a.billingBasis || a.allocationBasis || 'DAILY';
+        let rateCur = a.billingCurrency || 'SAR';
         if (override) {
-          rate = Number(override.price || rate);
+          rawRate = Number(override.price || rawRate);
           basis = override.pricingBasis || basis;
+          rateCur = override.currencyCode || rateCur;
         }
+        const rate = convertToBase(rawRate, rateCur, targetPeriod?.endDate).amountBase;
 
         let asgRev = 0;
-        if (basis === 'DAYS' || a.allocationBasis === 'DAYS') {
+        if (basis === 'DAYS' || basis === 'DAILY' || a.allocationBasis === 'DAYS') {
           asgRev = (Number(a.allocatedDays) || 22) * rate;
-        } else if (basis === 'HOURLY' || a.allocationBasis === 'HOURLY') {
+        } else if (basis === 'HOURLY' || basis === 'HOURS' || a.allocationBasis === 'HOURLY') {
           asgRev = (Number(a.allocatedHours) || 160) * rate;
         } else {
           const pct = Number(a.allocationPct != null ? a.allocationPct : 100);
@@ -1259,11 +1697,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         }
         pRev += asgRev;
 
-        const bSal = Number(emp?.basicSalary || emp?.basic_salary || emp?.salary || 0);
-        const iSal = Number(emp?.insuranceSalary || emp?.insurance_salary || 0);
-        const eDirect = bSal + (iSal > 0 ? iSal * 0.12 : bSal * 0.05);
-
-        const empAllAsgs = assignments.filter((x: any) => x.employeeId === a.employeeId || x.employeeCode === a.employeeCode);
+        const eDirect = emp ? (empBreakdownMap.get(emp.id)?.distributableCostBase ?? 0) : 0;
+        const empAllAsgs = assignments.filter((x: any) => x.employeeId === a.employeeId || (emp && (x.employeeId === emp.id || x.employeeCode === emp.code)));
         const eTotalAlloc = empAllAsgs.reduce((acc: number, x: any) => acc + Number(x.allocationPct != null ? x.allocationPct : (x.allocationBasis === 'DAYS' ? ((Number(x.allocatedDays) || 22) / 22) * 100 : 100)), 0);
         const norm = eTotalAlloc > 100 ? (100 / eTotalAlloc) : 1;
         const thisAlloc = Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
@@ -1294,7 +1729,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const pRetroRev = pRetros.reduce((sum: number, r: any) => sum + Number(r.grossRevenueBase || 0), 0);
       pRev += pRetroRev;
 
-      const pOverhead = Math.round(pDirect * 0.10);
+      const pOverhead = overheadPolicy.method === 'PERCENTAGE'
+        ? Math.round(pDirect * (Number(overheadPolicy.rate || 0) / 100))
+        : overheadPolicy.method === 'FIXED_PER_PROJECT'
+          ? Math.round(Number(overheadPolicy.rate || 0))
+          : Math.round(teamMembers.reduce((sum, m) => sum + Number(overheadPolicy.rate || 0) * ((Number(m.allocationPct) || 100) / 100), 0));
       const pTotal = pDirect + pOverhead;
       const pProfit = pRev - pTotal;
       const pMargin = pRev > 0 ? Number(((pProfit / pRev) * 100).toFixed(1)) : 0;
@@ -1433,18 +1872,35 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   if (path.includes('/employees')) {
     const emps = getEntityList('employees', []);
     if (path.includes('/cost')) {
+      const cleanP = path.split('?')[0].replace(/\/$/, '');
+      const segments = cleanP.split('/').filter(Boolean); // ['employees', targetId, 'cost']
+      const targetId = segments[1];
+      const qStr = path.includes('?') ? path.split('?')[1] : '';
+      const qParams = new URLSearchParams(qStr);
+      const period = resolvePeriodByIdOrDate(qParams.get('periodId'), null);
+      const emp = emps.find((e: any) => e.id === targetId || e.code === targetId || e.code?.toLowerCase() === targetId?.toLowerCase());
+      if (!emp) {
+        return {
+          employedDays: 0,
+          periodDays: 22,
+          totalCostBase: '0.00',
+          distributableCostBase: '0.00',
+          totalDeductionsBase: '0.00',
+          dailyDirectCost: '0.00',
+          dailyOverheadCost: '0.00',
+          dailyTotalCost: '0.00',
+          currency: 'SAR',
+          baseCurrency: 'SAR',
+          breakdown: [],
+          lines: [],
+        };
+      }
+      const bd = computeEmployeeCostBreakdown(emp, period);
       return {
-        employedDays: 22,
-        periodDays: 22,
-        totalCostBase: '0.00',
-        distributableCostBase: '0.00',
-        totalDeductionsBase: '0.00',
-        dailyDirectCost: '0.00',
-        dailyOverheadCost: '0.00',
-        dailyTotalCost: '0.00',
-        currency: 'SAR',
-        breakdown: [],
-        lines: [],
+        ...bd,
+        totalCostBase: bd.totalCostBase.toFixed(2),
+        distributableCostBase: bd.distributableCostBase.toFixed(2),
+        totalDeductionsBase: bd.totalDeductionsBase.toFixed(2),
       };
     }
 
@@ -1639,17 +2095,19 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(getEntityList('cost_centers', defaultCostCenters));
   }
 
-  if (path.includes('/company-currencies') || path.includes('/currencies')) {
-    const defaultCurrencies = [
-      { code: 'SAR', nameAr: 'ريال سعودي', symbol: 'ر.س', isBase: true, exchangeRate: 1.0, decimalPlaces: 2, isActive: true },
-      { code: 'EGP', nameAr: 'جنيه مصري', symbol: 'ج.م', isBase: false, exchangeRate: 0.076, decimalPlaces: 2, isActive: true },
-      { code: 'USD', nameAr: 'دولار أمريكي', symbol: '$', isBase: false, exchangeRate: 3.75, decimalPlaces: 2, isActive: true },
-    ];
-    return makeList(getEntityList('currencies', defaultCurrencies));
+  if (path.includes('/currencies') || path.includes('/company-currencies')) {
+    return makeList(getEntityList('currencies', defaultCurrenciesList));
   }
 
   if (path.includes('/exchange-rates')) {
-    return makeList(getEntityList('exchange_rates', []));
+    const qStr = path.includes('?') ? path.split('?')[1] : '';
+    const params = new URLSearchParams(qStr);
+    const fromCur = params.get('fromCurrency');
+    const toCur = params.get('toCurrency');
+    let rates = getEntityList('exchange_rates', defaultExchangeRatesList);
+    if (fromCur) rates = rates.filter((r: any) => r.fromCurrency === fromCur);
+    if (toCur) rates = rates.filter((r: any) => r.toCurrency === toCur);
+    return makeList(rates);
   }
 
   // 10. Accounting & Ledgers
@@ -1661,21 +2119,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/fiscal-periods')) {
-    const defaultFp = [
-      { id: 'fp-2026-01', name: 'يناير 2026', startDate: '2026-01-01', endDate: '2026-01-31', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-02', name: 'فبراير 2026', startDate: '2026-02-01', endDate: '2026-02-28', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-03', name: 'مارس 2026', startDate: '2026-03-01', endDate: '2026-03-31', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-04', name: 'أبريل 2026', startDate: '2026-04-01', endDate: '2026-04-30', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-05', name: 'مايو 2026', startDate: '2026-05-01', endDate: '2026-05-31', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-06', name: 'يونيو 2026', startDate: '2026-06-01', endDate: '2026-06-30', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-07', name: 'يوليو 2026', startDate: '2026-07-01', endDate: '2026-07-31', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-08', name: 'أغسطس 2026', startDate: '2026-08-01', endDate: '2026-08-31', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-09', name: 'سبتمبر 2026', startDate: '2026-09-01', endDate: '2026-09-30', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-10', name: 'أكتوبر 2026', startDate: '2026-10-01', endDate: '2026-10-31', status: 'CLOSED', isAdjustmentPeriod: false },
-      { id: 'fp-2026-11', name: 'نوفمبر 2026', startDate: '2026-11-01', endDate: '2026-11-30', status: 'OPEN', isAdjustmentPeriod: false },
-      { id: 'fp-2026-12', name: 'ديسمبر 2026', startDate: '2026-12-01', endDate: '2026-12-31', status: 'OPEN', isAdjustmentPeriod: false },
-    ];
-    return makeList(getEntityList('fiscal_periods', defaultFp));
+    return makeList(getEntityList('fiscal_periods', defaultFiscalPeriodsList));
   }
 
   if (path.includes('/work-calendars')) {
@@ -1692,23 +2136,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/accounts')) {
-    const defaultAccounts = [
-      { id: 'acc-101', code: '10101', nameAr: 'الصندوق والعهد النقدية', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-102', code: '10201', nameAr: 'النقدية بالبنوك (ريال سعودي)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-103', code: '10202', nameAr: 'النقدية بالبنوك (جنيه مصري)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'EGP', isActive: true },
-      { id: 'acc-104', code: '10301', nameAr: 'العملاء وحسابات القبض التجارية (A/R)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-105', code: '10401', nameAr: 'العهد النقدية المؤقتة للموظفين', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-201', code: '20101', nameAr: 'الموردون وحسابات الدفع (A/P)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-202', code: '20201', nameAr: 'ضريبة القيمة المضافة المستحقة (ZATCA VAT)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-203', code: '20301', nameAr: 'مستحقات التأمينات الاجتماعية (GOSI)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-301', code: '30101', nameAr: 'رأس المال المدفوع', accountClass: 'EQUITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-302', code: '30201', nameAr: 'الأرباح المبقاة', accountClass: 'EQUITY', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-401', code: '40101', nameAr: 'إيرادات عقود ومشاريع الكوادر التقنية', accountClass: 'REVENUE', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-430', code: '4300', nameAr: 'أرباح فروق أسعار صرف العملات المحققة (FX Gains)', accountClass: 'REVENUE', normalBalance: 'CREDIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-501', code: '50101', nameAr: 'تكلفة المطورين والرواتب المباشرة للمشاريع', accountClass: 'EXPENSE', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-      { id: 'acc-570', code: '5700', nameAr: 'خسائر فروق أسعار صرف العملات المحققة (FX Losses)', accountClass: 'EXPENSE', normalBalance: 'DEBIT', isPosting: true, currentBalance: '0.00', currency: 'SAR', isActive: true },
-    ];
-    return makeList(getEntityList('accounts', defaultAccounts));
+    return makeList(getNormalizedAccounts());
   }
 
   if (path.includes('/bank-accounts') || path.includes('/banks')) {
@@ -1720,80 +2148,55 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/journal-entries') || path.includes('/journals')) {
-    const jes = getEntityList('journal_entries', []);
-    const singleJe = jes.find((j: any) => path.endsWith(`/${j.id}`) || path.endsWith(`/${j.entryNo}`));
-    if (singleJe) {
-      return {
-        ...singleJe,
-        lines: Array.isArray(singleJe.lines) ? singleJe.lines : [],
-      };
-    }
-    return makeList(jes);
+    const accounts = getNormalizedAccounts();
+    const cleanP = path.split('?')[0].replace(/\/$/, '');
+    const qStr = path.includes('?') ? path.split('?')[1] : '';
+    const params = new URLSearchParams(qStr);
+    const statusFilter = params.get('status');
+    const jes = getEntityList<any>('journal_entries', []).map((j) => normalizeJournalEntry(j, accounts));
+    const singleJe = jes.find((j) => cleanP.endsWith(`/${j.id}`) || (j.entryNo && cleanP.endsWith(`/${j.entryNo}`)));
+    if (singleJe) return singleJe;
+    const filtered = statusFilter ? jes.filter((j) => j.status === statusFilter) : jes;
+    filtered.sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)) || String(b.createdAt).localeCompare(String(a.createdAt)));
+    return makeList(filtered);
   }
 
-  // 11. Financial Reports & Statements (Zero Baseline)
+  // 11. Live Financial Reports & Statements from Posted Journal Entries
   if (path.includes('/ledger/trial')) {
-    return {
-      period: 'أكتوبر 2026',
-      totalDebit: '0.00',
-      totalCredit: '0.00',
-      balanced: true,
-      isBalanced: true,
-      rows: [],
-      lines: [],
-      totals: {
-        openingDebit: '0.00',
-        openingCredit: '0.00',
-        periodDebit: '0.00',
-        periodCredit: '0.00',
-        closingDebit: '0.00',
-        closingCredit: '0.00',
-      },
-    };
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeTrialBalance({
+      from: p.get('from') || undefined,
+      to: p.get('to') || undefined,
+      ledger: p.get('ledger') || 'FINANCIAL',
+      branchId: p.get('branchId') || undefined,
+    });
   }
 
   if (path.includes('/ledger/income')) {
-    return {
-      revenue: '0.00',
-      directCost: '0.00',
-      grossProfit: '0.00',
-      operatingExpenses: '0.00',
-      operatingProfit: '0.00',
-      otherIncome: '0.00',
-      otherExpenses: '0.00',
-      netProfit: '0.00',
-      marginPct: '0.00',
-      lines: [],
-    };
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeIncomeStatement({
+      from: p.get('from') || undefined,
+      to: p.get('to') || undefined,
+      branchId: p.get('branchId') || undefined,
+    });
   }
 
   if (path.includes('/ledger/balance')) {
-    return {
-      asOfDate: '2026-10-31',
-      balanced: true,
-      isBalanced: true,
-      difference: '0.00',
-      currentEarnings: '0.00',
-      liabilitiesAndEquity: '0.00',
-      assets: { total: '0.00', current: '0.00', nonCurrent: '0.00', lines: [] },
-      liabilities: { total: '0.00', lines: [] },
-      equity: { total: '0.00', lines: [] },
-    };
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeBalanceSheet({
+      asOf: p.get('asOf') || undefined,
+      branchId: p.get('branchId') || undefined,
+    });
   }
 
   if (path.includes('/ledger/account-statement')) {
-    return {
-      account: { code: '10101', nameAr: 'الصندوق والعهد النقدية', currency: 'SAR', normalBalance: 'DEBIT' },
-      openingBalance: '0.00',
-      closingBalance: '0.00',
-      periodDebit: '0.00',
-      periodCredit: '0.00',
-      totalDebit: '0.00',
-      totalCredit: '0.00',
-      lines: [],
-      data: [],
-      meta: { page: 1, pageSize: 50, total: 0 },
-    };
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeAccountStatement({
+      accountId: p.get('accountId') || undefined,
+      from: p.get('from') || undefined,
+      to: p.get('to') || undefined,
+      branchId: p.get('branchId') || undefined,
+    });
   }
 
   if (path.includes('/posting-rules') || path.includes('/posting-events')) {
@@ -1922,24 +2325,95 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(getEntityList('services_catalog', []));
   }
 
-  // 15. Payroll, Variables, Loans
+  // 15. Payroll, Variables, Loans (Business Process Sections 12-16)
   if (path.includes('/payroll-runs')) {
-    if (path.includes('/preview')) {
+    const cleanP = path.split('?')[0].replace(/\/$/, '');
+    const runs = getEntityList<any>('payroll_runs', []);
+    if (cleanP.includes('/preview')) {
+      const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+      const period = resolvePeriodByIdOrDate(p.get('periodId'), null);
+      const emps = getEntityList<any>('employees', []).filter((e) => e.status === 'ACTIVE');
+      const monthlyVars = getEntityList<any>('monthly_variables', []).filter(
+        (v) => v.status === 'APPROVED' && (!period || !v.fiscalPeriodId || v.fiscalPeriodId === period.id),
+      );
+      const loans = getEntityList<any>('loans', []).filter((l) => l.status === 'ACTIVE');
+      const existing = runs.find((r) => r.fiscalPeriodId === period?.id && r.status === 'POSTED');
+
+      let totalSalary = 0;
+      let totalVars = 0;
+      let totalLoanDed = 0;
+      let totalNet = 0;
+
+      const lines = emps.map((emp, idx) => {
+        const salRaw = Number(emp.basicSalary || emp.basic_salary || emp.salary || 0);
+        const salBase = convertToBase(salRaw, emp.salaryCurrency || 'SAR', period?.endDate).amountBase;
+        const empVars = monthlyVars.filter((v) => v.employeeId === emp.id || v.employeeCode === emp.code);
+        let bonuses = 0;
+        let overtime = 0;
+        let allowances = 0;
+        let deductions = 0;
+        for (const v of empVars) {
+          const vBase = convertToBase(v.computedAmount || v.amount || 0, v.currencyCode || 'SAR', period?.endDate).amountBase;
+          if (v.category === 'DEDUCTION') {
+            deductions += vBase;
+          } else if (String(v.variableTypeId || '').includes('overtime') || String(v.variableTypeName || '').includes('إضافي')) {
+            overtime += vBase;
+          } else if (String(v.variableTypeId || '').includes('allow') || String(v.variableTypeName || '').includes('بدل')) {
+            allowances += vBase;
+          } else {
+            bonuses += vBase;
+          }
+        }
+
+        // Section 16: Loan installment due for this exact period reduces Net Payable ONLY
+        let loanDed = 0;
+        for (const loan of loans) {
+          if (loan.employeeId !== emp.id && loan.employeeCode !== emp.code) continue;
+          const dueInst = (Array.isArray(loan.installments_list) ? loan.installments_list : []).filter(
+            (inst: any) => inst.status === 'PENDING' && (!period || inst.periodId === period.id),
+          );
+          for (const inst of dueInst) loanDed += Number(inst.dueAmount || 0);
+        }
+
+        const gross = salBase + bonuses + overtime + allowances;
+        const net = Math.max(0, gross - deductions - loanDed);
+        totalSalary += salBase;
+        totalVars += (bonuses + overtime + allowances - deductions);
+        totalLoanDed += loanDed;
+        totalNet += net;
+
+        return {
+          id: `prl-${idx + 1}`,
+          employeeId: emp.id,
+          employeeCode: emp.code,
+          employeeName: emp.fullNameAr || emp.nameAr || 'موظف',
+          salaryBase: salBase.toFixed(2),
+          bonusesBase: bonuses.toFixed(2),
+          overtimeBase: overtime.toFixed(2),
+          allowancesBase: allowances.toFixed(2),
+          deductionsBase: deductions.toFixed(2),
+          loanDeductionsBase: loanDed.toFixed(2),
+          grossBase: gross.toFixed(2),
+          netPayableBase: net.toFixed(2),
+        };
+      });
+
       return {
-        runCode: `PAY-${new Date().toISOString().slice(0, 7)}-PREV`,
-        periodName: 'الفترة الحالية',
-        employeeCount: 0,
-        totalBasic: '0.00',
-        totalAllowances: '0.00',
-        totalDeductions: '0.00',
-        netPayableBase: '0.00',
-        currencyCode: 'SAR',
-        payoutCurrency: 'SAR',
-        lines: [],
+        runCode: `PAY-${(period?.startDate || new Date().toISOString()).slice(0, 7)}-PREV`,
+        periodName: period?.name || 'الفترة الحالية',
+        employeeCount: lines.length,
+        totalSalaryBase: totalSalary.toFixed(2),
+        totalVariablesBase: totalVars.toFixed(2),
+        totalLoanDeductionsBase: totalLoanDed.toFixed(2),
+        netPayableBase: totalNet.toFixed(2),
+        existingRunId: existing?.id || null,
+        currencyCode: getStoredCompany().baseCurrency || 'SAR',
+        payoutCurrency: getStoredCompany().baseCurrency || 'SAR',
+        lines,
       };
     }
-    const runs = getEntityList('payroll_runs', []);
-    const singleRun: any = runs.find((r: any) => path.endsWith(`/${r.id}`));
+
+    const singleRun: any = runs.find((r) => cleanP.endsWith(`/${r.id}`));
     if (singleRun) {
       return {
         ...singleRun,
@@ -1959,15 +2433,25 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/loans')) {
+    const cleanP = path.split('?')[0].replace(/\/$/, '');
     const loans = getEntityList('loans', []);
-    const singleLoan: any = loans.find((l: any) => path.endsWith(`/${l.id}`));
-    if (singleLoan) {
+    const normalizeLoan = (l: any) => {
+      const list = Array.isArray(l.installments_list)
+        ? l.installments_list
+        : (Array.isArray(l.installmentsSchedule) ? l.installmentsSchedule : (Array.isArray(l.installments) ? l.installments : []));
+      const count = typeof l.installments === 'number' ? l.installments : (list.length || 1);
+      const principalNum = Number(l.principalBase || l.principalAmount || 0);
       return {
-        ...singleLoan,
-        installments: Array.isArray(singleLoan.installments) ? singleLoan.installments : [],
+        ...l,
+        principalBase: principalNum.toFixed(2),
+        installments: count,
+        installmentAmount: l.installmentAmount || (principalNum / Math.max(1, count)).toFixed(2),
+        installments_list: list,
       };
-    }
-    return makeList(loans);
+    };
+    const singleLoan: any = loans.find((l: any) => cleanP.endsWith(`/${l.id}`));
+    if (singleLoan) return normalizeLoan(singleLoan);
+    return makeList(loans.map(normalizeLoan));
   }
 
   if (path.includes('/eosb')) {
@@ -2052,14 +2536,15 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(custodies);
   }
 
-  // 17. Cost Engine, Profiles & Components (100% Dynamic from real data)
+  // 17. Cost Engine, Profiles & Components (100% Dynamic from real data + Cost Profiles + FX + Asset Depr)
   if (path.includes('/cost-components')) {
-    return makeList(getEntityList('cost_components', []));
+    return makeList(getEntityList('cost_components', defaultCostComponentsList));
   }
 
   if (path.includes('/cost-profiles')) {
-    const profiles = getEntityList('cost_profiles', defaultCostProfiles);
-    const singleCp: any = profiles.find((p: any) => path.endsWith(`/${p.id}`));
+    const cleanP = path.split('?')[0].replace(/\/$/, '');
+    const profiles = getEntityList('cost_profiles', defaultCostProfilesList);
+    const singleCp: any = profiles.find((p: any) => cleanP.endsWith(`/${p.id}`) || cleanP.endsWith(`/${p.code}`));
     if (singleCp) {
       const lines = Array.isArray(singleCp.lines) ? singleCp.lines : (Array.isArray(singleCp.components) ? singleCp.components : []);
       return { ...singleCp, lines, components: lines };
@@ -2067,65 +2552,61 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(profiles);
   }
 
-  // CRITICAL: Cost Sheet is dynamically computed from actual employees in database
   if (path.includes('/cost-sheet')) {
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const period = resolvePeriodByIdOrDate(p.get('periodId'), null);
     const emps = getEntityList<any>('employees', []);
     if (emps.length === 0) {
       return {
-        period: { id: 'fp-2026-10', name: 'أكتوبر 2026' },
-        totals: {
-          totalCostBase: '0.00',
-          distributableCostBase: '0.00',
-          totalDeductionsBase: '0.00',
-        },
+        period: period || { id: 'fp-2026-11', name: 'نوفمبر 2026' },
+        totals: { totalCostBase: '0.00', distributableCostBase: '0.00', totalDeductionsBase: '0.00' },
         rows: [],
         dailyWorkingHours: 8,
         annualWorkingDays: 240,
         monthlyWorkingDays: 22,
-        components: [],
+        components: getEntityList('cost_components', defaultCostComponentsList),
       };
     }
 
-    let totalCost = 0;
+    let sumTotal = 0;
+    let sumDist = 0;
+    let sumDed = 0;
     const rows = emps.map((e: any, idx: number) => {
-      const cost = Number(e.basicSalary || e.basic_salary || 0);
-      totalCost += cost;
+      const bd = computeEmployeeCostBreakdown(e, period);
+      sumTotal += bd.totalCostBase;
+      sumDist += bd.distributableCostBase;
+      sumDed += bd.totalDeductionsBase;
       return {
         employeeId: e.id || `emp-${idx}`,
         code: e.code || `EMP-00${idx + 1}`,
         fullNameAr: e.fullNameAr || e.nameAr || e.name || 'موظف',
-        employedDays: 22,
-        periodDays: 22,
-        totalCostBase: cost.toFixed(2),
-        distributableCostBase: cost.toFixed(2),
-        totalDeductionsBase: '0.00',
-        lines: cost > 0 ? [{ componentNameAr: 'الراتب الأساسي', amountBase: cost.toFixed(2) }] : [],
+        employedDays: bd.employedDays,
+        periodDays: bd.periodDays,
+        totalCostBase: bd.totalCostBase.toFixed(2),
+        distributableCostBase: bd.distributableCostBase.toFixed(2),
+        totalDeductionsBase: bd.totalDeductionsBase.toFixed(2),
+        lines: bd.lines,
       };
     });
 
     return {
-      period: { id: 'fp-2026-10', name: 'أكتوبر 2026' },
+      period: period || { id: 'fp-2026-11', name: 'نوفمبر 2026' },
       totals: {
-        totalCostBase: totalCost.toFixed(2),
-        distributableCostBase: totalCost.toFixed(2),
-        totalDeductionsBase: '0.00',
+        totalCostBase: sumTotal.toFixed(2),
+        distributableCostBase: sumDist.toFixed(2),
+        totalDeductionsBase: sumDed.toFixed(2),
       },
       rows,
       dailyWorkingHours: 8,
       annualWorkingDays: 240,
       monthlyWorkingDays: 22,
-      components: [],
+      components: getEntityList('cost_components', defaultCostComponentsList),
     };
   }
 
   // 18. Overhead Policy & Service Prices
   if (path.includes('/overhead-policy')) {
-    return {
-      allocationMethod: 'DIRECT_LABOR_HOURS',
-      overheadRatePerHour: '0.00',
-      currency: 'SAR',
-      effectiveYear: new Date().getFullYear(),
-    };
+    return getOverheadPolicy();
   }
 
   if (path.includes('/service-prices')) {
@@ -2138,18 +2619,29 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/revenue-runs')) {
-    if (path.includes('/preview')) {
+    const cleanP = path.split('?')[0].replace(/\/$/, '');
+    const runs = getEntityList<any>('revenue_runs', []);
+    if (cleanP.includes('/preview')) {
+      const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+      const period = resolvePeriodByIdOrDate(q.get('periodId'), null);
       const asgs = getEntityList('assignments', []);
+      const servicePrices = getEntityList('service_prices', []);
+      const existing = runs.find((r) => r.fiscalPeriodId === period?.id && r.status === 'POSTED');
       let totalRev = 0;
       const lines = asgs.map((a: any, idx: number) => {
-        const rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
+        const override = servicePrices.find((sp: any) => sp.employeeId === a.employeeId && sp.projectId === a.projectId)
+          || servicePrices.find((sp: any) => sp.employeeId === a.employeeId && !sp.projectId);
+        const rawRate = Number(override?.price ?? a.billableRate ?? a.dailyRate ?? a.unitPrice ?? 0);
+        const rateCur = override?.currencyCode || a.billingCurrency || 'SAR';
+        const basis = override?.pricingBasis || a.billingBasis || a.allocationBasis || 'DAILY';
+        const rate = convertToBase(rawRate, rateCur, period?.endDate).amountBase;
         const workingDays = Number(a.workingDaysInMonth || 22);
         let units = Number(a.allocatedDays || workingDays);
         let rev = 0;
-        if (a.allocationBasis === 'DAYS') {
+        if (basis === 'DAYS' || basis === 'DAILY' || a.allocationBasis === 'DAYS') {
           units = Number(a.allocatedDays || workingDays);
           rev = units * rate;
-        } else if (a.allocationBasis === 'HOURLY') {
+        } else if (basis === 'HOURLY' || basis === 'HOURS' || a.allocationBasis === 'HOURLY') {
           units = Number(a.allocatedHours || 160);
           rev = units * rate;
         } else {
@@ -2164,11 +2656,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           projectId: a.projectId,
           projectName: a.projectName,
           clientName: a.clientName || 'العميل',
-          pricingBasis: a.billingBasis || a.allocationBasis || 'DAILY',
+          pricingBasis: basis,
           units,
           unitPrice: rate,
           allocationPct: a.allocationPct || 100,
-          grossRevenueBase: rev,
+          grossRevenueBase: Math.round(rev * 100) / 100,
         };
       });
       const uniqueEmps = new Set(lines.map((l) => l.employeeId)).size;
@@ -2177,26 +2669,35 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         lineCount: lines.length,
         projectCount: uniquePrjs,
         employeeCount: uniqueEmps,
-        totalRevenueBase: totalRev,
+        totalRevenueBase: Math.round(totalRev * 100) / 100,
         lines,
-        existingRunId: null,
+        existingRunId: existing?.id || null,
       };
     }
-    return makeList(getEntityList('revenue_runs', []));
+    const singleRun = runs.find((r) => cleanP.endsWith(`/${r.id}`));
+    if (singleRun) return singleRun;
+    return makeList(runs);
   }
 
   // 20. Reports & Financial Intelligence
   if (path.includes('/reports/executive-intelligence')) {
+    const prof = computeDynamicProfitability();
+    const is = computeIncomeStatement();
+    const avgUtil = prof.empList.length > 0
+      ? prof.empList.reduce((s: number, e: any) => s + Number(e.allocatedPct || 0), 0) / prof.empList.length
+      : 0;
+    const revTotal = Number(prof.empSummary.totalRevenueBase || 0) || Number(is.revenue || 0);
+    const netProf = Number(prof.empSummary.totalProfitBase || 0) || Number(is.netProfit || 0);
     return {
       kpis: {
-        ytdRevenue: '0.00',
-        ytdNetProfit: '0.00',
-        netMarginPct: '0.00',
-        utilizationRate: '0.00',
-        activeProjects: 0,
-        totalDevelopers: 0,
+        ytdRevenue: revTotal.toFixed(2),
+        ytdNetProfit: netProf.toFixed(2),
+        netMarginPct: revTotal > 0 ? ((netProf / revTotal) * 100).toFixed(1) : '0.0',
+        utilizationRate: avgUtil.toFixed(1),
+        activeProjects: prof.projectList.filter((p: any) => p.status === 'ACTIVE').length,
+        totalDevelopers: prof.empList.length,
       },
-      topClients: [],
+      topClients: prof.clientList,
     };
   }
 
@@ -2299,7 +2800,15 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/snapshots')) {
-    return makeList(getEntityList('snapshots', []));
+    const cleanP = path.split('?')[0].replace(/\/$/, '');
+    const snaps = getEntityList<any>('snapshots', []);
+    const verifySnap = (s: any) => ({
+      ...s,
+      hashValid: s?.data ? sha256Hex(JSON.stringify(s.data)) === s.dataHash : Boolean(s.hashValid),
+    });
+    const singleSnap = snaps.find((s) => cleanP.endsWith(`/${s.id}`));
+    if (singleSnap) return verifySnap(singleSnap);
+    return makeList(snaps.map(verifySnap));
   }
 
   // 22. Users, Roles & Permissions
@@ -2349,9 +2858,29 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(getEntityList('users', defaultUsers));
   }
 
-  // 23. Security & Audit Logs (Real user activities only)
+  // 23. Security & Audit Logs (Real user activities with full filters)
   if (path.includes('/audit-log') || path.includes('/audit/log')) {
-    return makeList(getEntityList('audit_log', []));
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const fTable = (p.get('table') || '').toLowerCase();
+    const fAction = p.get('action') || '';
+    const fEntity = p.get('entityId') || '';
+    const fFrom = p.get('from') || '';
+    const fTo = p.get('to') || '';
+    let logs = getEntityList<any>('audit_log', []).map((a) => ({
+      ...a,
+      occurredAt: a.occurredAt || a.createdAt,
+      userName: a.userName || a.actor || 'المدير التنفيذي',
+      schemaName: a.schemaName || 'core',
+      entityId: a.entityId || a.recordId || a.id,
+      changedFields: Array.isArray(a.changedFields) ? a.changedFields : [],
+    }));
+    if (fTable) logs = logs.filter((l) => String(l.tableName || '').toLowerCase().includes(fTable));
+    if (fAction) logs = logs.filter((l) => l.action === fAction);
+    if (fEntity) logs = logs.filter((l) => l.entityId === fEntity || l.recordId === fEntity);
+    if (fFrom) logs = logs.filter((l) => String(l.occurredAt || '').slice(0, 10) >= fFrom);
+    if (fTo) logs = logs.filter((l) => String(l.occurredAt || '').slice(0, 10) <= fTo);
+    logs.sort((a, b) => String(b.occurredAt || '').localeCompare(String(a.occurredAt || '')));
+    return makeList(logs);
   }
 
   if (path.includes('/security-events') || path.includes('/audit/security')) {
@@ -2363,17 +2892,10 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/closing/periods')) {
-    return {
-      canClose: true,
-      isClosed: false,
-      warnings: [],
-      results: [
-        { code: 'CHK-01', titleAr: 'فحص ميزان المراجعة وتوازن القيود المحاسبية', status: 'OK', message: 'ميزان المراجعة متزن تماماً (المدين = الدائن)' },
-        { code: 'CHK-02', titleAr: 'فحص ترحيل مسير رواتب الشهر', status: 'OK', message: 'تم ترحيل مسير الرواتب بنجاح' },
-        { code: 'CHK-03', titleAr: 'فحص إهلاك الأصول الثابتة للفترة', status: 'OK', message: 'تم ترحيل قيود الإهلاك' },
-        { code: 'CHK-04', titleAr: 'فحص مطابقة إقرارات ضريبة القيمة المضافة ZATCA', status: 'OK', message: 'جميع الفواتير معتمدة ومطابقة' },
-      ],
-    };
+    const cleanP = path.split('?')[0].replace(/\/$/, '');
+    const segs = cleanP.split('/').filter(Boolean); // ['closing', 'periods', periodId, 'checks']
+    const periodId = segs[2] || 'fp-2026-11';
+    return evaluatePeriodClosingChecks(periodId);
   }
 
   if (path.includes('/zatca/onboard')) {

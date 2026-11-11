@@ -2088,8 +2088,7 @@ function CostPreview({ employeeId }: { employeeId: string }) {
   const [periodId, setPeriodId] = useState('');
   const cost = useQuery({
     queryKey: ['employee-cost', employeeId, periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any>(`/employees/${employeeId}/cost`, { periodId }),
+    queryFn: () => api.get<any>(`/employees/${employeeId}/cost`, periodId ? { periodId } : {}),
   });
 
   return (

@@ -10,8 +10,8 @@
     "migrate": "ts-node --transpile-only src/infrastructure/db/migrate.cli.ts",
     "seed": "node ../../tools/seed_demo_data.js",
     "test": "jest --runInBand",
-    "test:unit": "jest --runInBand --testPathPattern=\\.spec\\.ts$",
-    "test:int": "jest --runInBand --testPathPattern=\\.int\\.spec\\.ts$",
+    "test:unit": "jest --runInBand --testPathPatterns=\\.spec\\.ts$",
+    "test:int": "jest --runInBand --testPathPatterns=\\.int\\.spec\\.ts$",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

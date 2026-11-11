@@ -186,7 +186,7 @@ export function CostSheetPage() {
   const base = useBaseCurrency();
   const [periodId, setPeriodId] = useState('');
   const [open, setOpen] = useState<string | null>(null);
-  const sheet = useQuery({ queryKey: ['cost-sheet', periodId], enabled: !!periodId, queryFn: () => api.get<any>('/cost-sheet', { periodId }) });
+  const sheet = useQuery({ queryKey: ['cost-sheet', periodId], queryFn: () => api.get<any>('/cost-sheet', periodId ? { periodId } : {}) });
   const exportCsv = () => {
     if (!sheet.data) return;
     const rows: any[] = Array.isArray(sheet.data?.rows) ? sheet.data.rows : (Array.isArray(sheet.data) ? sheet.data : []);

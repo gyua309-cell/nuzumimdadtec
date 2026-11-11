@@ -163,7 +163,7 @@ export function AccountsPage() {
              VISUAL TREE VIEW
           ========================================================================= */
           <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
-            {['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'OPERATING_EXPENSE'].map((accClass) => {
+            {['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'DIRECT_COST', 'OPERATING_EXPENSE'].map((accClass) => {
               const rootAccounts = all.filter((a) => a.accountClass === accClass && !a.parentId);
               const classLabel = ACCOUNT_CLASS[accClass] || accClass;
               const classTotal = all.filter((a) => a.accountClass === accClass).length;

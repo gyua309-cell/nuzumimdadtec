@@ -599,7 +599,7 @@ export function PayrollRunsPage() {
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [viewId, setViewId] = useState<string | null>(null);
 
-  const preview = useQuery({ queryKey: ['payroll-preview', periodId], enabled: !!periodId, queryFn: () => api.get<any>('/payroll-runs/preview', { periodId }) });
+  const preview = useQuery({ queryKey: ['payroll-preview', periodId], queryFn: () => api.get<any>('/payroll-runs/preview', periodId ? { periodId } : {}) });
   const runs = useQuery({ queryKey: ['/payroll-runs'], queryFn: () => api.get<Page<any>>('/payroll-runs', { pageSize: 50 }) });
   const detail = useQuery({ queryKey: ['payroll-run', viewId], enabled: !!viewId, queryFn: () => api.get<any>(`/payroll-runs/${viewId}`) });
 
