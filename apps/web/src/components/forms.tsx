@@ -1,28 +1,71 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Save } from 'lucide-react';
 import { api } from '../lib/api';
-import { cleanPayload, EntityForm, FieldDef, fieldErrors } from './CrudPage';
+import { cleanPayload, EntityForm, FieldDef, fieldErrors, validateFormFields } from './CrudPage';
+import { ModalSize } from './FormPrimitives';
+import { SearchableSelect } from './SearchableSelect';
 import { Modal, Spinner, useToast } from './ui';
 
-/** Modal form driven by FieldDefs; submits the cleaned payload. */
+/** Modal form driven by FieldDefs; validates, guards unsaved changes, and submits the cleaned payload. */
 export function FormModal({
-  open, title, fields, initial, onClose, onSubmit, submitText = 'حفظ', wide, note,
+  open,
+  title,
+  subtitle,
+  fields,
+  initial,
+  onClose,
+  onSubmit,
+  submitText = 'حفظ',
+  wide,
+  size,
+  columns,
+  layout,
+  note,
 }: {
-  open: boolean; title: string; fields: FieldDef[]; initial?: Record<string, any>; onClose: () => void;
-  onSubmit: (body: Record<string, any>) => Promise<unknown>; submitText?: string; wide?: boolean; note?: React.ReactNode;
+  open: boolean;
+  title: string;
+  subtitle?: string;
+  fields: FieldDef[];
+  initial?: Record<string, any>;
+  onClose: () => void;
+  onSubmit: (body: Record<string, any>) => Promise<unknown>;
+  submitText?: string;
+  wide?: boolean;
+  size?: ModalSize;
+  columns?: 2 | 3;
+  layout?: 'auto' | 'sections' | 'tabs';
+  note?: ReactNode;
 }) {
   const toast = useToast();
   const [value, setValue] = useState<Record<string, any>>({});
+  const [initialSnapshot, setInitialSnapshot] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     if (open) {
       setErrors({});
-      setValue({ ...Object.fromEntries(fields.map((f) => [f.name, f.default ?? (f.type === 'bool' ? false : '')])), ...(initial ?? {}) });
+      const seed = {
+        ...Object.fromEntries(fields.map((f) => [f.name, f.default ?? (f.type === 'bool' ? false : '')])),
+        ...(initial ?? {}),
+      };
+      setValue(seed);
+      setInitialSnapshot(JSON.stringify(seed));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-  const submit = async () => {
+
+  const isDirty = open && JSON.stringify(value) !== initialSnapshot;
+
+  const submit = useCallback(async () => {
+    if (busy) return;
+    const clientErrs = validateFormFields(fields, value, false);
+    if (Object.keys(clientErrs).length > 0) {
+      setErrors(clientErrs);
+      toast.error('يرجى مراجعة الحقول الإلزامية قبل الحفظ');
+      return;
+    }
     setBusy(true);
     try {
       await onSubmit(cleanPayload(fields, value, false));
@@ -34,36 +77,86 @@ export function FormModal({
     } finally {
       setBusy(false);
     }
-  };
+  }, [busy, fields, onClose, onSubmit, toast, value]);
+
+  const resolvedSize: ModalSize =
+    size ?? (fields.length >= 10 ? 'xl' : wide || fields.length >= 5 ? 'lg' : 'md');
+
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={title}
+      subtitle={subtitle}
       wide={wide}
+      size={resolvedSize}
+      dirty={isDirty}
+      saving={busy}
+      onSaveShortcut={submit}
       footer={
         <>
-          <button className="btn-secondary" onClick={onClose}>إلغاء</button>
-          <button className="btn-primary" disabled={busy} onClick={submit}>{busy && <Spinner />} {submitText}</button>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>
+            إلغاء
+          </button>
+          <button type="button" className="btn-primary flex items-center gap-1.5" disabled={busy} onClick={submit}>
+            {busy ? <Spinner /> : <Save className="size-3.5" />} {submitText}
+          </button>
         </>
       }
     >
-      {note && <div className="mb-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">{note}</div>}
-      <EntityForm fields={fields} value={value} onChange={setValue} errors={errors} />
+      {note && (
+        <div className="mb-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-800/50 p-3.5 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+          {note}
+        </div>
+      )}
+      <EntityForm
+        fields={fields}
+        value={value}
+        onChange={setValue}
+        errors={errors}
+        columns={columns}
+        layout={layout}
+      />
     </Modal>
   );
 }
 
-export interface PeriodOption { id: string; name: string; startDate: string; endDate: string; status: string; isAdjustmentPeriod: boolean; periodNo: number }
+export interface PeriodOption {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  isAdjustmentPeriod: boolean;
+  periodNo: number;
+}
 
-export function usePeriods() {
-  return useQuery({ queryKey: ['fiscal-periods'], queryFn: () => api.get<PeriodOption[]>('/fiscal-periods') });
+export function usePeriods(enabled = true) {
+  return useQuery({
+    queryKey: ['fiscal-periods'],
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    queryFn: () => api.get<PeriodOption[]>('/fiscal-periods'),
+  });
 }
 
 /** Regular (monthly) fiscal period picker; defaults to the period containing today. */
-export function PeriodSelect({ value, onChange, className = 'w-56' }: { value: string; onChange: (id: string) => void; className?: string }) {
+export function PeriodSelect({
+  value,
+  onChange,
+  className = 'w-56',
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  className?: string;
+}) {
   const periods = usePeriods();
-  const list = (periods.data ?? []).filter((p) => !p.isAdjustmentPeriod);
+  const list = useMemo(
+    () => (periods.data ?? []).filter((p) => !p.isAdjustmentPeriod),
+    [periods.data]
+  );
+
   useEffect(() => {
     if (!value && list.length) {
       const t = new Date().toISOString().slice(0, 10);
@@ -72,13 +165,26 @@ export function PeriodSelect({ value, onChange, className = 'w-56' }: { value: s
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.length, value]);
+
+  const options = useMemo(
+    () =>
+      list.map((p) => ({
+        value: p.id,
+        label: `${p.name}${p.status !== 'OPEN' ? ` (${p.status === 'CLOSED' ? 'مقفلة' : p.status})` : ''}`,
+      })),
+    [list]
+  );
+
   return (
-    <select className={`input ${className}`} value={value} onChange={(e) => onChange(e.target.value)}>
-      {list.length === 0 && <option value="">لا توجد فترات مالية — أنشئ سنة مالية أولًا</option>}
-      {list.map((p) => (
-        <option key={p.id} value={p.id}>{p.name} {p.status !== 'OPEN' ? `(${p.status === 'CLOSED' ? 'مقفلة' : p.status})` : ''}</option>
-      ))}
-    </select>
+    <SearchableSelect
+      className={className}
+      options={options}
+      loading={periods.isLoading}
+      value={value}
+      onChange={(v) => onChange(v)}
+      clearable={false}
+      placeholder={list.length === 0 ? 'لا توجد فترات مالية — أنشئ سنة مالية أولاً' : '— اختر الفترة المالية —'}
+    />
   );
 }
 

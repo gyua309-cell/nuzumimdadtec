@@ -8,8 +8,9 @@ import {
 import { api, Page } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
 import { PeriodSelect } from '../components/forms';
+import { SearchableSelect } from '../components/SearchableSelect';
 import {
-  Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, ReasonDialog, Stat, useToast,
+  Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, ReasonDialog, Stat, useToast,
 } from '../components/ui';
 
 // ============================================================================
@@ -898,15 +899,20 @@ function CreateRetroactiveAdjustmentModal({
   const [busy, setBusy] = useState(false);
 
   const employees = useQuery({
-    queryKey: ['/employees-list'],
-    queryFn: () => api.get<Page<any>>('/employees', { pageSize: 100 }),
+    queryKey: ['ref', '/employees', undefined],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => api.get<Page<any>>('/employees', { pageSize: 200 }),
   });
   const projects = useQuery({
-    queryKey: ['/projects-list'],
-    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 100 }),
+    queryKey: ['ref', '/projects', undefined],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 200 }),
   });
 
   const handleSubmit = async () => {
+    if (busy) return;
     if (!employeeId || !projectId || !originalPeriodId || !fiscalPeriodId) {
       toast.error(new Error('يرجى استكمال اختيار الموظف والمشروع والفترات المالية'));
       return;
@@ -940,50 +946,64 @@ function CreateRetroactiveAdjustmentModal({
     }
   };
 
+  const employeeOpts = (Array.isArray(employees.data) ? employees.data : (employees.data?.data ?? [])).map((e: any) => ({
+    value: e.id,
+    label: `${e.code} — ${e.fullNameAr}`,
+  }));
+  const projectOpts = (Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => ({
+    value: p.id,
+    label: `${p.code} — ${p.nameAr}`,
+  }));
+
   return (
     <Modal
       open={open}
       onClose={onClose}
+      size="lg"
+      dirty={Boolean(employeeId || projectId || adjustmentReason)}
+      saving={busy}
+      onSaveShortcut={handleSubmit}
       title="إضافة تسوية إيراد بأثر رجعي (Retroactive Revenue)"
       footer={
         <>
-          <button className="btn-secondary" onClick={onClose} disabled={busy}>إلغاء</button>
-          <button className="btn-primary" onClick={handleSubmit} disabled={busy}>
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>إلغاء</button>
+          <button type="button" className="btn-primary" onClick={handleSubmit} disabled={busy}>
             {busy ? 'جارٍ الحفظ...' : 'حفظ التسوية'}
           </button>
         </>
       }
     >
       <div className="space-y-4 text-xs">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="الموظف *">
-            <select className="input w-full" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-              <option value="">-- اختر الموظف --</option>
-              {(Array.isArray(employees.data) ? employees.data : (employees.data?.data ?? [])).map((e: any) => (
-                <option key={e.id} value={e.id}>{e.code} — {e.fullNameAr}</option>
-              ))}
-            </select>
+        <FormSection title="الموظف والمشروع والفترات" subtitle="تحديد المورد والمشروع وفترتي الاستحقاق والتسجيل" columns={2}>
+          <Field label="الموظف" required>
+            <SearchableSelect
+              clearable={false}
+              loading={employees.isLoading}
+              options={employeeOpts}
+              value={employeeId}
+              onChange={setEmployeeId}
+              placeholder="— ابحث واختر الموظف —"
+            />
           </Field>
-          <Field label="المشروع *">
-            <select className="input w-full" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">-- اختر المشروع --</option>
-              {(Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => (
-                <option key={p.id} value={p.id}>{p.code} — {p.nameAr}</option>
-              ))}
-            </select>
+          <Field label="المشروع" required>
+            <SearchableSelect
+              clearable={false}
+              loading={projects.isLoading}
+              options={projectOpts}
+              value={projectId}
+              onChange={setProjectId}
+              placeholder="— ابحث واختر المشروع —"
+            />
           </Field>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="الفترة المالية الأصلية (تاريخ العمل الفعلي) *">
+          <Field label="الفترة المالية الأصلية (تاريخ العمل الفعلي)" required>
             <PeriodSelect value={originalPeriodId} onChange={setOriginalPeriodId} className="w-full" />
           </Field>
-          <Field label="فترة التسجيل والاعتراف (الشهر الحالي المفتوح) *">
+          <Field label="فترة التسجيل والاعتراف (الشهر الحالي المفتوح)" required>
             <PeriodSelect value={fiscalPeriodId} onChange={setFiscalPeriodId} className="w-full" />
           </Field>
-        </div>
+        </FormSection>
 
-        <div className="grid grid-cols-4 gap-3">
+        <FormSection title="تفاصيل التسعير والوحدات" subtitle="أساس الاحتساب والعملة وعدد الوحدات وسعر الوحدة" columns={2}>
           <Field label="أساس التسعير">
             <select className="input w-full" value={pricingBasis} onChange={(e) => setPricingBasis(e.target.value as any)}>
               <option value="DAILY">يومي (Daily)</option>
@@ -999,21 +1019,23 @@ function CreateRetroactiveAdjustmentModal({
             </select>
           </Field>
           <Field label="عدد الوحدات (أيام/ساعات)">
-            <input type="number" step="0.5" className="input w-full font-mono" value={units} onChange={(e) => setUnits(e.target.value)} />
+            <input type="number" step="0.5" min="0" className="input w-full font-mono" value={units} onChange={(e) => setUnits(e.target.value)} />
           </Field>
           <Field label="سعر الوحدة">
-            <input type="number" step="1" className="input w-full font-mono" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
+            <input type="number" step="1" min="0" className="input w-full font-mono" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
           </Field>
-        </div>
+        </FormSection>
 
-        <Field label="سبب التسوية بأثر رجعي (إلزامي للرقابة والتدقيق) *">
-          <textarea
-            className="input w-full h-16 py-1.5"
-            placeholder="مثال: اكتشاف أيام عمل غير مفوترة في الشهر السابق بعد تسليم متطلبات إضافية للعميل..."
-            value={adjustmentReason}
-            onChange={(e) => setAdjustmentReason(e.target.value)}
-          />
-        </Field>
+        <FormSection title="مبررات التسوية والمراجعة" columns={1}>
+          <Field label="سبب التسوية بأثر رجعي (إلزامي للرقابة والتدقيق)" required>
+            <textarea
+              className="input w-full min-h-[76px] py-2"
+              placeholder="مثال: اكتشاف أيام عمل غير مفوترة في الشهر السابق بعد تسليم متطلبات إضافية للعميل..."
+              value={adjustmentReason}
+              onChange={(e) => setAdjustmentReason(e.target.value)}
+            />
+          </Field>
+        </FormSection>
       </div>
     </Modal>
   );

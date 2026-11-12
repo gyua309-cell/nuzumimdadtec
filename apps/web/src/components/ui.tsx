@@ -1,7 +1,9 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Inbox, Info, Loader2, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Inbox, Info, Loader2, Trash2, X } from 'lucide-react';
 import { ApiError } from '../lib/api';
+import { EnhancedField, ErpModalProps, ErpModalShell, FormSection, ModalSize } from './FormPrimitives';
+export { FormSection };
+export type { ModalSize, ErpModalProps };
 
 // ------------------------------------------------------------------ toast
 type Toast = { id: number; kind: 'success' | 'error' | 'info'; text: string; detail?: string };
@@ -196,104 +198,12 @@ export function Badge({
 }
 
 // ------------------------------------------------------------------ overlays
-export function Modal({
-  open,
-  onClose,
-  title,
-  children,
-  footer,
-  wide = false,
-  maxWidth,
-}: {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  children: ReactNode;
-  footer?: ReactNode;
-  wide?: boolean;
-  maxWidth?: string;
-  centered?: boolean;
-}) {
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    if (open) {
-      window.addEventListener('keydown', h);
-      document.body.style.overflow = 'hidden';
-    }
-    return () => {
-      window.removeEventListener('keydown', h);
-      document.body.style.overflow = '';
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[9999] flex flex-col items-center justify-start p-3 sm:py-8 sm:px-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-fade-in"
-      onMouseDown={onClose}
-    >
-      <div
-        className={`relative flex w-full ${
-          maxWidth ? maxWidth : wide ? 'max-w-5xl' : 'max-w-3xl'
-        } max-h-[92vh] min-h-0 my-auto flex-col rounded-2xl border border-slate-200/90 bg-white shadow-2xl dark:border-slate-700/80 dark:bg-[#0c1427] overflow-hidden animate-scale-up`}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {/* Signature IDHAM Top Accent Gradient Bar */}
-        <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-cyan-500 to-emerald-500 shrink-0" />
-
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/90 px-6 py-4 bg-slate-50/70 dark:bg-[#091020] shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400">
-              <Sparkles className="size-4" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white tracking-tight truncate">
-                {title}
-              </h2>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="hidden sm:inline-block rounded-md border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-[10px] font-mono text-slate-400">
-              ESC
-            </span>
-            <button
-              type="button"
-              className="flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-white transition-all cursor-pointer"
-              onClick={onClose}
-              title="إغلاق (Esc)"
-            >
-              <X className="size-4.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Modal Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6 custom-scrollbar">{children}</div>
-
-        {/* Modal Footer */}
-        {footer && (
-          <div className="flex flex-wrap items-center justify-end gap-2.5 border-t border-slate-100 dark:border-slate-800/90 px-6 py-3.5 bg-slate-50/80 dark:bg-[#091020] shrink-0">
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body
-  );
+export function Modal(props: ErpModalProps) {
+  return <ErpModalShell {...props} />;
 }
 
-export function Drawer(props: {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  children: ReactNode;
-  footer?: ReactNode;
-  wide?: boolean;
-  maxWidth?: string;
-}) {
-  return <Modal {...props} />;
+export function Drawer(props: ErpModalProps) {
+  return <ErpModalShell {...props} />;
 }
 
 /** Styled Executive Confirmation Dialog (replaces ugly native browser confirm). */
@@ -426,21 +336,32 @@ export function Field({
   children,
   error,
   hint,
+  required,
+  icon,
+  htmlFor,
   className = '',
 }: {
   label: string;
   children: ReactNode;
   error?: string;
   hint?: string;
+  required?: boolean;
+  icon?: ReactNode;
+  htmlFor?: string;
   className?: string;
 }) {
   return (
-    <div className={className}>
-      <label className="label">{label}</label>
+    <EnhancedField
+      label={label}
+      error={error}
+      hint={hint}
+      required={required}
+      icon={icon}
+      htmlFor={htmlFor}
+      className={className}
+    >
       {children}
-      {hint && !error && <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{hint}</p>}
-      {error && <p className="mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400">{error}</p>}
-    </div>
+    </EnhancedField>
   );
 }
 

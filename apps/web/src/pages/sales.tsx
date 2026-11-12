@@ -1,20 +1,21 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight, Building2, Code2, Cpu, Eye, FileCheck2,
-  FileSpreadsheet, FileText, Filter, Pencil, Plus, Printer, RotateCcw, Send, ShieldCheck, Sparkles,
+  FileSpreadsheet, FileText, Filter, Pencil, Plus, Printer, RotateCcw, Save, Send, ShieldCheck, Sparkles,
   Terminal, Trash2, User, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
 import { PeriodSelect } from '../components/forms';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { ZatcaTaxInvoiceTemplate, exportInvoiceToExcel } from '../components/ZatcaTaxInvoiceTemplate';
 import { ExportMenu } from '../components/ExportMenu';
 
 import { PrintEngine } from '../engine/print-engine';
 import {
-  Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader,
+  Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader,
   ReasonDialog, Stat, useToast,
 } from '../components/ui';
 
@@ -465,11 +466,19 @@ function AutoGenerateInvoicesModal({
   const [busy, setBusy] = useState(false);
 
   const projects = useQuery({
-    queryKey: ['/projects-list'],
-    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 100 }),
+    queryKey: ['ref', '/projects', undefined],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 200 }),
   });
 
+  const projectOptions = useMemo(() => {
+    const list = Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? []);
+    return list.map((p: any) => ({ value: p.id, label: `${p.code} — ${p.nameAr}` }));
+  }, [projects.data]);
+
   const handleGenerate = async () => {
+    if (busy) return;
     if (!periodId) {
       toast.error(new Error('يرجى اختيار الفترة المالية أولاً'));
       return;
@@ -499,24 +508,30 @@ function AutoGenerateInvoicesModal({
     <Modal
       open={open}
       onClose={onClose}
+      size="lg"
+      dirty={Boolean(projectId)}
+      saving={busy}
+      onSaveShortcut={handleGenerate}
       title="توليد فواتير المشاريع تلقائياً من محرك الإيرادات"
       footer={
         <>
-          <button className="btn-secondary" onClick={onClose} disabled={busy}>
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
             إلغاء
           </button>
           <button
-            className="btn-primary bg-emerald-600 hover:bg-emerald-700 text-white"
+            type="button"
+            className="btn-primary bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5"
             onClick={handleGenerate}
             disabled={busy || !periodId}
           >
+            <Sparkles className="size-3.5" />
             {busy ? 'جارٍ التوليد والربط...' : 'بدء توليد الفواتير'}
           </button>
         </>
       }
     >
       <div className="space-y-4 text-sm">
-        <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-3.5 text-xs text-emerald-900 dark:text-emerald-200 flex items-start gap-2.5">
+        <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-3.5 text-xs text-emerald-900 dark:text-emerald-200 flex items-start gap-2.5">
           <Sparkles className="size-5 shrink-0 text-emerald-600 mt-0.5" />
           <div className="space-y-1">
             <p className="font-semibold">دورة الفوترة الآلية للمشاريع:</p>
@@ -526,42 +541,40 @@ function AutoGenerateInvoicesModal({
           </div>
         </div>
 
-        <Field label="الفترة المالية المعتمدة للفوترة">
-          <PeriodSelect value={periodId} onChange={setPeriodId} className="w-full" />
-        </Field>
+        <FormSection title="إعدادات دورة الفوترة الآلية" columns={3}>
+          <Field label="الفترة المالية المعتمدة للفوترة" required>
+            <PeriodSelect value={periodId} onChange={setPeriodId} className="w-full" />
+          </Field>
 
-        <Field label="المشروع (اختياري - اتركه فارغاً لفوترة جميع المشاريع)">
-          <select
-            className="input w-full"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            <option value="">جميع المشاريع والعملاء</option>
-            {(Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => (
-              <option key={p.id} value={p.id}>
-                {p.code} — {p.nameAr}
-              </option>
-            ))}
-          </select>
-        </Field>
+          <Field label="المشروع (اختياري)">
+            <SearchableSelect
+              options={projectOptions}
+              loading={projects.isLoading}
+              value={projectId}
+              onChange={setProjectId}
+              placeholder="جميع المشاريع والعملاء"
+            />
+          </Field>
 
-        <Field label="تاريخ إصدار الفواتير">
-          <input
-            type="date"
-            className="input w-full font-mono"
-            value={issueDate}
-            onChange={(e) => setIssueDate(e.target.value)}
-          />
-        </Field>
+          <Field label="تاريخ إصدار الفواتير">
+            <input
+              type="date"
+              dir="ltr"
+              className="input w-full font-mono"
+              value={issueDate}
+              onChange={(e) => setIssueDate(e.target.value)}
+            />
+          </Field>
+        </FormSection>
 
-        <label className="flex items-center gap-2 cursor-pointer pt-1">
+        <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-slate-200/80 dark:border-slate-800 p-3 bg-slate-50/70 dark:bg-slate-900/50">
           <input
             type="checkbox"
             className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
             checked={autoPost}
             onChange={(e) => setAutoPost(e.target.checked)}
           />
-          <span className="font-medium text-slate-800 dark:text-slate-200">
+          <span className="font-medium text-slate-800 dark:text-slate-200 text-xs">
             ترحيل الفواتير فوراً واعتماد تشفير هيئة الزكاة وإنشاء القيود المحاسبية تلقائياً
           </span>
         </label>
@@ -682,21 +695,60 @@ function CreateInvoiceModal({
   ]);
 
   const clients = useQuery({
-    queryKey: ['/clients-list'],
-    queryFn: () => api.get<Page<any>>('/clients', { pageSize: 100 }),
+    queryKey: ['ref', '/clients', undefined],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => api.get<Page<any>>('/clients', { pageSize: 200 }),
   });
 
   const projects = useQuery({
-    queryKey: ['/projects-list'],
-    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 100 }),
+    queryKey: ['ref', '/projects', undefined],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 200 }),
   });
 
   const employees = useQuery({
-    queryKey: ['/employees-invoice-selection'],
+    queryKey: ['ref', '/employees', undefined],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
     queryFn: () => api.get<Page<any>>('/employees', { pageSize: 200 }),
   });
 
-  const employeeList = Array.isArray(employees.data) ? employees.data : (employees.data?.data ?? []);
+  const clientList = useMemo(
+    () => (Array.isArray(clients.data) ? clients.data : (clients.data?.data ?? [])),
+    [clients.data]
+  );
+  const projectList = useMemo(
+    () => (Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])),
+    [projects.data]
+  );
+  const employeeList = useMemo(
+    () => (Array.isArray(employees.data) ? employees.data : (employees.data?.data ?? [])),
+    [employees.data]
+  );
+
+  const clientOptions = useMemo(
+    () =>
+      clientList.map((c: any) => ({
+        value: c.id,
+        label: c.nameAr,
+        subLabel: c.vatNumber ? `ضريبي: ${c.vatNumber}` : undefined,
+      })),
+    [clientList]
+  );
+  const projectOptions = useMemo(
+    () => projectList.map((p: any) => ({ value: p.id, label: `${p.code} — ${p.nameAr}` })),
+    [projectList]
+  );
+  const employeeOptions = useMemo(
+    () =>
+      employeeList.map((emp: any) => ({
+        value: emp.id,
+        label: `[${emp.code}] ${emp.fullNameAr || emp.fullNameEn}`,
+      })),
+    [employeeList]
+  );
 
   const addLine = () => {
     setLines((prev) => [
@@ -852,10 +904,13 @@ function CreateInvoiceModal({
     <Modal
       open={open}
       onClose={onClose}
-      maxWidth="max-w-7xl"
+      size="xl"
+      dirty={Boolean(clientId || projectId || lines.length > 1 || lines[0]?.employeeId)}
+      saving={busy}
+      onSaveShortcut={handleSubmit}
       title="إنشاء فاتورة ضريبية للخدمات البرمجية وتأجير الكفاءات (ZATCA Tax Invoice)"
       footer={
-        <div className="flex items-center justify-between w-full">
+        <div className="flex flex-wrap items-center justify-between gap-3 w-full">
           <div className="text-xs text-slate-500 hidden sm:block">
             <span>المجموع الكلي: </span>
             <strong className="text-emerald-700 dark:text-emerald-400 font-mono text-sm">
@@ -864,22 +919,23 @@ function CreateInvoiceModal({
             <span className="text-slate-400 ms-2">({tafqeetArabic(totalAmount, currencyCode)})</span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn-secondary" onClick={onClose} disabled={busy}>
+            <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
               إلغاء
             </button>
             <button
+              type="button"
               className="btn-primary bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2"
               onClick={handleSubmit}
               disabled={busy}
             >
-              <Sparkles className="size-4" />
+              <Save className="size-4" />
               {busy ? 'جارٍ الحفظ وتوليد ZATCA...' : 'حفظ الفاتورة كمسودة معتمدة'}
             </button>
           </div>
         </div>
       }
     >
-      <div className="space-y-6 text-sm max-h-[80vh] overflow-y-auto px-1">
+      <div className="space-y-5 text-sm">
         {/* Banner Alert */}
         <div className="rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900 border border-emerald-200 dark:border-emerald-800 p-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
           <div className="flex items-center gap-3">
@@ -910,37 +966,29 @@ function CreateInvoiceModal({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Field label="العميل / المشتري (Buyer) *">
-              <select
-                className="input w-full"
+            <Field label="العميل / المشتري (Buyer)" required>
+              <SearchableSelect
+                options={clientOptions}
+                loading={clients.isLoading}
                 value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-              >
-                <option value="">-- اختر العميل من القائمة --</option>
-                {(Array.isArray(clients.data) ? clients.data : (clients.data?.data ?? [])).map((c: any) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nameAr} {c.vatNumber ? `(ضريبي: ${c.vatNumber})` : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={setClientId}
+                placeholder="— ابحث واختر العميل —"
+                clearable={false}
+                autoFocus
+              />
             </Field>
 
             <Field label="المشروع المرتبط (Project)">
-              <select
-                className="input w-full"
+              <SearchableSelect
+                options={projectOptions}
+                loading={projects.isLoading}
                 value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-              >
-                <option value="">-- خدمات عامة غير مرتبطة بمشروع --</option>
-                {(Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => (
-                  <option key={p.id} value={p.id}>
-                    {p.code} — {p.nameAr}
-                  </option>
-                ))}
-              </select>
+                onChange={setProjectId}
+                placeholder="خدمات عامة غير مرتبطة بمشروع"
+              />
             </Field>
 
-            <Field label="الفترة المالية المحاسبية *">
+            <Field label="الفترة المالية المحاسبية" required>
               <PeriodSelect value={periodId} onChange={setPeriodId} className="w-full" />
             </Field>
           </div>
@@ -1064,19 +1112,14 @@ function CreateInvoiceModal({
                     <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
                       {/* Developer Selector */}
                       <td>
-                        <div className="space-y-1">
-                          <select
-                            className="input w-full text-xs py-1"
+                        <div className="space-y-1 min-w-[200px]">
+                          <SearchableSelect
+                            options={employeeOptions}
+                            loading={employees.isLoading}
                             value={line.employeeId || ''}
-                            onChange={(e) => updateLine(idx, { employeeId: e.target.value || undefined })}
-                          >
-                            <option value="">-- مهندس / مطور خارجي --</option>
-                            {employeeList.map((emp) => (
-                              <option key={emp.id} value={emp.id}>
-                                [{emp.code}] {emp.fullNameAr || emp.fullNameEn}
-                              </option>
-                            ))}
-                          </select>
+                            onChange={(val) => updateLine(idx, { employeeId: val || undefined })}
+                            placeholder="مهندس / مطور خارجي"
+                          />
                           {line.employeeName && (
                             <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1">
                               <User className="size-3" /> {line.employeeName}
@@ -1526,53 +1569,59 @@ function CreateCreditNoteModal({
     <Modal
       open={open}
       onClose={onClose}
+      size="lg"
+      dirty={Boolean(notes || returnReason !== 'إرجاع خدمات أو تعديل ساعات العمل')}
+      saving={busy}
+      onSaveShortcut={handleCreate}
       title={`إصدار إشعار دائن (مردود مبيعات) للفاتورة ${invoice.invoiceNo}`}
       footer={
         <>
-          <button className="btn-secondary" onClick={onClose} disabled={busy}>
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
             إلغاء
           </button>
-          <button className="btn-primary bg-purple-600 hover:bg-purple-700 text-white" onClick={handleCreate} disabled={busy}>
+          <button type="button" className="btn-primary bg-purple-600 hover:bg-purple-700 text-white" onClick={handleCreate} disabled={busy}>
             {busy ? 'جارٍ الإصدار...' : 'إصدار الإشعار الدائن'}
           </button>
         </>
       }
     >
       <div className="space-y-4 text-sm">
-        <div className="rounded-lg bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 p-3 text-xs text-purple-900 dark:text-purple-200 space-y-1">
+        <div className="rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 p-3.5 text-xs text-purple-900 dark:text-purple-200 space-y-1">
           <p className="font-semibold">إشعار دائن ضريبي معتمد (Credit Note - ZATCA):</p>
           <p>
             سيتم إنشاء إشعار دائن ضريبي مرتبط برقم الفاتورة الأصلية ومبلغها ({money(invoice.totalAmount)} {invoice.currencyCode})، وتوليد شفرة ZATCA وعكس قيد الإيرادات والضريبة في الحسابات العامة.
           </p>
         </div>
 
-        <Field label="سبب الإرجاع / التعديل (إلزامي للزكاة) *">
-          <input
-            type="text"
-            className="input w-full"
-            placeholder="مثال: إلغاء عقد، تخفيض ساعات، تعديل خطأ في الفاتورة..."
-            value={returnReason}
-            onChange={(e) => setReturnReason(e.target.value)}
-          />
-        </Field>
+        <FormSection title="بيانات الإشعار الدائن" columns={2}>
+          <Field label="سبب الإرجاع / التعديل (إلزامي للزكاة)" required>
+            <input
+              type="text"
+              className="input w-full"
+              placeholder="مثال: إلغاء عقد، تخفيض ساعات، تعديل خطأ في الفاتورة..."
+              value={returnReason}
+              onChange={(e) => setReturnReason(e.target.value)}
+            />
+          </Field>
 
-        <Field label="تاريخ الإصدار">
-          <input
-            type="date"
-            className="input w-full font-mono"
-            value={issueDate}
-            onChange={(e) => setIssueDate(e.target.value)}
-          />
-        </Field>
+          <Field label="تاريخ الإصدار">
+            <input
+              type="date"
+              className="input w-full font-mono"
+              value={issueDate}
+              onChange={(e) => setIssueDate(e.target.value)}
+            />
+          </Field>
 
-        <Field label="ملاحظات إضافية">
-          <textarea
-            className="input w-full h-16 py-1 text-xs"
-            placeholder="أي تفاصيل تود إضافتها..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </Field>
+          <Field label="ملاحظات إضافية" className="col-span-full">
+            <textarea
+              className="input w-full min-h-[72px] py-1.5 text-xs"
+              placeholder="أي تفاصيل تود إضافتها..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </Field>
+        </FormSection>
       </div>
     </Modal>
   );

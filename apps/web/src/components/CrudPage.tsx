@@ -1,14 +1,22 @@
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import React, { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, AlignJustify, Download, Eye, FileSpreadsheet, List, Pencil, Plus,
-  Printer, RefreshCw, Search, Trash2, Upload, X,
+  Printer, RefreshCw, Save, Search, Trash2, Upload, X,
 } from 'lucide-react';
 import { api, ApiError, Page } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { downloadCsv, parseCsv, today } from '../lib/format';
 import { ExportMenu } from './ExportMenu';
 import { ExportColumnDef } from '../engine/export-engine';
+import { SearchableSelect } from './SearchableSelect';
+import {
+  FormSection,
+  ModalSize,
+  formatDecimalOnBlur,
+  formatPhoneOnBlur,
+  validateFieldValue,
+} from './FormPrimitives';
 import {
   Badge, ConfirmDialog, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Spinner, useToast,
 } from './ui';
@@ -18,7 +26,7 @@ export type Option = { value: string; label: string };
 export interface FieldDef {
   name: string;
   label: string;
-  type: 'text' | 'number' | 'decimal' | 'bool' | 'date' | 'select' | 'ref' | 'textarea' | 'weekdays';
+  type: 'text' | 'number' | 'decimal' | 'bool' | 'date' | 'select' | 'ref' | 'textarea' | 'weekdays' | 'email' | 'tel';
   options?: Option[];
   /** reference list loaded from the API (e.g. /branches) */
   ref?: { path: string; label: (row: any) => string; query?: Record<string, string> };
@@ -29,6 +37,19 @@ export interface FieldDef {
   /** hide on edit (immutable after create) */
   createOnly?: boolean;
   full?: boolean;
+  /** Optional progressive UI/UX enhancements (100% backwards-compatible) */
+  section?: string;
+  sectionSubtitle?: string;
+  sectionIcon?: ReactNode;
+  sectionCollapsible?: boolean;
+  defaultOpen?: boolean;
+  icon?: ReactNode;
+  placeholder?: string;
+  cols?: 1 | 2 | 3;
+  min?: number;
+  max?: number;
+  validate?: (value: any, all?: Record<string, any>) => string | null;
+  autoFocus?: boolean;
 }
 
 export interface ColumnDef {
@@ -43,6 +64,8 @@ export function useRefOptions(ref?: FieldDef['ref']) {
   return useQuery({
     queryKey: ['ref', ref?.path, ref?.query],
     enabled: !!ref,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
     queryFn: async () => {
       const r = await api.get<Page<any> | any[]>(ref!.path, { pageSize: 200, ...(ref!.query ?? {}) });
       const rows = Array.isArray(r) ? r : r.data;
@@ -53,9 +76,59 @@ export function useRefOptions(ref?: FieldDef['ref']) {
 
 const WEEKDAYS = ['الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
 
-function FieldInput({ f, value, onChange, error }: { f: FieldDef; value: any; onChange: (v: any) => void; error?: string }) {
+const FieldInput = React.memo(function FieldInput({
+  f,
+  value,
+  onFieldChange,
+  error,
+  shouldAutoFocus,
+  gridCols = 2,
+}: {
+  f: FieldDef;
+  value: any;
+  onFieldChange: (name: string, v: any) => void;
+  error?: string;
+  shouldAutoFocus?: boolean;
+  gridCols?: 2 | 3;
+}) {
   const opts = useRefOptions(f.ref);
-  const common = { className: 'input', dir: f.ltr ? 'ltr' : undefined } as const;
+  const [localError, setLocalError] = useState<string | null>(null);
+  const effectiveError = error || localError || undefined;
+
+  const onChange = useCallback((v: any) => {
+    setLocalError(null);
+    onFieldChange(f.name, v);
+  }, [f.name, onFieldChange]);
+
+  const handleBlur = useCallback(() => {
+    let nextVal = value;
+    if (typeof value === 'string') {
+      if (f.type === 'tel' || f.name.toLowerCase().includes('phone') || f.name.toLowerCase().includes('mobile')) {
+        const formatted = formatPhoneOnBlur(value);
+        if (formatted !== value) {
+          nextVal = formatted;
+          onFieldChange(f.name, formatted);
+        }
+      } else if (f.type === 'number' || f.type === 'decimal') {
+        const formatted = formatDecimalOnBlur(value);
+        if (formatted !== value) {
+          nextVal = formatted;
+          onFieldChange(f.name, formatted);
+        }
+      }
+    }
+    const errMsg = validateFieldValue(nextVal, {
+      name: f.name,
+      label: f.label,
+      required: f.required,
+      type: f.type,
+      min: f.min,
+      max: f.max,
+    });
+    setLocalError(errMsg);
+  }, [f.label, f.max, f.min, f.name, f.required, f.type, onFieldChange, value]);
+
+  const commonClass = `input ${effectiveError ? 'input-error' : ''}`;
   let input: ReactNode;
   switch (f.type) {
     case 'bool': {
@@ -66,10 +139,10 @@ function FieldInput({ f, value, onChange, error }: { f: FieldDef; value: any; on
           role="switch"
           aria-checked={checked}
           onClick={() => onChange(!checked)}
-          className={`flex h-10 w-full items-center justify-between rounded-xl border px-3.5 text-xs font-bold transition-all ${
+          className={`flex min-h-10 w-full items-center justify-between rounded-xl border px-3.5 text-xs font-bold transition-all cursor-pointer ${
             checked
-              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-              : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700/80 dark:bg-[#080e1c] dark:text-slate-400'
+              ? 'border-emerald-500/45 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 dark:border-slate-700/80 dark:bg-[#080e1c] dark:text-slate-400'
           }`}
         >
           <span>{checked ? 'نعم (مفعّل)' : 'لا (غير مفعّل)'}</span>
@@ -89,33 +162,73 @@ function FieldInput({ f, value, onChange, error }: { f: FieldDef; value: any; on
       break;
     }
     case 'textarea':
-      input = <textarea className="input h-22 py-2.5" value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
+      input = (
+        <textarea
+          className={`${commonClass} h-24 py-2.5`}
+          dir={f.ltr ? 'ltr' : undefined}
+          placeholder={f.placeholder}
+          value={value ?? ''}
+          autoFocus={shouldAutoFocus}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={handleBlur}
+        />
+      );
       break;
     case 'date':
-      input = <input {...common} type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} />;
+      input = (
+        <input
+          className={commonClass}
+          dir="ltr"
+          type="date"
+          value={value ?? ''}
+          autoFocus={shouldAutoFocus}
+          onChange={(e) => onChange(e.target.value || null)}
+          onBlur={handleBlur}
+        />
+      );
       break;
     case 'number':
     case 'decimal':
-      input = <input {...common} dir="ltr" inputMode="decimal" value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
+      input = (
+        <input
+          className={`${commonClass} font-mono`}
+          dir="ltr"
+          inputMode="decimal"
+          placeholder={f.placeholder ?? '0.00'}
+          value={value ?? ''}
+          autoFocus={shouldAutoFocus}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={handleBlur}
+        />
+      );
       break;
     case 'select':
       input = (
-        <select {...common} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
-          {!f.required && <option value="">— اختر —</option>}
-          {f.options!.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <SearchableSelect
+          options={f.options ?? []}
+          value={value ?? ''}
+          onChange={(val) => onChange(val || null)}
+          placeholder={f.placeholder ?? '— اختر —'}
+          clearable={!f.required}
+          error={Boolean(effectiveError)}
+          ltr={f.ltr}
+          autoFocus={shouldAutoFocus}
+        />
       );
       break;
     case 'ref':
       input = (
-        <select {...common} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
-          <option value="">{opts.isLoading ? 'جارٍ التحميل…' : '— اختر —'}</option>
-          {opts.data?.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <SearchableSelect
+          options={opts.data ?? []}
+          loading={opts.isLoading}
+          value={value ?? ''}
+          onChange={(val) => onChange(val || null)}
+          placeholder={f.placeholder ?? '— ابحث أو اختر —'}
+          clearable={!f.required}
+          error={Boolean(effectiveError)}
+          ltr={f.ltr}
+          autoFocus={shouldAutoFocus}
+        />
       );
       break;
     case 'weekdays':
@@ -130,7 +243,7 @@ function FieldInput({ f, value, onChange, error }: { f: FieldDef; value: any; on
                 key={n}
                 type="button"
                 onClick={() => onChange(active ? arr.filter((x) => x !== n) : [...arr, n].sort())}
-                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
                   active
                     ? 'border-amber-500 bg-amber-500 text-slate-950 shadow-xs'
                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-[#080e1c] dark:text-slate-300'
@@ -144,47 +257,271 @@ function FieldInput({ f, value, onChange, error }: { f: FieldDef; value: any; on
       );
       break;
     default:
-      input = <input {...common} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
+      input = (
+        <input
+          className={commonClass}
+          dir={f.ltr ? 'ltr' : undefined}
+          type={f.type === 'email' ? 'email' : f.type === 'tel' ? 'tel' : 'text'}
+          placeholder={f.placeholder}
+          value={value ?? ''}
+          autoFocus={shouldAutoFocus}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={handleBlur}
+        />
+      );
   }
+
+  const colSpanClass =
+    f.full || f.type === 'textarea' || f.type === 'weekdays'
+      ? gridCols === 3
+        ? 'md:col-span-2 xl:col-span-3'
+        : 'md:col-span-2'
+      : f.cols === 2
+      ? 'md:col-span-2'
+      : f.cols === 3
+      ? 'md:col-span-2 xl:col-span-3'
+      : '';
+
   return (
     <Field
-      label={`${f.label}${f.required ? ' *' : ''}`}
-      error={error}
+      label={f.label}
+      required={f.required}
+      icon={f.icon}
+      error={effectiveError}
       hint={f.hint}
-      className={f.full || f.type === 'textarea' || f.type === 'weekdays' ? 'md:col-span-2' : ''}
+      className={colSpanClass}
     >
       {input}
     </Field>
   );
+});
+
+export function validateFormFields(
+  fields: FieldDef[],
+  value: Record<string, any>,
+  editing?: boolean
+): Record<string, string> {
+  const errs: Record<string, string> = {};
+  for (const f of fields) {
+    if (editing && f.createOnly) continue;
+    const msg = validateFieldValue(
+      value[f.name],
+      {
+        name: f.name,
+        label: f.label,
+        required: f.required,
+        type: f.type,
+        min: f.min,
+        max: f.max,
+        validate: f.validate,
+      },
+      value
+    );
+    if (msg) errs[f.name] = msg;
+  }
+  return errs;
 }
 
-/** Generic form (create/edit) used by CRUD pages and custom screens. */
+/** Generic form (create/edit) supporting logical section cards, tabs, and 2-3 column grids. */
 export function EntityForm({
   fields,
   value,
   onChange,
   errors,
   editing,
+  columns,
+  layout = 'auto',
+  autoFocusFirst = true,
 }: {
   fields: FieldDef[];
   value: Record<string, any>;
   onChange: (v: Record<string, any>) => void;
   errors?: Record<string, string>;
   editing?: boolean;
+  columns?: 2 | 3;
+  layout?: 'auto' | 'sections' | 'tabs';
+  autoFocusFirst?: boolean;
 }) {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-0.5">
-      {fields
-        .filter((f) => !(editing && f.createOnly))
-        .map((f) => (
+  const visibleFields = useMemo(
+    () => fields.filter((f) => !(editing && f.createOnly)),
+    [fields, editing]
+  );
+
+  // Keep latest value in ref so field handlers remain stable across keystrokes
+  const latestRef = useRef({ value, onChange });
+  latestRef.current = { value, onChange };
+
+  const handleFieldChange = useCallback((name: string, nextVal: any) => {
+    const { value: cur, onChange: emit } = latestRef.current;
+    if (cur[name] === nextVal) return;
+    emit({ ...cur, [name]: nextVal });
+  }, []);
+
+  const focusFieldName = useMemo(() => {
+    if (!autoFocusFirst) return undefined;
+    const explicit = visibleFields.find((f) => f.autoFocus);
+    if (explicit) return explicit.name;
+    const firstReq = visibleFields.find((f) => f.required && f.type !== 'bool' && f.type !== 'select' && f.type !== 'ref');
+    return firstReq?.name ?? visibleFields.find((f) => f.type === 'text')?.name;
+  }, [autoFocusFirst, visibleFields]);
+
+  const sections = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        title: string;
+        subtitle?: string;
+        icon?: ReactNode;
+        collapsible?: boolean;
+        defaultOpen?: boolean;
+        fields: FieldDef[];
+      }
+    >();
+    let hasCustomSection = false;
+    for (const f of visibleFields) {
+      const secTitle = f.section ?? 'البيانات الأساسية';
+      if (f.section) hasCustomSection = true;
+      let grp = map.get(secTitle);
+      if (!grp) {
+        grp = {
+          title: secTitle,
+          subtitle: f.sectionSubtitle,
+          icon: f.sectionIcon,
+          collapsible: f.sectionCollapsible,
+          defaultOpen: f.defaultOpen ?? true,
+          fields: [],
+        };
+        map.set(secTitle, grp);
+      } else {
+        if (!grp.subtitle && f.sectionSubtitle) grp.subtitle = f.sectionSubtitle;
+        if (!grp.icon && f.sectionIcon) grp.icon = f.sectionIcon;
+        if (grp.collapsible === undefined && f.sectionCollapsible !== undefined) grp.collapsible = f.sectionCollapsible;
+      }
+      grp.fields.push(f);
+    }
+    return { hasCustomSection, groups: Array.from(map.values()) };
+  }, [visibleFields]);
+
+  const [activeTab, setActiveTab] = useState(0);
+  useEffect(() => {
+    if (activeTab >= sections.groups.length) setActiveTab(0);
+  }, [activeTab, sections.groups.length]);
+
+  const gridCols: 2 | 3 = columns ?? (visibleFields.length >= 9 ? 3 : 2);
+  const gridClass =
+    gridCols === 3
+      ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-0.5'
+      : 'grid grid-cols-1 md:grid-cols-2 gap-4 p-0.5';
+
+  // Flat clean grid if no section definitions were provided
+  if (!sections.hasCustomSection) {
+    return (
+      <div className={gridClass}>
+        {visibleFields.map((f) => (
           <FieldInput
             key={f.name}
             f={f}
             value={value[f.name]}
             error={errors?.[f.name]}
-            onChange={(v) => onChange({ ...value, [f.name]: v })}
+            shouldAutoFocus={focusFieldName === f.name}
+            gridCols={gridCols}
+            onFieldChange={handleFieldChange}
           />
         ))}
+      </div>
+    );
+  }
+
+  // Tabbed layout when explicitly requested and >= 2 sections
+  if (layout === 'tabs' && sections.groups.length > 1) {
+    const curGroup = sections.groups[activeTab] ?? sections.groups[0];
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-1.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-1.5">
+          {sections.groups.map((grp, idx) => {
+            const errCount = grp.fields.filter((f) => errors?.[f.name]).length;
+            const active = idx === activeTab;
+            return (
+              <button
+                key={grp.title}
+                type="button"
+                onClick={() => setActiveTab(idx)}
+                className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                  active
+                    ? 'bg-white dark:bg-[#0c1427] text-brand-700 dark:text-brand-300 shadow-sm border border-slate-200/80 dark:border-slate-700'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                {grp.icon}
+                <span>{grp.title}</span>
+                {errCount > 0 && (
+                  <span className="inline-flex size-4.5 items-center justify-center rounded-full bg-rose-500 text-[10px] text-white">
+                    {errCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <FormSection
+          title={curGroup.title}
+          subtitle={curGroup.subtitle}
+          icon={curGroup.icon}
+          columns={columns ?? (curGroup.fields.length >= 5 ? 3 : 2)}
+        >
+          {curGroup.fields.map((f) => (
+            <FieldInput
+              key={f.name}
+              f={f}
+              value={value[f.name]}
+              error={errors?.[f.name]}
+              shouldAutoFocus={focusFieldName === f.name}
+              gridCols={columns ?? (curGroup.fields.length >= 5 ? 3 : 2)}
+              onFieldChange={handleFieldChange}
+            />
+          ))}
+        </FormSection>
+      </div>
+    );
+  }
+
+  // Stacked section cards (optionally collapsible)
+  return (
+    <div className="space-y-4">
+      {sections.groups.map((grp) => {
+        const secCols: 2 | 3 = columns ?? (grp.fields.length >= 5 ? 3 : 2);
+        const errCount = grp.fields.filter((f) => errors?.[f.name]).length;
+        return (
+          <FormSection
+            key={grp.title}
+            title={grp.title}
+            subtitle={grp.subtitle}
+            icon={grp.icon}
+            collapsible={grp.collapsible}
+            defaultOpen={errCount > 0 ? true : grp.defaultOpen}
+            badge={
+              errCount > 0 ? (
+                <span className="rounded-full bg-rose-100 dark:bg-rose-950/70 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:text-rose-300 border border-rose-300/60 dark:border-rose-700/60">
+                  {errCount} أخطاء
+                </span>
+              ) : undefined
+            }
+            columns={secCols}
+          >
+            {grp.fields.map((f) => (
+              <FieldInput
+                key={f.name}
+                f={f}
+                value={value[f.name]}
+                error={errors?.[f.name]}
+                shouldAutoFocus={focusFieldName === f.name}
+                gridCols={secCols}
+                onFieldChange={handleFieldChange}
+              />
+            ))}
+          </FormSection>
+        );
+      })}
     </div>
   );
 }
@@ -459,6 +796,7 @@ export function CrudPage({
   const [deletingRow, setDeletingRow] = useState<any | null>(null);
   const [importingOpen, setImportingOpen] = useState(false);
   const [form, setForm] = useState<Record<string, any>>({});
+  const [initialFormSnapshot, setInitialFormSnapshot] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -517,8 +855,24 @@ export function CrudPage({
 
   const open = (row: any | null) => {
     setErrors({});
-    setForm(row ? { ...defaults, ...row } : { ...defaults });
+    const next = row ? { ...defaults, ...row } : { ...defaults };
+    setForm(next);
+    setInitialFormSnapshot(JSON.stringify(next));
     setEditing(row ?? {});
+  };
+
+  const isDirty = Boolean(editing) && JSON.stringify(form) !== initialFormSnapshot;
+
+  const handleSave = () => {
+    if (save.isPending) return;
+    const isEdit = Boolean(editing && editing.id);
+    const clientErrs = validateFormFields(fields, form, isEdit);
+    if (Object.keys(clientErrs).length > 0) {
+      setErrors(clientErrs);
+      toast.error('يرجى مراجعة الحقول المطلوبة المميزة باللون الأحمر');
+      return;
+    }
+    save.mutate();
   };
 
   const rows = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
@@ -763,13 +1117,17 @@ export function CrudPage({
         open={!!editing}
         onClose={() => setEditing(null)}
         title={editing?.id ? `تعديل ${entityLabel}` : `إضافة ${entityLabel} جديد`}
+        size={(fields.length >= 10 ? 'xl' : fields.length >= 5 ? 'lg' : 'md') as ModalSize}
+        dirty={isDirty}
+        saving={save.isPending}
+        onSaveShortcut={handleSave}
         footer={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>
+            <button type="button" className="btn-secondary" disabled={save.isPending} onClick={() => setEditing(null)}>
               إلغاء
             </button>
-            <button type="button" className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-              {save.isPending && <Spinner />} حفظ البيانات
+            <button type="button" className="btn-primary flex items-center gap-1.5" disabled={save.isPending} onClick={handleSave}>
+              {save.isPending ? <Spinner /> : <Save className="size-3.5" />} حفظ البيانات
             </button>
           </>
         }
@@ -781,6 +1139,7 @@ export function CrudPage({
       <Drawer
         open={!!viewing}
         onClose={() => setViewing(null)}
+        size={(fields.length >= 8 ? 'lg' : 'md') as ModalSize}
         title={`بطاقة معاينة ${entityLabel}: ${viewing?.nameAr || viewing?.fullNameAr || viewing?.name || viewing?.code || ''}`}
         footer={
           <>

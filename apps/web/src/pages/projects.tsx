@@ -48,16 +48,16 @@ export const ClientsPage = () => (
 
 // ------------------------------------------------------------------ projects list
 const projectFormFields: FieldDef[] = [
-  { name: 'code', label: 'رمز المشروع', type: 'text', required: true, ltr: true, createOnly: true },
-  { name: 'nameAr', label: 'اسم المشروع بالعربية', type: 'text', required: true },
-  { name: 'nameEn', label: 'اسم المشروع بالإنجليزية', type: 'text', ltr: true },
-  { name: 'clientId', label: 'العميل', type: 'ref', ref: REF.client, required: true },
-  { name: 'managerId', label: 'مدير المشروع', type: 'ref', ref: REF.employee },
-  { name: 'currencyCode', label: 'عملة المشروع', type: 'ref', ref: REF.currency, required: true },
-  { name: 'startDate', label: 'تاريخ البداية', type: 'date' },
-  { name: 'endDate', label: 'تاريخ النهاية المتوقعة', type: 'date' },
-  { name: 'requiredMarginPct', label: 'الهامش المستهدف %', type: 'decimal', hint: 'نسبة الربحية المطلوبة. مثال: 30 تعني 30%' },
-  { name: 'notes', label: 'ملاحظات', type: 'textarea' },
+  { name: 'code', label: 'رمز المشروع', type: 'text', required: true, ltr: true, createOnly: true, section: 'البيانات الأساسية للمشروع' },
+  { name: 'nameAr', label: 'اسم المشروع بالعربية', type: 'text', required: true, autoFocus: true, section: 'البيانات الأساسية للمشروع' },
+  { name: 'nameEn', label: 'اسم المشروع بالإنجليزية', type: 'text', ltr: true, section: 'البيانات الأساسية للمشروع' },
+  { name: 'clientId', label: 'العميل', type: 'ref', ref: REF.client, required: true, section: 'العميل وإدارة المشروع' },
+  { name: 'managerId', label: 'مدير المشروع', type: 'ref', ref: REF.employee, section: 'العميل وإدارة المشروع' },
+  { name: 'currencyCode', label: 'عملة المشروع', type: 'ref', ref: REF.currency, required: true, section: 'العميل وإدارة المشروع' },
+  { name: 'startDate', label: 'تاريخ البداية', type: 'date', section: 'الجدول الزمني والربحية' },
+  { name: 'endDate', label: 'تاريخ النهاية المتوقعة', type: 'date', section: 'الجدول الزمني والربحية' },
+  { name: 'requiredMarginPct', label: 'الهامش المستهدف %', type: 'decimal', min: 0, max: 100, hint: 'نسبة الربحية المطلوبة. مثال: 30 تعني 30%', section: 'الجدول الزمني والربحية' },
+  { name: 'notes', label: 'ملاحظات', type: 'textarea', section: 'ملاحظات إضافية', sectionCollapsible: true },
 ];
 
 export function ProjectsPage() {

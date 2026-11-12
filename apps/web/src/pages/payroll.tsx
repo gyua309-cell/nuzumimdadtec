@@ -233,13 +233,13 @@ export function LoansPage() {
   };
 
   const loanFields: FieldDef[] = [
-    { name: 'employeeId', label: 'الموظف', type: 'ref', ref: REF.employee, required: true },
-    { name: 'reason', label: 'السبب / الغرض', type: 'textarea', required: true },
-    { name: 'principalAmount', label: 'مبلغ القرض / السلفة', type: 'decimal', required: true },
-    { name: 'currencyCode', label: 'العملة', type: 'ref', ref: REF.currency, required: true },
-    { name: 'installments', label: 'عدد الأقساط', type: 'number', required: true, default: 1 },
-    { name: 'startPeriodId', label: 'فترة بداية الخصم', type: 'ref', ref: { path: '/fiscal-periods', label: (p: any) => p.name }, required: true },
-    { name: 'notes', label: 'ملاحظات', type: 'textarea' },
+    { name: 'employeeId', label: 'الموظف', type: 'ref', ref: REF.employee, required: true, section: 'الموظف وتفاصيل السلفة' },
+    { name: 'reason', label: 'السبب / الغرض', type: 'textarea', required: true, autoFocus: true, section: 'الموظف وتفاصيل السلفة' },
+    { name: 'principalAmount', label: 'مبلغ القرض / السلفة', type: 'decimal', required: true, min: 1, section: 'المبلغ وجدول الأقساط' },
+    { name: 'currencyCode', label: 'العملة', type: 'ref', ref: REF.currency, required: true, section: 'المبلغ وجدول الأقساط' },
+    { name: 'installments', label: 'عدد الأقساط', type: 'number', required: true, default: 1, min: 1, section: 'المبلغ وجدول الأقساط' },
+    { name: 'startPeriodId', label: 'فترة بداية الخصم', type: 'ref', ref: { path: '/fiscal-periods', label: (p: any) => p.name }, required: true, section: 'المبلغ وجدول الأقساط' },
+    { name: 'notes', label: 'ملاحظات', type: 'textarea', section: 'ملاحظات إضافية', sectionCollapsible: true },
   ];
 
   return (

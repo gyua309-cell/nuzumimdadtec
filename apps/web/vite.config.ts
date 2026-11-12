@@ -11,5 +11,24 @@ export default defineConfig({
     port: 5173,
     proxy: { '/api': { target: 'http://localhost:3000', changeOrigin: false } },
   },
-  build: { chunkSizeWarningLimit: 1500 },
+  build: {
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/echarts') || id.includes('node_modules/zrender')) return 'vendor-charts';
+          if (id.includes('node_modules/exceljs')) return 'vendor-excel';
+          if (id.includes('node_modules/lucide-react')) return 'vendor-icons';
+          if (id.includes('node_modules/@tanstack/react-query')) return 'vendor-query';
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/react-router')
+          ) {
+            return 'vendor-react';
+          }
+        },
+      },
+    },
+  },
 });

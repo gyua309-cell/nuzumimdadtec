@@ -8,7 +8,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
-import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
+import { SearchableSelect } from '../components/SearchableSelect';
 
 export interface BankAccount {
   id: string;
@@ -585,12 +586,15 @@ function InterBankTransferModal({
     <Modal
       open
       onClose={onClose}
+      size="lg"
+      saving={transferMut.isPending}
+      onSaveShortcut={() => !transferMut.isPending && transferMut.mutate()}
       title="تحويل بين الحسابات البنكية وصرافة العملات (Inter-Bank FX Transfer)"
-      maxWidth="max-w-2xl"
       footer={
         <div className="flex items-center gap-2">
-          <button className="btn-secondary text-xs" onClick={onClose}>إلغاء</button>
+          <button type="button" className="btn-secondary text-xs" disabled={transferMut.isPending} onClick={onClose}>إلغاء</button>
           <button
+            type="button"
             className="btn-primary text-xs flex items-center gap-1.5"
             onClick={() => transferMut.mutate()}
             disabled={transferMut.isPending}
@@ -603,35 +607,25 @@ function InterBankTransferModal({
     >
       <div className="space-y-4 text-xs">
         {/* Source & Target Accounts */}
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="من الحساب البنكي (المصدر) *">
-            <select
-              className="input w-full font-bold"
+        <FormSection title="أطراف التحويل البنكي" columns={2}>
+          <Field label="من الحساب البنكي (المصدر)" required>
+            <SearchableSelect
+              clearable={false}
               value={sourceId}
-              onChange={(e) => setSourceId(e.target.value)}
-            >
-              {bankAccounts.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} ({b.currencyCode})
-                </option>
-              ))}
-            </select>
+              onChange={setSourceId}
+              options={bankAccounts.map((b) => ({ value: b.id, label: `${b.name} (${b.currencyCode})` }))}
+            />
           </Field>
 
-          <Field label="إلى الحساب البنكي (المستلم) *">
-            <select
-              className="input w-full font-bold"
+          <Field label="إلى الحساب البنكي (المستلم)" required>
+            <SearchableSelect
+              clearable={false}
               value={targetId}
-              onChange={(e) => setTargetId(e.target.value)}
-            >
-              {bankAccounts.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} ({b.currencyCode})
-                </option>
-              ))}
-            </select>
+              onChange={setTargetId}
+              options={bankAccounts.map((b) => ({ value: b.id, label: `${b.name} (${b.currencyCode})` }))}
+            />
           </Field>
-        </div>
+        </FormSection>
 
         {/* Currency Conversion Alert Banner */}
         {isCrossCurrency && (
@@ -786,11 +780,16 @@ function AddNewBankAccountModal({
     <Modal
       open
       onClose={onClose}
+      size="lg"
+      dirty={Boolean(code || name || accountNumber || iban)}
+      saving={createMut.isPending}
+      onSaveShortcut={() => !createMut.isPending && createMut.mutate()}
       title="إضافة حساب بنكي أو خزينة نقدية جديدة"
       footer={
         <div className="flex items-center gap-2">
-          <button className="btn-secondary text-xs" onClick={onClose}>إلغاء</button>
+          <button type="button" className="btn-secondary text-xs" disabled={createMut.isPending} onClick={onClose}>إلغاء</button>
           <button
+            type="button"
             className="btn-primary text-xs"
             onClick={() => createMut.mutate()}
             disabled={createMut.isPending}
@@ -802,9 +801,11 @@ function AddNewBankAccountModal({
       }
     >
       <div className="space-y-4 text-xs">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="كود الحساب البنكي *">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="كود الحساب البنكي" required>
             <input
+              dir="ltr"
+              autoFocus
               className="input w-full font-mono"
               placeholder="مثال: BNK-ALBILAD-01"
               value={code}
@@ -859,18 +860,13 @@ function AddNewBankAccountModal({
             </select>
           </Field>
 
-          <Field label="حساب الأستاذ العام المرتبط (GL Account) *">
-            <select
-              className="input w-full font-bold"
+          <Field label="حساب الأستاذ العام المرتبط (GL Account)" required>
+            <SearchableSelect
+              clearable={false}
               value={glAccountId}
-              onChange={(e) => setGlAccountId(e.target.value)}
-            >
-              {glAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.code} — {a.nameAr}
-                </option>
-              ))}
-            </select>
+              onChange={setGlAccountId}
+              options={glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
+            />
           </Field>
         </div>
 

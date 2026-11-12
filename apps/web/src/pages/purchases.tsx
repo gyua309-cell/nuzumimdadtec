@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle, ArrowRight, Building2, CheckCircle2, Download, Eye, FileText,
-  Filter, Pencil, Plus, Printer, RotateCcw, Search, Send, ShieldCheck,
+  Filter, Pencil, Plus, Printer, RotateCcw, Save, Search, Send, ShieldCheck,
   ShoppingCart, Sparkles, Trash2, Truck, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { downloadCsv, money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
+import { PeriodSelect } from '../components/forms';
+import { SearchableSelect } from '../components/SearchableSelect';
 import {
-  Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader,
+  Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader,
   ReasonDialog, Stat, useToast,
 } from '../components/ui';
 
@@ -368,53 +370,55 @@ function CreateVendorModal({ open, vendor, onClose, onSuccess }: { open: boolean
   return (
     <Modal
       open={open}
-      title="إضافة مورد جديد"
+      size="lg"
+      dirty={Boolean(nameAr || nameEn || taxRegistrationNo || crNumber || contactPerson || phone || email)}
+      saving={busy}
+      onSaveShortcut={handleSubmit}
+      title={vendor?.id ? `تعديل بيانات المورد: ${vendor.nameAr || ''}` : 'إضافة مورد جديد'}
       onClose={onClose}
       footer={
         <>
-          <button className="btn-secondary" onClick={onClose}>إلغاء</button>
-          <button className="btn-primary" disabled={busy} onClick={handleSubmit}>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>إلغاء</button>
+          <button type="button" className="btn-primary flex items-center gap-1.5" disabled={busy} onClick={handleSubmit}>
+            <Save className="size-3.5" />
             {busy ? 'جاري الحفظ...' : 'حفظ المورد'}
           </button>
         </>
       }
     >
-      <div className="space-y-3.5 text-xs">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="كود المورد">
-            <input className="input font-mono font-bold" value={code} onChange={(e) => setCode(e.target.value)} />
+      <div className="space-y-4 text-xs">
+        <FormSection title="التعريف والتسجيل الضريبي والتجاري" icon={<Building2 className="size-4" />} columns={3}>
+          <Field label="كود المورد" required>
+            <input className="input font-mono font-bold" dir="ltr" value={code} onChange={(e) => setCode(e.target.value)} />
           </Field>
-          <Field label="اسم المورد بالعربية *">
-            <input className="input" placeholder="مثال: شركة أمازون ويب سيرفيسز AWS" value={nameAr} onChange={(e) => setNameAr(e.target.value)} />
+          <Field label="اسم المورد بالعربية" required>
+            <input className="input" autoFocus placeholder="مثال: شركة أمازون ويب سيرفيسز AWS" value={nameAr} onChange={(e) => setNameAr(e.target.value)} />
           </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
           <Field label="اسم المورد بالإنجليزية">
-            <input className="input font-sans" placeholder="e.g. Amazon Web Services MENA" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+            <input className="input font-sans" dir="ltr" placeholder="e.g. Amazon Web Services MENA" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
           </Field>
           <Field label="الرقم الضريبي للمورد (15 رقم)">
-            <input className="input font-mono" placeholder="300000000000003" maxLength={15} value={taxRegistrationNo} onChange={(e) => setTaxRegistrationNo(e.target.value)} />
+            <input className="input font-mono" dir="ltr" placeholder="300000000000003" maxLength={15} value={taxRegistrationNo} onChange={(e) => setTaxRegistrationNo(e.target.value)} />
           </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
           <Field label="رقم السجل التجاري">
-            <input className="input font-mono" placeholder="1010000000" value={crNumber} onChange={(e) => setCrNumber(e.target.value)} />
+            <input className="input font-mono" dir="ltr" placeholder="1010000000" value={crNumber} onChange={(e) => setCrNumber(e.target.value)} />
           </Field>
           <Field label="شروط السداد (أيام)">
-            <input type="number" className="input font-mono" value={paymentTermsDays} onChange={(e) => setPaymentTermsDays(parseInt(e.target.value) || 0)} />
+            <input type="number" className="input font-mono" dir="ltr" value={paymentTermsDays} onChange={(e) => setPaymentTermsDays(parseInt(e.target.value) || 0)} />
           </Field>
-        </div>
-        <div className="grid grid-cols-3 gap-3">
+        </FormSection>
+
+        <FormSection title="بيانات التواصل" icon={<Truck className="size-4" />} columns={3}>
           <Field label="مسؤول الاتصال">
             <input className="input" placeholder="اسم المسؤول" value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} />
           </Field>
           <Field label="الهاتف">
-            <input className="input font-mono" placeholder="0500000000" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <input className="input font-mono" dir="ltr" type="tel" placeholder="0500000000" value={phone} onChange={(e) => setPhone(e.target.value)} />
           </Field>
           <Field label="البريد الإلكتروني">
-            <input className="input font-mono" placeholder="billing@vendor.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input className="input font-mono" dir="ltr" type="email" placeholder="billing@vendor.com" value={email} onChange={(e) => setEmail(e.target.value)} />
           </Field>
-        </div>
+        </FormSection>
       </div>
     </Modal>
   );
@@ -694,25 +698,48 @@ function CreatePurchaseInvoiceModal({ open, onClose, onSuccess }: { open: boolea
   const [autoPost, setAutoPost] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // Queries
+  // Queries (only load when modal opens and reuse cached reference catalogs)
   const vendors = useQuery({
-    queryKey: ['/vendors-select'],
-    queryFn: () => api.get<Page<any>>('/vendors', { pageSize: 100 }),
+    queryKey: ['ref', '/vendors', undefined],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => api.get<Page<any>>('/vendors', { pageSize: 200 }),
   });
   const projects = useQuery({
-    queryKey: ['/projects-select'],
-    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 100 }),
-  });
-  const periods = useQuery({
-    queryKey: ['/fiscal-periods-select'],
-    queryFn: () => api.get<any[]>('/fiscal-periods'),
+    queryKey: ['ref', '/projects', undefined],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 200 }),
   });
   const accounts = useQuery({
-    queryKey: ['/accounts-expenses'],
-    queryFn: () => api.get<Page<any>>('/accounts', { pageSize: 100 }),
+    queryKey: ['accounts', false],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => api.get<Page<any>>('/accounts', { pageSize: 200 }),
   });
 
-  const expenseAccounts = (Array.isArray(accounts.data) ? accounts.data : (accounts.data?.data ?? [])).filter((a: any) => a.accountClass === 'OPERATING_EXPENSE' || a.code.startsWith('5'));
+  const vendorOptions = useMemo(() => {
+    const list = Array.isArray(vendors.data) ? vendors.data : (vendors.data?.data ?? []);
+    return list.map((v: any) => ({ value: v.id, label: `${v.code} — ${v.nameAr}` }));
+  }, [vendors.data]);
+
+  const projectOptions = useMemo(() => {
+    const list = Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? []);
+    return list.map((p: any) => ({ value: p.id, label: `${p.code} — ${p.nameAr}` }));
+  }, [projects.data]);
+
+  const expenseAccounts = useMemo(
+    () =>
+      (Array.isArray(accounts.data) ? accounts.data : (accounts.data?.data ?? [])).filter(
+        (a: any) => a.accountClass === 'OPERATING_EXPENSE' || a.code.startsWith('5')
+      ),
+    [accounts.data]
+  );
+
+  const expenseAccountOptions = useMemo(
+    () => expenseAccounts.map((acc: any) => ({ value: acc.id, label: `[${acc.code}] ${acc.nameAr}` })),
+    [expenseAccounts]
+  );
 
   const [lines, setLines] = useState([
     {
@@ -812,11 +839,15 @@ function CreatePurchaseInvoiceModal({ open, onClose, onSuccess }: { open: boolea
       open={open}
       title="تسجيل فاتورة مشتريات / مصروفات جديدة"
       onClose={onClose}
-      wide
+      size="xl"
+      dirty={Boolean(vendorId || projectId || vendorInvoiceNo || lines.length > 1)}
+      saving={busy}
+      onSaveShortcut={handleSubmit}
       footer={
         <>
-          <button className="btn-secondary" onClick={onClose}>إلغاء</button>
-          <button className="btn-primary" disabled={busy} onClick={handleSubmit}>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>إلغاء</button>
+          <button type="button" className="btn-primary flex items-center gap-1.5" disabled={busy} onClick={handleSubmit}>
+            <Save className="size-3.5" />
             {busy ? 'جاري الحفظ والاعتماد...' : 'حفظ واعتماد الفاتورة'}
           </button>
         </>
@@ -843,55 +874,46 @@ function CreatePurchaseInvoiceModal({ open, onClose, onSuccess }: { open: boolea
         </div>
 
         {/* Header Metadata */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <Field label="المورد *">
-            <select className="input" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-              <option value="">-- اختر المورد --</option>
-              {(Array.isArray(vendors.data) ? vendors.data : (vendors.data?.data ?? [])).map((v: any) => (
-                <option key={v.id} value={v.id}>
-                  {v.code} — {v.nameAr}
-                </option>
-              ))}
-            </select>
+        <FormSection title="بيانات المورد والفترة المالية والتواريخ" columns={3}>
+          <Field label="المورد" required>
+            <SearchableSelect
+              options={vendorOptions}
+              loading={vendors.isLoading}
+              value={vendorId}
+              onChange={setVendorId}
+              placeholder="— ابحث واختر المورد —"
+              clearable={false}
+              autoFocus
+            />
           </Field>
           <Field label="المشروع المرتبط (اختياري)">
-            <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">-- مصروف عام (بدون مشروع) --</option>
-              {(Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => (
-                <option key={p.id} value={p.id}>
-                  {p.code} — {p.nameAr}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              options={projectOptions}
+              loading={projects.isLoading}
+              value={projectId}
+              onChange={setProjectId}
+              placeholder="مصروف عام (بدون مشروع)"
+            />
           </Field>
-          <Field label="الفترة المالية المحاسبية *">
-            <select className="input" value={periodId} onChange={(e) => setPeriodId(e.target.value)}>
-              <option value="">-- اختر الفترة --</option>
-              {periods.data?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+          <Field label="الفترة المالية المحاسبية" required>
+            <PeriodSelect value={periodId} onChange={setPeriodId} className="w-full" />
           </Field>
           <Field label="رقم فاتورة المورد الخارجية">
-            <input className="input font-mono" placeholder="INV-AWS-2026-99" value={vendorInvoiceNo} onChange={(e) => setVendorInvoiceNo(e.target.value)} />
+            <input className="input font-mono" dir="ltr" placeholder="INV-AWS-2026-99" value={vendorInvoiceNo} onChange={(e) => setVendorInvoiceNo(e.target.value)} />
           </Field>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <Field label="تاريخ إصدار الفاتورة">
-            <input type="date" className="input font-mono" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+            <input type="date" dir="ltr" className="input font-mono" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
           </Field>
           <Field label="تاريخ الاستحقاق">
-            <input type="date" className="input font-mono" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            <input type="date" dir="ltr" className="input font-mono" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </Field>
-          <div className="flex items-center pt-5">
-            <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800 dark:text-slate-200">
-              <input type="checkbox" className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" checked={autoPost} onChange={(e) => setAutoPost(e.target.checked)} />
-              <span>ترحيل الفاتورة وتوليد القيد المحاسبي فوراً</span>
-            </label>
-          </div>
+        </FormSection>
+
+        <div className="flex items-center rounded-xl border border-slate-200/80 dark:border-slate-800 px-3.5 py-2.5 bg-slate-50/70 dark:bg-slate-900/50">
+          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800 dark:text-slate-200">
+            <input type="checkbox" className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" checked={autoPost} onChange={(e) => setAutoPost(e.target.checked)} />
+            <span>ترحيل الفاتورة وتوليد القيد المحاسبي فوراً</span>
+          </label>
         </div>
 
         {/* Line Items Table */}
@@ -956,14 +978,15 @@ function CreatePurchaseInvoiceModal({ open, onClose, onSuccess }: { open: boolea
                       <td>
                         <input className="input w-full text-xs py-1" placeholder="بيان المصروف..." value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} />
                       </td>
-                      <td>
-                        <select className="input w-full text-xs py-1 font-mono" value={l.expenseAccountId} onChange={(e) => updateLine(idx, { expenseAccountId: e.target.value })}>
-                          {expenseAccounts.map((acc: any) => (
-                            <option key={acc.id} value={acc.id}>
-                              [{acc.code}] {acc.nameAr}
-                            </option>
-                          ))}
-                        </select>
+                      <td className="min-w-[200px]">
+                        <SearchableSelect
+                          options={expenseAccountOptions}
+                          loading={accounts.isLoading}
+                          value={l.expenseAccountId}
+                          onChange={(val) => updateLine(idx, { expenseAccountId: val })}
+                          placeholder="— حساب المصروف —"
+                          clearable={false}
+                        />
                       </td>
                       <td>
                         <input type="number" step="1" min="1" className="input w-full text-xs py-1 text-center font-mono font-bold" value={l.quantity} onChange={(e) => updateLine(idx, { quantity: parseFloat(e.target.value) || 0 })} />

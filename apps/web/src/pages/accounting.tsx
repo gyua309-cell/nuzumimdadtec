@@ -11,7 +11,8 @@ import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, downloadCsv, money, today } from '../lib/format';
 import { ACCOUNT_CLASS, ACCOUNT_SOURCE, ACCOUNT_SUBTYPE, CASH_FLOW, DIMENSION_POLICY, JE_STATUS, JOURNAL_TYPE, LEDGER } from '../lib/labels';
 import { ActiveBadge, CrudPage, fieldErrors, useRefOptions } from '../components/CrudPage';
-import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, useToast } from '../components/ui';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, useToast } from '../components/ui';
 
 export interface Account {
   id: string; parentId: string | null; code: string; nameAr: string; nameEn: string | null; accountClass: string; subtype: string | null;
@@ -21,7 +22,12 @@ export interface Account {
 }
 
 export function useAccounts(postingOnly = false) {
-  return useQuery({ queryKey: ['accounts', postingOnly], queryFn: () => api.get<Account[]>('/accounts', postingOnly ? { postingOnly: 'true', activeOnly: 'true' } : {}) });
+  return useQuery({
+    queryKey: ['accounts', postingOnly],
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    queryFn: () => api.get<Account[]>('/accounts', postingOnly ? { postingOnly: 'true', activeOnly: 'true' } : {}),
+  });
 }
 
 /** Searchable account picker (code / name). */
@@ -273,29 +279,51 @@ export function AccountsPage() {
           </div>
         )}
       </div>
-      <Drawer open={!!form} onClose={() => setForm(null)} title={form?.id ? 'تعديل حساب' : 'حساب جديد'}
-        footer={<><button className="btn-secondary" onClick={() => setForm(null)}>إلغاء</button><button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending && <Spinner />} حفظ</button></>}>
+      <Drawer
+        open={!!form}
+        onClose={() => setForm(null)}
+        size="lg"
+        saving={save.isPending}
+        onSaveShortcut={() => !save.isPending && save.mutate()}
+        title={form?.id ? 'تعديل حساب' : 'حساب جديد'}
+        footer={
+          <>
+            <button type="button" className="btn-secondary" disabled={save.isPending} onClick={() => setForm(null)}>إلغاء</button>
+            <button type="button" className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending && <Spinner />} حفظ الحساب</button>
+          </>
+        }
+      >
         {form && (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="الحساب الأب" className="col-span-2">
-              <select className="input" value={form.parentId} onChange={(e) => { const p = all.find((x) => x.id === e.target.value); setForm({ ...form, parentId: e.target.value, accountClass: p?.accountClass ?? form.accountClass }); }}>
-                <option value="">— حساب رئيسي —</option>
-                {headers.filter((h) => h.id !== form.id).map((h) => <option key={h.id} value={h.id}>{h.code} — {h.nameAr}</option>)}
-              </select>
-            </Field>
-            <Field label="الرمز *" error={errs.code}><input className="input" dir="ltr" value={form.code} onChange={(e) => set('code', e.target.value)} /></Field>
-            <Field label="الاسم بالعربية *" error={errs.nameAr}><input className="input" value={form.nameAr} onChange={(e) => set('nameAr', e.target.value)} /></Field>
-            <Field label="الاسم بالإنجليزية"><input className="input" dir="ltr" value={form.nameEn} onChange={(e) => set('nameEn', e.target.value)} /></Field>
-            <Field label="التصنيف *"><select className="input" value={form.accountClass} disabled={!!form.parentId || form.hasTransactions} onChange={(e) => set('accountClass', e.target.value)}>{Object.entries(ACCOUNT_CLASS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-            <Field label="النوع الفرعي"><select className="input" value={form.subtype} onChange={(e) => set('subtype', e.target.value)}><option value="">—</option>{Object.entries(ACCOUNT_SUBTYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-            <Field label="عملة الحساب" hint="فارغ = يقبل كل العملات"><input className="input" dir="ltr" maxLength={3} value={form.currencyCode} onChange={(e) => set('currencyCode', e.target.value.toUpperCase())} /></Field>
-            <Field label="تصنيف التدفق النقدي"><select className="input" value={form.cashFlowCategory} onChange={(e) => set('cashFlowCategory', e.target.value)}><option value="">—</option>{Object.entries(CASH_FLOW).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-            <div className="col-span-2 grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
-              {[['isPosting', 'حساب تفصيلي (يقبل الترحيل)'], ['isActive', 'نشط'], ['isControl', 'حساب رقابي (لا يقبل الترحيل اليدوي)'], ['isContra', 'حساب مقابل (عكس الطبيعة)'], ['requiresCostCenter', 'يتطلب مركز تكلفة'], ['requiresProject', 'يتطلب مشروع'], ['requiresEmployee', 'يتطلب موظف']].map(([k, l]) => (
-                <label key={k} className="flex items-center gap-2"><input type="checkbox" checked={!!form[k]} onChange={(e) => set(k, e.target.checked)} /> {l}</label>
-              ))}
-            </div>
-            <Field label="الوصف" className="col-span-2"><textarea className="input h-20 py-2" value={form.description} onChange={(e) => set('description', e.target.value)} /></Field>
+          <div className="space-y-4">
+            <FormSection title="بيانات الحساب والتصنيف" columns={3}>
+              <Field label="الحساب الأب" className="md:col-span-2 xl:col-span-3">
+                <SearchableSelect
+                  value={form.parentId}
+                  onChange={(val) => {
+                    const p = all.find((x) => x.id === val);
+                    setForm({ ...form, parentId: val, accountClass: p?.accountClass ?? form.accountClass });
+                  }}
+                  options={headers.filter((h) => h.id !== form.id).map((h) => ({ value: h.id, label: `${h.code} — ${h.nameAr}` }))}
+                  placeholder="حساب رئيسي (بدون أب)"
+                />
+              </Field>
+              <Field label="الرمز" required error={errs.code}><input className="input font-mono" dir="ltr" autoFocus value={form.code} onChange={(e) => set('code', e.target.value)} /></Field>
+              <Field label="الاسم بالعربية" required error={errs.nameAr}><input className="input" value={form.nameAr} onChange={(e) => set('nameAr', e.target.value)} /></Field>
+              <Field label="الاسم بالإنجليزية"><input className="input" dir="ltr" value={form.nameEn} onChange={(e) => set('nameEn', e.target.value)} /></Field>
+              <Field label="التصنيف" required><select className="input" value={form.accountClass} disabled={!!form.parentId || form.hasTransactions} onChange={(e) => set('accountClass', e.target.value)}>{Object.entries(ACCOUNT_CLASS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+              <Field label="النوع الفرعي"><select className="input" value={form.subtype} onChange={(e) => set('subtype', e.target.value)}><option value="">—</option>{Object.entries(ACCOUNT_SUBTYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+              <Field label="عملة الحساب" hint="فارغ = يقبل كل العملات"><input className="input font-mono" dir="ltr" maxLength={3} value={form.currencyCode} onChange={(e) => set('currencyCode', e.target.value.toUpperCase())} /></Field>
+              <Field label="تصنيف التدفق النقدي" className="md:col-span-3"><select className="input" value={form.cashFlowCategory} onChange={(e) => set('cashFlowCategory', e.target.value)}><option value="">—</option>{Object.entries(CASH_FLOW).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+            </FormSection>
+
+            <FormSection title="خصائص الترحيل والأبعاد المحاسبية" columns={1}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-sm">
+                {[['isPosting', 'حساب تفصيلي (يقبل الترحيل)'], ['isActive', 'نشط'], ['isControl', 'حساب رقابي (لا يقبل الترحيل اليدوي)'], ['isContra', 'حساب مقابل (عكس الطبيعة)'], ['requiresCostCenter', 'يتطلب مركز تكلفة'], ['requiresProject', 'يتطلب مشروع'], ['requiresEmployee', 'يتطلب موظف']].map(([k, l]) => (
+                  <label key={k} className="flex items-center gap-2 rounded-xl border border-slate-200/80 dark:border-slate-800 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"><input type="checkbox" checked={!!form[k]} onChange={(e) => set(k, e.target.checked)} /> <span>{l}</span></label>
+                ))}
+              </div>
+              <Field label="الوصف"><textarea className="input h-20 py-2" value={form.description} onChange={(e) => set('description', e.target.value)} /></Field>
+            </FormSection>
           </div>
         )}
       </Drawer>

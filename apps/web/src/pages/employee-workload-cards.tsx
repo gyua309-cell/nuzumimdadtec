@@ -7,7 +7,8 @@ import {
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { downloadCsv, money, today } from '../lib/format';
-import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
 export interface EmployeeCardData {
   id: string;
@@ -920,11 +921,16 @@ function QuickAssignProjectModal({
     <Modal
       open
       onClose={onClose}
+      size="lg"
+      dirty={Boolean(notes)}
+      saving={createMut.isPending}
+      onSaveShortcut={() => !createMut.isPending && createMut.mutate()}
       title={`إسناد مشروع وتحديث تفرغ المطور: ${employee.nameAr}`}
       footer={
         <div className="flex items-center gap-2">
-          <button className="btn-secondary text-xs" onClick={onClose}>إلغاء</button>
+          <button type="button" className="btn-secondary text-xs" disabled={createMut.isPending} onClick={onClose}>إلغاء</button>
           <button
+            type="button"
             className="btn-primary text-xs"
             onClick={() => createMut.mutate()}
             disabled={createMut.isPending}
@@ -937,24 +943,22 @@ function QuickAssignProjectModal({
     >
       <div className="space-y-4 text-xs">
         {/* Availability reminder banner */}
-        <div className="p-3 bg-cyan-50 border border-cyan-200 rounded-lg text-cyan-900 flex items-center justify-between">
+        <div className="p-3 bg-cyan-50 dark:bg-cyan-950/35 border border-cyan-200 dark:border-cyan-800/60 rounded-xl text-cyan-900 dark:text-cyan-200 flex items-center justify-between">
           <span>النسبة المشغولة حالياً: <strong>{employee.totalAllocatedPct}%</strong></span>
-          <span>طاقة التفرغ المتاحة: <strong className="text-cyan-800 font-mono text-sm">{employee.freeCapacityPct}% ({employee.freeDays} يوم)</strong></span>
+          <span>طاقة التفرغ المتاحة: <strong className="text-cyan-800 dark:text-cyan-300 font-mono text-sm">{employee.freeCapacityPct}% ({employee.freeDays} يوم)</strong></span>
         </div>
 
-        <Field label="المشروع المطلوب إسناده *">
-          <select
-            className="input w-full font-bold"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.code} — {p.name_ar || p.nameAr}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <FormSection title="تفاصيل المشروع والتخصيص" columns={2}>
+          <Field label="المشروع المطلوب إسناده" required className="md:col-span-2">
+            <SearchableSelect
+              clearable={false}
+              value={projectId}
+              onChange={setProjectId}
+              options={projects.map((p) => ({ value: p.id, label: `${p.code} — ${p.name_ar || p.nameAr}` }))}
+              placeholder="— ابحث واختر المشروع —"
+              autoFocus
+            />
+          </Field>
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="نسبة التخصيص للمشروع (%) *">
@@ -978,7 +982,7 @@ function QuickAssignProjectModal({
           </Field>
         </div>
 
-        <Field label="الدور التعاقدي على المشروع">
+        <Field label="الدور التعاقدي على المشروع" className="md:col-span-2">
           <input
             className="input w-full"
             value={roleTitle}
@@ -986,7 +990,7 @@ function QuickAssignProjectModal({
           />
         </Field>
 
-        <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-800">
+        <label className="md:col-span-2 flex items-center gap-2 cursor-pointer font-bold text-slate-800 dark:text-slate-200 rounded-xl border border-slate-200/80 dark:border-slate-800 px-3 py-2">
           <input
             type="checkbox"
             className="checkbox"
@@ -996,7 +1000,7 @@ function QuickAssignProjectModal({
           <span>عمل قابل للفوترة للعميل (Billable Resource)</span>
         </label>
 
-        <Field label="ملاحظات وتفاصيل التكليف">
+        <Field label="ملاحظات وتفاصيل التكليف" className="md:col-span-2">
           <textarea
             className="input w-full h-16 py-2"
             placeholder="مهام ومسؤوليات المطور على هذا المشروع…"
@@ -1004,6 +1008,7 @@ function QuickAssignProjectModal({
             onChange={(e) => setNotes(e.target.value)}
           />
         </Field>
+        </FormSection>
       </div>
     </Modal>
   );

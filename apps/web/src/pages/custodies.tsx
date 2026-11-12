@@ -3,12 +3,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftRight, CheckCircle2,
   Clock, Download, Eye, FileCheck, FileText, Layers,
-  Pencil, Plus, Printer, Trash2, Wallet
+  Pencil, Plus, Printer, Save, Trash2, Wallet
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { getStoredCompany } from '../lib/storage-company';
-import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
 export interface CustodyTransfer {
   id: string;
@@ -165,15 +166,32 @@ export function CustodiesPage() {
     queryFn: () => api.get<any>('/custodies/report'),
   });
 
+  // Defer picker catalog loads until a custody modal or detail drawer is opened
+  const needsPickers = Boolean(
+    selectedCustodyId ||
+      createModalOpen ||
+      disburseModalCustody ||
+      conversionModalCustody ||
+      settlementLineModalCustody ||
+      postSettleModalCustody ||
+      closeModalCustody ||
+      transferModalCustody ||
+      settlementModalCustody
+  );
+
   // Query: Employees for assignment
   const { data: employees = [] } = useQuery({
     queryKey: ['employees-picker'],
+    enabled: needsPickers,
+    staleTime: 5 * 60 * 1000,
     queryFn: () => api.get<any[]>('/employees', { pageSize: '100' }).then((r: any) => r.data || []),
   });
 
   // Query: Bank accounts (class ASSET, parent of 1100/1110/1120)
   const { data: bankAccounts = [] } = useQuery({
     queryKey: ['bank-accounts-picker'],
+    enabled: needsPickers,
+    staleTime: 5 * 60 * 1000,
     queryFn: () => api.get<any[]>('/accounts', { postingOnly: 'true' }).then((r: any) =>
       (r || []).filter((a: any) => ['1100', '1110', '1120'].includes(a.code) || a.accountClass === 'ASSET' && a.code.startsWith('11'))
     ),
@@ -182,6 +200,8 @@ export function CustodiesPage() {
   // Query: Expense accounts for vouchers
   const { data: expenseAccounts = [] } = useQuery({
     queryKey: ['expense-accounts-picker'],
+    enabled: needsPickers,
+    staleTime: 5 * 60 * 1000,
     queryFn: () => api.get<any[]>('/accounts', { postingOnly: 'true' }).then((r: any) =>
       (r || []).filter((a: any) => a.accountClass === 'OPERATING_EXPENSE')
     ),
@@ -190,6 +210,8 @@ export function CustodiesPage() {
   // Query: Projects for tagging
   const { data: projects = [] } = useQuery({
     queryKey: ['projects-picker'],
+    enabled: needsPickers,
+    staleTime: 5 * 60 * 1000,
     queryFn: () => api.get<any[]>('/projects', { pageSize: '100' }).then((r: any) => r.data || []),
   });
 
@@ -1319,68 +1341,86 @@ function CreateCustodyModal({
     <Modal
       open={open}
       onClose={onClose}
+      size="lg"
+      dirty={Boolean(employeeId || titleAr || purpose || requestedAmount || disbursedFromAccountId)}
+      saving={isPending}
+      onSaveShortcut={() => {
+        if (!isPending && employeeId && titleAr) {
+          onSubmit({
+            employeeId,
+            titleAr,
+            purpose,
+            sourceCurrency,
+            requestedAmount: parseFloat(requestedAmount),
+            targetCurrency,
+            disbursedFromAccountId: disbursedFromAccountId || null,
+          });
+        }
+      }}
       title="طلب عهدة نقدية جديدة"
       footer={
         <div className="flex items-center justify-end gap-2">
-          <button className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
-          <button className="btn-primary text-xs" onClick={handleSubmit} disabled={isPending || !employeeId || !titleAr}>
-            {isPending && <Spinner className="size-3.5" />} حفظ طلب العهدة
+          <button type="button" className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
+          <button type="button" className="btn-primary text-xs flex items-center gap-1.5" onClick={handleSubmit} disabled={isPending || !employeeId || !titleAr}>
+            {isPending ? <Spinner className="size-3.5" /> : <Save className="size-3.5" />} حفظ طلب العهدة
           </button>
         </div>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        <Field label="أمين العهدة المسؤول (الموظف) *">
-          <select
-            className="input w-full"
-            value={employeeId}
-            onChange={(e) => setEmployeeId(e.target.value)}
-            required
-          >
-            <option value="">— اختر الموظف أمين العهدة —</option>
-            {employees.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.code} — {emp.full_name_ar || emp.fullNameAr}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="مسمى أو عنوان العهدة بالعربية *">
-          <input
-            className="input w-full"
-            placeholder="مثال: عهدة المصروفات التشغيلية لفرع القاهرة - شهر يناير"
-            value={titleAr}
-            onChange={(e) => setTitleAr(e.target.value)}
-            required
-          />
-        </Field>
-
-        <Field label="الغرض من العهدة والتفاصيل">
-          <textarea
-            className="input w-full h-16"
-            placeholder="مثال: تغطية إيجار المقر، فواتير الاتصالات، ضيافة الاجتماعات، وأدوات مكتبية"
-            value={purpose}
-            onChange={(e) => setPurpose(e.target.value)}
-          />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="عملة صرف العهدة من الإدارة">
-            <select
-              className="input w-full font-bold"
-              value={sourceCurrency}
-              onChange={(e) => setSourceCurrency(e.target.value)}
-            >
-              <option value="SAR">ريال سعودي (SAR)</option>
-              <option value="EGP">جنيه مصري (EGP)</option>
-              <option value="USD">دولار أمريكي (USD)</option>
-            </select>
+        <FormSection title="أمين العهدة والبيان" icon={<Wallet className="size-4" />} columns={2}>
+          <Field label="أمين العهدة المسؤول (الموظف)" required>
+            <SearchableSelect
+              options={employees.map((emp) => ({
+                value: emp.id,
+                label: `${emp.code} — ${emp.full_name_ar || emp.fullNameAr}`,
+              }))}
+              value={employeeId}
+              onChange={setEmployeeId}
+              placeholder="— ابحث واختر الموظف أمين العهدة —"
+              clearable={false}
+              autoFocus
+            />
           </Field>
 
-          <Field label="مبلغ العهدة المطلوب *">
+          <Field label="مسمى أو عنوان العهدة بالعربية" required>
+            <input
+              className="input w-full"
+              placeholder="مثال: عهدة المصروفات التشغيلية لفرع القاهرة - شهر يناير"
+              value={titleAr}
+              onChange={(e) => setTitleAr(e.target.value)}
+              required
+            />
+          </Field>
+
+          <Field label="الغرض من العهدة والتفاصيل" className="md:col-span-2">
+            <textarea
+              className="input w-full h-16"
+              placeholder="مثال: تغطية إيجار المقر، فواتير الاتصالات، ضيافة الاجتماعات، وأدوات مكتبية"
+              value={purpose}
+              onChange={(e) => setPurpose(e.target.value)}
+            />
+          </Field>
+        </FormSection>
+
+        <FormSection title="تفاصيل العملة والمبلغ وحساب الصرف" columns={3}>
+          <Field label="عملة صرف العهدة من الإدارة">
+            <SearchableSelect
+              clearable={false}
+              value={sourceCurrency}
+              onChange={setSourceCurrency}
+              options={[
+                { value: 'SAR', label: 'ريال سعودي (SAR)' },
+                { value: 'EGP', label: 'جنيه مصري (EGP)' },
+                { value: 'USD', label: 'دولار أمريكي (USD)' },
+              ]}
+            />
+          </Field>
+
+          <Field label="مبلغ العهدة المطلوب" required>
             <input
               type="number"
+              dir="ltr"
               step="any"
               className="input w-full font-mono font-bold"
               value={requestedAmount}
@@ -1388,33 +1428,31 @@ function CreateCustodyModal({
               required
             />
           </Field>
-        </div>
 
-        <div className="grid grid-cols-2 gap-3">
           <Field label="عملة الصرف في الفرع">
-            <select
-              className="input w-full font-bold"
+            <SearchableSelect
+              clearable={false}
               value={targetCurrency}
-              onChange={(e) => setTargetCurrency(e.target.value)}
-            >
-              <option value="EGP">جنيه مصري (EGP) - فرع مصر</option>
-              <option value="SAR">ريال سعودي (SAR) - المركز الرئيسي</option>
-            </select>
+              onChange={setTargetCurrency}
+              options={[
+                { value: 'EGP', label: 'جنيه مصري (EGP) - فرع مصر' },
+                { value: 'SAR', label: 'ريال سعودي (SAR) - المركز الرئيسي' },
+              ]}
+            />
           </Field>
 
-          <Field label="حساب البنك المقترح للصرف">
-            <select
-              className="input w-full text-xs"
+          <Field label="حساب البنك المقترح للصرف" className="md:col-span-3">
+            <SearchableSelect
+              options={bankAccounts.map((b) => ({
+                value: b.id,
+                label: `${b.code} — ${b.nameAr}`,
+              }))}
               value={disbursedFromAccountId}
-              onChange={(e) => setDisbursedFromAccountId(e.target.value)}
-            >
-              <option value="">— اختر حساب البنك (اختياري) —</option>
-              {bankAccounts.map((b) => (
-                <option key={b.id} value={b.id}>{b.code} — {b.nameAr}</option>
-              ))}
-            </select>
+              onChange={setDisbursedFromAccountId}
+              placeholder="— اختر حساب البنك (اختياري) —"
+            />
           </Field>
-        </div>
+        </FormSection>
       </form>
     </Modal>
   );
@@ -1435,8 +1473,7 @@ function DisburseCustodyModal({
   const [disbursementDate, setDisbursementDate] = useState(today());
   const [reference, setReference] = useState(`WIRE-${custody.custody_no}`);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitDisburse = () => {
     if (!disbursedFromAccountId) return;
     onSubmit({
       disbursedFromAccountId,
@@ -1446,46 +1483,52 @@ function DisburseCustodyModal({
     });
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    submitDisburse();
+  };
+
   return (
     <Modal
       open={true}
       onClose={onClose}
+      size="lg"
+      dirty={disbursedAmount !== custody.requested_amount || reference !== `WIRE-${custody.custody_no}`}
+      saving={isPending}
+      onSaveShortcut={submitDisburse}
       title={`صرف العهدة النقدية: ${custody.custody_no}`}
       footer={
         <div className="flex items-center justify-end gap-2">
-          <button className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
-          <button className="btn-primary text-xs" onClick={handleSubmit} disabled={isPending || !disbursedFromAccountId}>
+          <button type="button" className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
+          <button type="button" className="btn-primary text-xs" onClick={submitDisburse} disabled={isPending || !disbursedFromAccountId}>
             {isPending && <Spinner className="size-3.5" />} اعتماد وصرف وتوليد القيد
           </button>
         </div>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 leading-relaxed">
+        <div className="p-3.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl text-blue-900 dark:text-blue-200 leading-relaxed">
           <span className="font-bold">سيتم إنشاء قيد يومية آلي في الأستاذ العام:</span>
           <br />• <strong>من حـ/</strong> عهد نقدية ومصروفات تشغيلية ({custody.target_currency === 'EGP' ? '1310 فرع مصر' : '1320 الإدارة'})
           <br />• <strong>إلى حـ/</strong> البنك المصروف منه العهدة
         </div>
 
-        <Field label="الحساب البنكي المصروف منه العهدة *">
-          <select
-            className="input w-full"
-            value={disbursedFromAccountId}
-            onChange={(e) => setDisbursedFromAccountId(e.target.value)}
-            required
-          >
-            <option value="">— اختر حساب البنك —</option>
-            {bankAccounts.map((b) => (
-              <option key={b.id} value={b.id}>{b.code} — {b.nameAr}</option>
-            ))}
-          </select>
-        </Field>
+        <FormSection title="تفاصيل الصرف والتحويل البنكي" columns={2}>
+          <Field label="الحساب البنكي المصروف منه العهدة" required className="col-span-full">
+            <SearchableSelect
+              clearable={false}
+              options={bankAccounts.map((b) => ({ value: b.id, label: `${b.code} — ${b.nameAr}` }))}
+              value={disbursedFromAccountId}
+              onChange={setDisbursedFromAccountId}
+              placeholder="— ابحث واختر حساب البنك —"
+            />
+          </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="المبلغ المنصرف">
+          <Field label="المبلغ المنصرف" required>
             <input
               type="number"
               step="any"
+              min="0"
               className="input w-full font-mono font-bold"
               value={disbursedAmount}
               onChange={(e) => setDisbursedAmount(e.target.value)}
@@ -1493,7 +1536,7 @@ function DisburseCustodyModal({
             />
           </Field>
 
-          <Field label="تاريخ الصرف والتحويل">
+          <Field label="تاريخ الصرف والتحويل" required>
             <input
               type="date"
               className="input w-full font-mono"
@@ -1502,15 +1545,15 @@ function DisburseCustodyModal({
               required
             />
           </Field>
-        </div>
 
-        <Field label="رقم الحوالة البنكية / المرجع">
-          <input
-            className="input w-full font-mono"
-            value={reference}
-            onChange={(e) => setReference(e.target.value)}
-          />
-        </Field>
+          <Field label="رقم الحوالة البنكية / المرجع" className="col-span-full">
+            <input
+              className="input w-full font-mono"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+            />
+          </Field>
+        </FormSection>
       </form>
     </Modal>
   );
@@ -1680,21 +1723,25 @@ function AddSettlementLineModal({
     <Modal
       open={true}
       onClose={onClose}
+      size="lg"
+      dirty={Boolean(receiptNo || vendorName || description || subtotal)}
+      saving={isPending}
       title={`إضافة إيصال / فاتورة تسوية للعهدة: ${custody.custody_no}`}
       footer={
         <div className="flex items-center justify-end gap-2">
-          <button className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
-          <button className="btn-primary text-xs" onClick={handleSubmit} disabled={isPending || !expenseAccountId || !description || !subtotal}>
-            {isPending && <Spinner className="size-3.5" />} إضافة الإيصال للعهدة
+          <button type="button" className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
+          <button type="button" className="btn-primary text-xs flex items-center gap-1.5" onClick={handleSubmit} disabled={isPending || !expenseAccountId || !description || !subtotal}>
+            {isPending ? <Spinner className="size-3.5" /> : <Save className="size-3.5" />} إضافة الإيصال للعهدة
           </button>
         </div>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="تاريخ الفاتورة / الإيصال *">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="تاريخ الفاتورة / الإيصال" required>
             <input
               type="date"
+              dir="ltr"
               className="input w-full font-mono"
               value={expenseDate}
               onChange={(e) => setExpenseDate(e.target.value)}
@@ -1704,6 +1751,7 @@ function AddSettlementLineModal({
 
           <Field label="رقم الفاتورة الضريبية أو الإيصال">
             <input
+              dir="ltr"
               className="input w-full font-mono"
               placeholder="مثال: INV-2026-904"
               value={receiptNo}
@@ -1712,23 +1760,17 @@ function AddSettlementLineModal({
           </Field>
         </div>
 
-        <Field label="حساب المصروف التشغيلي *">
-          <select
-            className="input w-full font-bold"
+        <Field label="حساب المصروف التشغيلي" required>
+          <SearchableSelect
+            options={expenseAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
             value={expenseAccountId}
-            onChange={(e) => setExpenseAccountId(e.target.value)}
-            required
-          >
-            <option value="">— اختر حساب المصروف —</option>
-            {expenseAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.code} — {a.nameAr}
-              </option>
-            ))}
-          </select>
+            onChange={setExpenseAccountId}
+            placeholder="— ابحث واختر حساب المصروف —"
+            clearable={false}
+          />
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="المورد أو الجهة المصروف لها">
             <input
               className="input w-full"
@@ -1739,18 +1781,12 @@ function AddSettlementLineModal({
           </Field>
 
           <Field label="المشروع المرتبط (اختياري)">
-            <select
-              className="input w-full"
+            <SearchableSelect
+              options={projects.map((p) => ({ value: p.id, label: `${p.code} — ${p.nameAr}` }))}
               value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-            >
-              <option value="">— عام للمقر والفرع —</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.code} — {p.nameAr}
-                </option>
-              ))}
-            </select>
+              onChange={setProjectId}
+              placeholder="عام للمقر والفرع"
+            />
           </Field>
         </div>
 
@@ -2123,8 +2159,7 @@ function TransferCustodyModal({
     return (s * r).toFixed(2);
   }, [amountSar, exchangeRate]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitTransfer = () => {
     if (!bankAccountId || !amountSar || !exchangeRate) return;
     onSubmit({
       bankAccountId,
@@ -2137,50 +2172,54 @@ function TransferCustodyModal({
     });
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    submitTransfer();
+  };
+
   return (
     <Modal
       open={true}
       onClose={onClose}
+      size="lg"
+      dirty={amountSar !== '5000' || bankFeeSar !== '0'}
+      saving={isPending}
+      onSaveShortcut={submitTransfer}
       title={`تحويل وتعزيز عهدة فرع مصر: ${custody.custody_no}`}
       footer={
         <div className="flex items-center justify-end gap-2">
-          <button className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
-          <button className="btn-primary text-xs" onClick={handleSubmit} disabled={isPending || !bankAccountId || !amountSar}>
+          <button type="button" className="btn-secondary text-xs" onClick={onClose} disabled={isPending}>إلغاء</button>
+          <button type="button" className="btn-primary text-xs" onClick={submitTransfer} disabled={isPending || !bankAccountId || !amountSar}>
             {isPending && <Spinner className="size-3.5" />} اعتماد التحويل وتوليد القيدين المتبادلين
           </button>
         </div>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-purple-900 leading-relaxed">
+        <div className="p-3.5 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-xl text-purple-900 dark:text-purple-200 leading-relaxed">
           <div className="font-bold flex items-center gap-1.5 mb-1">
-            <ArrowLeftRight className="size-4 text-purple-700" /> دورة القيود المتبادلة بين الفروع (Inter-Branch Reciprocal):
+            <ArrowLeftRight className="size-4 text-purple-700 dark:text-purple-300" /> دورة القيود المتبادلة بين الفروع (Inter-Branch Reciprocal):
           </div>
           • <strong>دفاتر السعودية:</strong> مدين حـ/ جاري فرع مصر (1390) + مدين مصاريف بنكية (5150) / دائن حـ/ البنك السعودي (1110) بالريال.
           <br />• <strong>دفاتر مصر:</strong> مدين حـ/ العهدة النقدية (1310) / دائن حـ/ جاري المركز الرئيسي (2390) بالجنيه (المكافئ بالريال).
         </div>
 
-        <Field label="حساب البنك السعودي المحول منه (SAR) *">
-          <select
-            className="input w-full font-bold"
-            value={bankAccountId}
-            onChange={(e) => setBankAccountId(e.target.value)}
-            required
-          >
-            <option value="">— اختر حساب البنك —</option>
-            {bankAccounts.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.code} — {b.nameAr}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <FormSection title="تفاصيل التحويل والصرف" columns={2}>
+          <Field label="حساب البنك السعودي المحول منه (SAR)" required className="col-span-full">
+            <SearchableSelect
+              clearable={false}
+              options={bankAccounts.map((b) => ({ value: b.id, label: `${b.code} — ${b.nameAr}` }))}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+              placeholder="— ابحث واختر حساب البنك —"
+            />
+          </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="المبلغ المحول بالريال (SAR) *">
+          <Field label="المبلغ المحول بالريال (SAR)" required>
             <input
               type="number"
               step="any"
+              min="0"
               className="input w-full font-mono font-bold"
               value={amountSar}
               onChange={(e) => setAmountSar(e.target.value)}
@@ -2188,36 +2227,36 @@ function TransferCustodyModal({
             />
           </Field>
 
-          <Field label="سعر صرف التحويل الفعلي (EGP/SAR) *">
+          <Field label="سعر صرف التحويل الفعلي (EGP/SAR)" required>
             <input
               type="number"
               step="any"
-              className="input w-full font-mono font-bold text-cyan-800"
+              min="0"
+              className="input w-full font-mono font-bold text-cyan-800 dark:text-cyan-300"
               value={exchangeRate}
               onChange={(e) => setExchangeRate(e.target.value)}
               required
             />
           </Field>
-        </div>
 
-        {/* Highlighted Result */}
-        <div className="p-3 bg-slate-900 text-white rounded-lg flex items-center justify-between font-mono">
-          <span className="text-xs text-slate-300 font-sans">المبلغ المكافئ المستلم بعهدة مصر:</span>
-          <span className="text-lg font-bold text-emerald-400">{money(amountTarget)} EGP</span>
-        </div>
+          {/* Highlighted Result */}
+          <div className="col-span-full p-3.5 bg-slate-900 text-white rounded-xl flex items-center justify-between font-mono">
+            <span className="text-xs text-slate-300 font-sans">المبلغ المكافئ المستلم بعهدة مصر:</span>
+            <span className="text-lg font-bold text-emerald-400">{money(amountTarget)} EGP</span>
+          </div>
 
-        <div className="grid grid-cols-2 gap-3">
           <Field label="رسوم التحويل البنكي (SAR)">
             <input
               type="number"
               step="any"
+              min="0"
               className="input w-full font-mono"
               value={bankFeeSar}
               onChange={(e) => setBankFeeSar(e.target.value)}
             />
           </Field>
 
-          <Field label="تاريخ الحوالة">
+          <Field label="تاريخ الحوالة" required>
             <input
               type="date"
               className="input w-full font-mono"
@@ -2226,25 +2265,25 @@ function TransferCustodyModal({
               required
             />
           </Field>
-        </div>
 
-        <Field label="رقم المرجع البنكي / رقم السويفت">
-          <input
-            className="input w-full font-mono"
-            placeholder="مثال: SWIFT-RUH-CAI-9921"
-            value={bankReference}
-            onChange={(e) => setBankReference(e.target.value)}
-          />
-        </Field>
+          <Field label="رقم المرجع البنكي / رقم السويفت">
+            <input
+              className="input w-full font-mono"
+              placeholder="مثال: SWIFT-RUH-CAI-9921"
+              value={bankReference}
+              onChange={(e) => setBankReference(e.target.value)}
+            />
+          </Field>
 
-        <Field label="ملاحظات الحوالة">
-          <input
-            className="input w-full"
-            placeholder="بيان إضافي للتحويل والجهة المستلمة"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </Field>
+          <Field label="ملاحظات الحوالة">
+            <input
+              className="input w-full"
+              placeholder="بيان إضافي للتحويل والجهة المستلمة"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </Field>
+        </FormSection>
       </form>
     </Modal>
   );

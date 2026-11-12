@@ -1,28 +1,37 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   ArrowRight,
+  Briefcase,
+  Building2,
   CheckCircle2,
   Download,
   Eye,
   FileUp,
   FolderPlus,
+  Landmark,
+  Mail,
   Pencil,
+  Phone,
   Plus,
   Printer,
+  Save,
   Search,
   Square,
   Trash2,
+  User,
   UserPlus,
+  Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, money, today } from '../lib/format';
 import { DOC_TYPE, EMPLOYEE_STATUS, EMPLOYMENT_TYPE, opts } from '../lib/labels';
-import { ActiveBadge, cleanPayload, CrudPage, EntityForm, FieldDef, fieldErrors } from '../components/CrudPage';
+import { ActiveBadge, cleanPayload, CrudPage, EntityForm, FieldDef, fieldErrors, validateFormFields } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import {
   Badge,
@@ -30,6 +39,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  FormSection,
   Loading,
   Modal,
   PageHeader,
@@ -66,24 +76,24 @@ export const StatusBadge = ({ s }: { s: string }) => (
 );
 
 export const employeeFields: FieldDef[] = [
-  { name: 'code', label: 'الرقم الوظيفي', type: 'text', required: true, ltr: true },
-  { name: 'fullNameAr', label: 'الاسم بالعربية', type: 'text', required: true },
-  { name: 'fullNameEn', label: 'الاسم بالإنجليزية', type: 'text', ltr: true },
-  { name: 'nationalId', label: 'الرقم القومي / الهوية', type: 'text', ltr: true },
-  { name: 'email', label: 'البريد الإلكتروني', type: 'text', ltr: true },
-  { name: 'phone', label: 'الهاتف', type: 'text', ltr: true },
-  { name: 'birthDate', label: 'تاريخ الميلاد', type: 'date' },
-  { name: 'gender', label: 'النوع', type: 'select', options: [{ value: 'MALE', label: 'ذكر' }, { value: 'FEMALE', label: 'أنثى' }] },
-  { name: 'employmentType', label: 'نوع التعاقد', type: 'select', options: opts(EMPLOYMENT_TYPE), default: 'FULL_TIME', required: true },
-  { name: 'isBillableResource', label: 'مورد قابل للفوترة للعميل', type: 'bool', default: true },
-  { name: 'requiredMarginPct', label: 'هامش الربح المطلوب %', type: 'decimal', default: '25' },
-  { name: 'defaultBillingRate', label: 'سعر بيع الخدمة الافتراضي للعميل', type: 'decimal', default: '1500', hint: 'سعر الخدمة اليومي أو الشهري المحسوب على العميل' },
-  { name: 'defaultBillingBasis', label: 'أساس تسعير الخدمة الافتراضي', type: 'select', options: [{ value: 'DAILY', label: 'يومي (باليوم)' }, { value: 'MONTHLY', label: 'شهري (بالشهر)' }, { value: 'HOURLY', label: 'بالساعة' }], default: 'DAILY' },
-  { name: 'workCalendarId', label: 'تقويم العمل', type: 'ref', ref: REF.calendar },
-  { name: 'bankName', label: 'البنك', type: 'text' },
-  { name: 'bankAccountNo', label: 'رقم الحساب البنكي', type: 'text', ltr: true },
-  { name: 'iban', label: 'IBAN', type: 'text', ltr: true },
-  { name: 'notes', label: 'ملاحظات', type: 'textarea' },
+  { name: 'code', label: 'الرقم الوظيفي', type: 'text', required: true, ltr: true, section: 'البيانات الشخصية والهوية', sectionIcon: <User className="size-4" />, placeholder: 'EMP-001' },
+  { name: 'fullNameAr', label: 'الاسم بالعربية', type: 'text', required: true, section: 'البيانات الشخصية والهوية', placeholder: 'مثال: أحمد محمد علي' },
+  { name: 'fullNameEn', label: 'الاسم بالإنجليزية', type: 'text', ltr: true, section: 'البيانات الشخصية والهوية', placeholder: 'e.g. Ahmed Mohamed Ali' },
+  { name: 'nationalId', label: 'الرقم القومي / الهوية', type: 'text', ltr: true, section: 'البيانات الشخصية والهوية' },
+  { name: 'birthDate', label: 'تاريخ الميلاد', type: 'date', section: 'البيانات الشخصية والهوية' },
+  { name: 'gender', label: 'النوع', type: 'select', options: [{ value: 'MALE', label: 'ذكر' }, { value: 'FEMALE', label: 'أنثى' }], section: 'البيانات الشخصية والهوية' },
+  { name: 'email', label: 'البريد الإلكتروني', type: 'email', ltr: true, icon: <Mail className="size-3.5" />, section: 'بيانات الاتصال', sectionIcon: <Phone className="size-4" />, placeholder: 'name@company.com' },
+  { name: 'phone', label: 'الهاتف', type: 'tel', ltr: true, icon: <Phone className="size-3.5" />, section: 'بيانات الاتصال', placeholder: '+966 5x xxx xxxx' },
+  { name: 'employmentType', label: 'نوع التعاقد', type: 'select', options: opts(EMPLOYMENT_TYPE), default: 'FULL_TIME', required: true, section: 'بيانات التوظيف والعقد والتسعير', sectionIcon: <Briefcase className="size-4" /> },
+  { name: 'workCalendarId', label: 'تقويم العمل', type: 'ref', ref: REF.calendar, section: 'بيانات التوظيف والعقد والتسعير' },
+  { name: 'isBillableResource', label: 'مورد قابل للفوترة للعميل', type: 'bool', default: true, section: 'بيانات التوظيف والعقد والتسعير' },
+  { name: 'defaultBillingRate', label: 'سعر بيع الخدمة الافتراضي للعميل', type: 'decimal', default: '1500', hint: 'سعر الخدمة اليومي أو الشهري المحسوب على العميل', section: 'بيانات التوظيف والعقد والتسعير' },
+  { name: 'defaultBillingBasis', label: 'أساس تسعير الخدمة الافتراضي', type: 'select', options: [{ value: 'DAILY', label: 'يومي (باليوم)' }, { value: 'MONTHLY', label: 'شهري (بالشهر)' }, { value: 'HOURLY', label: 'بالساعة' }], default: 'DAILY', section: 'بيانات التوظيف والعقد والتسعير' },
+  { name: 'requiredMarginPct', label: 'هامش الربح المطلوب %', type: 'decimal', default: '25', min: 0, max: 100, section: 'بيانات التوظيف والعقد والتسعير' },
+  { name: 'bankName', label: 'البنك', type: 'text', section: 'الحساب البنكي والملاحظات الإضافية', sectionIcon: <Landmark className="size-4" />, sectionCollapsible: true },
+  { name: 'bankAccountNo', label: 'رقم الحساب البنكي', type: 'text', ltr: true, section: 'الحساب البنكي والملاحظات الإضافية' },
+  { name: 'iban', label: 'IBAN', type: 'text', ltr: true, section: 'الحساب البنكي والملاحظات الإضافية' },
+  { name: 'notes', label: 'ملاحظات', type: 'textarea', section: 'الحساب البنكي والملاحظات الإضافية' },
 ];
 
 export const placementFields: FieldDef[] = [
@@ -137,24 +147,24 @@ export function EmployeesPage() {
     queryFn: () => api.get<Page<any>>('/employees', { page, pageSize: 50, q: search, status }),
   });
 
-  const hireFields: FieldDef[] = [
-    { name: 'code', label: 'الرقم الوظيفي (تلقائي إن تُرك فارغاً)', type: 'text', ltr: true },
-    { name: 'fullNameAr', label: 'الاسم بالعربية *', type: 'text', required: true },
-    { name: 'fullNameEn', label: 'الاسم بالإنجليزية', type: 'text', ltr: true },
-    { name: 'nationalId', label: 'الرقم القومي / الهوية', type: 'text', ltr: true },
-    { name: 'phone', label: 'الهاتف', type: 'text', ltr: true },
-    { name: 'email', label: 'البريد الإلكتروني', type: 'text', ltr: true },
-    { name: 'hireDate', label: 'تاريخ التعيين *', type: 'date', required: true, default: today() },
-    { name: 'employmentType', label: 'نوع التعاقد *', type: 'select', options: opts(EMPLOYMENT_TYPE), default: 'FULL_TIME', required: true },
-    ...placementFields,
-    ...salaryFields,
-    { name: 'costProfileId', label: 'ملف التكلفة', type: 'ref', ref: REF.profile },
-    { name: 'defaultBillingRate', label: 'سعر بيع الخدمة للعميل (الافتراضي)', type: 'decimal', default: '1500', hint: 'السعر الافتراضي للفوترة على العميل' },
-    { name: 'defaultBillingBasis', label: 'أساس تسعير الخدمة', type: 'select', options: [{ value: 'DAILY', label: 'يومي (باليوم)' }, { value: 'MONTHLY', label: 'شهري (بالشهر)' }, { value: 'HOURLY', label: 'بالساعة' }], default: 'DAILY' },
-    { name: 'requiredMarginPct', label: 'هامش الربح المطلوب %', type: 'decimal', default: '25' },
-    { name: 'initialProjectId', label: 'ربط أولي بمشروع (اختياري)', type: 'ref', ref: REF.project, hint: 'إسناد الموظف لمشروع عمل فور التعيين' },
-    { name: 'initialAllocationPct', label: 'نسبة التخصيص للمشروع %', type: 'decimal', default: '100' },
-  ];
+  const hireFields: FieldDef[] = useMemo(() => [
+    { name: 'code', label: 'الرقم الوظيفي (تلقائي إن تُرك فارغاً)', type: 'text', ltr: true, section: 'البيانات الشخصية', sectionIcon: <User className="size-4" />, placeholder: 'تلقائي (EMP-...)' },
+    { name: 'fullNameAr', label: 'الاسم بالعربية', type: 'text', required: true, autoFocus: true, section: 'البيانات الشخصية', placeholder: 'الاسم الرباعي بالعربية' },
+    { name: 'fullNameEn', label: 'الاسم بالإنجليزية', type: 'text', ltr: true, section: 'البيانات الشخصية', placeholder: 'Full Name in English' },
+    { name: 'nationalId', label: 'الرقم القومي / الهوية', type: 'text', ltr: true, section: 'البيانات الشخصية' },
+    { name: 'phone', label: 'الهاتف', type: 'tel', ltr: true, icon: <Phone className="size-3.5" />, section: 'بيانات الاتصال', sectionIcon: <Phone className="size-4" />, placeholder: '+966 5x xxx xxxx' },
+    { name: 'email', label: 'البريد الإلكتروني', type: 'email', ltr: true, icon: <Mail className="size-3.5" />, section: 'بيانات الاتصال', placeholder: 'employee@company.com' },
+    { name: 'hireDate', label: 'تاريخ التعيين', type: 'date', required: true, default: today(), section: 'بيانات التوظيف والهيكل (القسم والفرع والمسمى)', sectionIcon: <Building2 className="size-4" /> },
+    { name: 'employmentType', label: 'نوع التعاقد', type: 'select', options: opts(EMPLOYMENT_TYPE), default: 'FULL_TIME', required: true, section: 'بيانات التوظيف والهيكل (القسم والفرع والمسمى)' },
+    ...placementFields.map((f) => ({ ...f, section: 'بيانات التوظيف والهيكل (القسم والفرع والمسمى)' })),
+    ...salaryFields.map((f) => ({ ...f, section: 'الراتب والبدلات والتأمينات', sectionIcon: <Wallet className="size-4" /> })),
+    { name: 'costProfileId', label: 'ملف التكلفة', type: 'ref', ref: REF.profile, section: 'الراتب والبدلات والتأمينات' },
+    { name: 'defaultBillingRate', label: 'سعر بيع الخدمة للعميل (الافتراضي)', type: 'decimal', default: '1500', min: 0, hint: 'السعر الافتراضي للفوترة على العميل', section: 'بيانات العقد والتسعير والربط بالمشروع', sectionIcon: <Briefcase className="size-4" /> },
+    { name: 'defaultBillingBasis', label: 'أساس تسعير الخدمة', type: 'select', options: [{ value: 'DAILY', label: 'يومي (باليوم)' }, { value: 'MONTHLY', label: 'شهري (بالشهر)' }, { value: 'HOURLY', label: 'بالساعة' }], default: 'DAILY', section: 'بيانات العقد والتسعير والربط بالمشروع' },
+    { name: 'requiredMarginPct', label: 'هامش الربح المطلوب %', type: 'decimal', default: '25', min: 0, max: 100, section: 'بيانات العقد والتسعير والربط بالمشروع' },
+    { name: 'initialProjectId', label: 'ربط أولي بمشروع (اختياري)', type: 'ref', ref: REF.project, hint: 'إسناد الموظف لمشروع عمل فور التعيين', section: 'بيانات العقد والتسعير والربط بالمشروع' },
+    { name: 'initialAllocationPct', label: 'نسبة التخصيص للمشروع %', type: 'decimal', default: '100', min: 1, max: 100, section: 'بيانات العقد والتسعير والربط بالمشروع' },
+  ], []);
 
   const save = useMutation({
     mutationFn: () => {
@@ -191,6 +201,7 @@ export function EmployeesPage() {
     onSuccess: (e) => {
       toast.success('تم تعيين الموظف بنجاح');
       qc.invalidateQueries({ queryKey: ['/employees'] });
+      qc.invalidateQueries({ queryKey: ['ref'] });
       setCreating(false);
       setForm({
         employmentType: 'FULL_TIME',
@@ -211,6 +222,31 @@ export function EmployeesPage() {
       toast.error(e);
     },
   });
+
+  const hireDirty = Boolean(
+    form.code ||
+      form.fullNameAr ||
+      form.fullNameEn ||
+      form.nationalId ||
+      form.phone ||
+      form.email ||
+      form.departmentId ||
+      form.branchId ||
+      form.positionId ||
+      form.basicSalary ||
+      form.initialProjectId
+  );
+
+  const handleSaveHire = () => {
+    if (save.isPending) return;
+    const clientErrs = validateFormFields(hireFields, form, false);
+    if (Object.keys(clientErrs).length > 0) {
+      setErrors(clientErrs);
+      toast.error('يرجى استكمال الحقول الإلزامية المميزة باللون الأحمر');
+      return;
+    }
+    save.mutate();
+  };
 
   const rawData: any = list.data;
   const empList: any[] = Array.isArray(rawData)
@@ -450,20 +486,26 @@ export function EmployeesPage() {
       <Drawer
         open={creating}
         onClose={() => setCreating(false)}
+        size="xl"
+        dirty={creating && hireDirty}
+        saving={save.isPending}
+        onSaveShortcut={handleSaveHire}
+        icon={<UserPlus className="size-4" />}
         title="تعيين موظف جديد — دورة العمل المتكاملة"
+        subtitle="إدخال البيانات الشخصية والاتصال والتسكين والراتب وربط المشروع في نموذج واحد منظّم"
         footer={
           <>
-            <button className="btn-secondary" onClick={() => setCreating(false)}>
+            <button type="button" className="btn-secondary" disabled={save.isPending} onClick={() => setCreating(false)}>
               إلغاء
             </button>
-            <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-              {save.isPending && <Spinner />} حفظ واعتماد التعيين
+            <button type="button" className="btn-primary flex items-center gap-1.5" disabled={save.isPending} onClick={handleSaveHire}>
+              {save.isPending ? <Spinner /> : <Save className="size-4" />} حفظ واعتماد التعيين
             </button>
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="rounded-xl bg-brand-50/60 p-3 text-xs text-brand-900 dark:bg-brand-950/40 dark:text-brand-200">
+        <div className="space-y-5">
+          <div className="rounded-xl border border-brand-200/80 dark:border-brand-800/60 bg-brand-50/70 dark:bg-brand-950/35 p-3.5 text-xs text-brand-900 dark:text-brand-200 leading-relaxed">
             <strong>دورة العمل المترابطة (Business Process):</strong> يتم إنشاء بيانات الموظف، تسكينه الوظيفي، راتبه وبدلاته، ملف تكلفته، وربطه الأولي بالمشروع في عملية تشغيلية موحدة لضمان احتساب التكلفة والإيراد بدقة.
           </div>
           <EntityForm fields={hireFields} value={form} onChange={setForm} errors={errors} />
@@ -576,7 +618,14 @@ export function EmployeeDetailPage() {
   if (emp.error || !emp.data) return <ErrorState error={emp.error} />;
 
   const e = emp.data;
-  const empTitle = e.fullNameAr || e.full_name_ar || e.fullNameEn || e.nameAr || (e.code ? `موظف ${e.code}` : 'ملف الموظف');
+  const cleanDisplay = (v: any) =>
+    typeof v === 'string' && v.trim() && v.trim() !== 'undefined' && v.trim() !== 'null' ? v.trim() : '';
+  const empTitle =
+    cleanDisplay(e.fullNameAr) ||
+    cleanDisplay(e.full_name_ar) ||
+    cleanDisplay(e.fullNameEn) ||
+    cleanDisplay(e.nameAr) ||
+    (cleanDisplay(e.code) ? `موظف ${e.code}` : 'ملف الموظف');
   const empCode = e.code || '—';
   const empHireDate = e.hireDate || e.hire_date;
   const empTermDate = e.terminationDate || e.termination_date;
@@ -1475,20 +1524,27 @@ function EditEmployeeModal({
   onSuccess: () => void;
 }) {
   const toast = useToast();
-  const [form, setForm] = useState<Record<string, any>>({
-    fullNameAr: employee.fullNameAr || employee.full_name_ar || '',
-    fullNameEn: employee.fullNameEn || employee.full_name_en || '',
-    nationalId: employee.nationalId || '',
-    email: employee.email || '',
-    phone: employee.phone || '',
-    requiredMarginPct: employee.requiredMarginPct || '25',
-    defaultBillingRate: employee.defaultBillingRate || '1500',
-    defaultBillingBasis: employee.defaultBillingBasis || 'DAILY',
-    bankName: employee.bankName || '',
-    bankAccountNo: employee.bankAccountNo || '',
-    iban: employee.iban || '',
-    notes: employee.notes || '',
-  });
+  const initialSeed = useMemo(
+    () => ({
+      fullNameAr: employee.fullNameAr || employee.full_name_ar || '',
+      fullNameEn: employee.fullNameEn || employee.full_name_en || '',
+      nationalId: employee.nationalId || '',
+      email: employee.email || '',
+      phone: employee.phone || '',
+      requiredMarginPct: employee.requiredMarginPct || '25',
+      defaultBillingRate: employee.defaultBillingRate || '1500',
+      defaultBillingBasis: employee.defaultBillingBasis || 'DAILY',
+      bankName: employee.bankName || '',
+      bankAccountNo: employee.bankAccountNo || '',
+      iban: employee.iban || '',
+      notes: employee.notes || '',
+    }),
+    [employee]
+  );
+  const [form, setForm] = useState<Record<string, any>>(initialSeed);
+  const [err, setErr] = useState<string | null>(null);
+
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initialSeed), [form, initialSeed]);
 
   const save = useMutation({
     mutationFn: () => api.patch(`/employees/${employee.id}`, form),
@@ -1499,106 +1555,153 @@ function EditEmployeeModal({
     onError: (err) => toast.error(err),
   });
 
+  const handleSave = () => {
+    if (save.isPending) return;
+    if (!String(form.fullNameAr || '').trim()) {
+      setErr('يرجى إدخال الاسم بالعربية');
+      toast.error('يرجى إدخال الاسم بالعربية');
+      return;
+    }
+    setErr(null);
+    save.mutate();
+  };
+
   return (
     <Modal
       open={open}
       onClose={onClose}
+      size="xl"
+      dirty={dirty}
+      saving={save.isPending}
+      onSaveShortcut={handleSave}
+      icon={<Pencil className="size-4" />}
       title="تعديل بيانات الموظف الأساسية"
+      subtitle={employee.code ? `الرقم الوظيفي: ${employee.code}` : undefined}
       footer={
         <>
-          <button className="btn-secondary" onClick={onClose}>إلغاء</button>
-          <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-            {save.isPending && <Spinner />} حفظ التعديلات
+          <button type="button" className="btn-secondary" disabled={save.isPending} onClick={onClose}>
+            إلغاء
+          </button>
+          <button type="button" className="btn-primary flex items-center gap-1.5" disabled={save.isPending} onClick={handleSave}>
+            {save.isPending ? <Spinner /> : <Save className="size-3.5" />} حفظ التعديلات
           </button>
         </>
       }
     >
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="الاسم بالعربية *" className="col-span-2">
-          <input
-            className="input"
-            value={form.fullNameAr}
-            onChange={(e) => setForm({ ...form, fullNameAr: e.target.value })}
-          />
-        </Field>
-        <Field label="الاسم بالإنجليزية">
-          <input
-            className="input"
-            dir="ltr"
-            value={form.fullNameEn}
-            onChange={(e) => setForm({ ...form, fullNameEn: e.target.value })}
-          />
-        </Field>
-        <Field label="الرقم القومي / الهوية">
-          <input
-            className="input"
-            dir="ltr"
-            value={form.nationalId}
-            onChange={(e) => setForm({ ...form, nationalId: e.target.value })}
-          />
-        </Field>
-        <Field label="الهاتف">
-          <input
-            className="input"
-            dir="ltr"
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          />
-        </Field>
-        <Field label="البريد الإلكتروني">
-          <input
-            className="input"
-            dir="ltr"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-          />
-        </Field>
-        <Field label="سعر بيع الخدمة للعميل الافتراضي">
-          <input
-            className="input"
-            type="number"
-            value={form.defaultBillingRate}
-            onChange={(e) => setForm({ ...form, defaultBillingRate: e.target.value })}
-          />
-        </Field>
-        <Field label="هامش الربح المطلوب %">
-          <input
-            className="input"
-            type="number"
-            value={form.requiredMarginPct}
-            onChange={(e) => setForm({ ...form, requiredMarginPct: e.target.value })}
-          />
-        </Field>
-        <Field label="البنك">
-          <input
-            className="input"
-            value={form.bankName}
-            onChange={(e) => setForm({ ...form, bankName: e.target.value })}
-          />
-        </Field>
-        <Field label="رقم الحساب البنكي">
-          <input
-            className="input"
-            dir="ltr"
-            value={form.bankAccountNo}
-            onChange={(e) => setForm({ ...form, bankAccountNo: e.target.value })}
-          />
-        </Field>
-        <Field label="IBAN" className="col-span-2">
-          <input
-            className="input font-mono"
-            dir="ltr"
-            value={form.iban}
-            onChange={(e) => setForm({ ...form, iban: e.target.value })}
-          />
-        </Field>
-        <Field label="ملاحظات" className="col-span-2">
-          <textarea
-            className="input h-16 py-2"
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          />
-        </Field>
+      <div className="space-y-4">
+        <FormSection title="البيانات الشخصية وبيانات الاتصال" icon={<User className="size-4" />} columns={3}>
+          <Field label="الاسم بالعربية" required error={err ?? undefined} className="md:col-span-2">
+            <input
+              className={`input ${err ? 'input-error' : ''}`}
+              autoFocus
+              value={form.fullNameAr}
+              onChange={(e) => {
+                setErr(null);
+                setForm({ ...form, fullNameAr: e.target.value });
+              }}
+            />
+          </Field>
+          <Field label="الاسم بالإنجليزية">
+            <input
+              className="input"
+              dir="ltr"
+              value={form.fullNameEn}
+              onChange={(e) => setForm({ ...form, fullNameEn: e.target.value })}
+            />
+          </Field>
+          <Field label="الرقم القومي / الهوية">
+            <input
+              className="input"
+              dir="ltr"
+              value={form.nationalId}
+              onChange={(e) => setForm({ ...form, nationalId: e.target.value })}
+            />
+          </Field>
+          <Field label="الهاتف" icon={<Phone className="size-3.5" />}>
+            <input
+              className="input"
+              dir="ltr"
+              type="tel"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            />
+          </Field>
+          <Field label="البريد الإلكتروني" icon={<Mail className="size-3.5" />}>
+            <input
+              className="input"
+              dir="ltr"
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+          </Field>
+        </FormSection>
+
+        <FormSection title="تسعير الخدمة والربحية" icon={<Briefcase className="size-4" />} columns={3}>
+          <Field label="سعر بيع الخدمة للعميل الافتراضي">
+            <input
+              className="input font-mono"
+              dir="ltr"
+              type="number"
+              value={form.defaultBillingRate}
+              onChange={(e) => setForm({ ...form, defaultBillingRate: e.target.value })}
+            />
+          </Field>
+          <Field label="أساس تسعير الخدمة">
+            <SearchableSelect
+              clearable={false}
+              value={form.defaultBillingBasis}
+              onChange={(val) => setForm({ ...form, defaultBillingBasis: val })}
+              options={[
+                { value: 'DAILY', label: 'يومي (باليوم)' },
+                { value: 'MONTHLY', label: 'شهري (بالشهر)' },
+                { value: 'HOURLY', label: 'بالساعة' },
+              ]}
+            />
+          </Field>
+          <Field label="هامش الربح المطلوب %">
+            <input
+              className="input font-mono"
+              dir="ltr"
+              type="number"
+              value={form.requiredMarginPct}
+              onChange={(e) => setForm({ ...form, requiredMarginPct: e.target.value })}
+            />
+          </Field>
+        </FormSection>
+
+        <FormSection title="الحساب البنكي والملاحظات" icon={<Landmark className="size-4" />} columns={3} collapsible defaultOpen>
+          <Field label="البنك">
+            <input
+              className="input"
+              value={form.bankName}
+              onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+            />
+          </Field>
+          <Field label="رقم الحساب البنكي">
+            <input
+              className="input font-mono"
+              dir="ltr"
+              value={form.bankAccountNo}
+              onChange={(e) => setForm({ ...form, bankAccountNo: e.target.value })}
+            />
+          </Field>
+          <Field label="IBAN">
+            <input
+              className="input font-mono"
+              dir="ltr"
+              value={form.iban}
+              onChange={(e) => setForm({ ...form, iban: e.target.value })}
+            />
+          </Field>
+          <Field label="ملاحظات" className="md:col-span-2 xl:col-span-3">
+            <textarea
+              className="input h-20 py-2"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+          </Field>
+        </FormSection>
       </div>
     </Modal>
   );
@@ -1635,11 +1738,23 @@ function AssignProjectModal({
 
   const projectsQuery = useQuery({
     queryKey: ['/projects', 1, '', ''],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
     queryFn: () => api.get<any>('/projects', { page: 1, pageSize: 100 }),
   });
 
   const rawProjects = projectsQuery.data?.rows || projectsQuery.data?.data || projectsQuery.data || [];
   const projects: any[] = Array.isArray(rawProjects) ? rawProjects : [];
+
+  const projectOptions = useMemo(
+    () =>
+      projects.map((p) => ({
+        value: p.id,
+        label: `${p.code} — ${p.nameAr || p.name}`,
+        subLabel: p.clientName || undefined,
+      })),
+    [projects]
+  );
 
   const assign = useMutation({
     mutationFn: () => {
@@ -1672,61 +1787,67 @@ function AssignProjectModal({
     <Modal
       open={open}
       onClose={onClose}
+      size="lg"
+      dirty={Boolean(form.projectId)}
+      saving={assign.isPending}
+      onSaveShortcut={() => form.projectId && !assign.isPending && assign.mutate()}
+      icon={<FolderPlus className="size-4" />}
       title={`إسناد الموظف: ${empName} إلى مشروع عمل`}
       footer={
         <>
-          <button className="btn-secondary" onClick={onClose}>إلغاء</button>
+          <button type="button" className="btn-secondary" disabled={assign.isPending} onClick={onClose}>إلغاء</button>
           <button
-            className="btn-primary"
+            type="button"
+            className="btn-primary flex items-center gap-1.5"
             disabled={assign.isPending || !form.projectId}
             onClick={() => assign.mutate()}
           >
-            {assign.isPending && <Spinner />} إسناد واعتماد التخصيص
+            {assign.isPending ? <Spinner /> : <Save className="size-3.5" />} إسناد واعتماد التخصيص
           </button>
         </>
       }
     >
       <div className="space-y-4">
-        <Field label="المشروع المراد ربطه بالموظف *">
-          <select
-            className="input"
-            value={form.projectId}
-            onChange={(e) => setForm({ ...form, projectId: e.target.value })}
-          >
-            <option value="">— اختر المشروع —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.code} — {p.nameAr || p.name} ({p.clientName || 'عميل'})
-              </option>
-            ))}
-          </select>
-        </Field>
+        <FormSection title="اختيار المشروع وتفاصيل التخصيص" icon={<FolderPlus className="size-4" />} columns={3}>
+          <Field label="المشروع المراد ربطه بالموظف" required className="md:col-span-2 xl:col-span-3">
+            <SearchableSelect
+              options={projectOptions}
+              loading={projectsQuery.isLoading}
+              value={form.projectId}
+              onChange={(val) => setForm({ ...form, projectId: val })}
+              placeholder="— ابحث واختر المشروع —"
+              clearable={false}
+              autoFocus
+            />
+          </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="أساس التوزيع *">
-            <select
-              className="input"
+          <Field label="أساس التوزيع" required>
+            <SearchableSelect
+              clearable={false}
               value={form.allocationBasis}
-              onChange={(e) => setForm({ ...form, allocationBasis: e.target.value })}
-            >
-              <option value="PERCENTAGE">نسبة مئوية % (مثال: 100% أو 50%)</option>
-              <option value="DAYS">أيام عمل فعلية (مثال: 22 يوم أو 10 أيام)</option>
-            </select>
+              onChange={(val) => setForm({ ...form, allocationBasis: val })}
+              options={[
+                { value: 'PERCENTAGE', label: 'نسبة مئوية % (مثال: 100% أو 50%)' },
+                { value: 'DAYS', label: 'أيام عمل فعلية (مثال: 22 يوم أو 10 أيام)' },
+              ]}
+            />
           </Field>
 
           {form.allocationBasis === 'PERCENTAGE' ? (
-            <Field label="نسبة التخصيص % *">
+            <Field label="نسبة التخصيص %" required>
               <input
-                className="input"
+                className="input font-mono"
+                dir="ltr"
                 type="number"
                 value={form.allocationPct}
                 onChange={(e) => setForm({ ...form, allocationPct: e.target.value })}
               />
             </Field>
           ) : (
-            <Field label="أيام العمل المخصصة *">
+            <Field label="أيام العمل المخصصة" required>
               <input
-                className="input"
+                className="input font-mono"
+                dir="ltr"
                 type="number"
                 value={form.allocatedDays}
                 onChange={(e) => {
@@ -1744,28 +1865,33 @@ function AssignProjectModal({
 
           <Field label="سعر بيع الخدمة على العميل (Override)">
             <input
-              className="input"
+              className="input font-mono"
+              dir="ltr"
               type="number"
               value={form.billableRate}
               onChange={(e) => setForm({ ...form, billableRate: e.target.value })}
             />
           </Field>
+        </FormSection>
 
+        <FormSection title="الفوترة والجدول الزمني والدور" icon={<Briefcase className="size-4" />} columns={3}>
           <Field label="أساس تسعير الخدمة">
-            <select
-              className="input"
+            <SearchableSelect
+              clearable={false}
               value={form.billingBasis}
-              onChange={(e) => setForm({ ...form, billingBasis: e.target.value })}
-            >
-              <option value="DAILY">يومي (باليوم)</option>
-              <option value="MONTHLY">شهري (بالشهر)</option>
-              <option value="HOURLY">بالساعة</option>
-            </select>
+              onChange={(val) => setForm({ ...form, billingBasis: val })}
+              options={[
+                { value: 'DAILY', label: 'يومي (باليوم)' },
+                { value: 'MONTHLY', label: 'شهري (بالشهر)' },
+                { value: 'HOURLY', label: 'بالساعة' },
+              ]}
+            />
           </Field>
 
-          <Field label="من تاريخ *">
+          <Field label="من تاريخ" required>
             <input
               className="input"
+              dir="ltr"
               type="date"
               value={form.startDate}
               onChange={(e) => setForm({ ...form, startDate: e.target.value })}
@@ -1775,13 +1901,14 @@ function AssignProjectModal({
           <Field label="إلى تاريخ (اختياري)">
             <input
               className="input"
+              dir="ltr"
               type="date"
               value={form.endDate}
               onChange={(e) => setForm({ ...form, endDate: e.target.value })}
             />
           </Field>
 
-          <Field label="الدور / التكليف بالمشروع" className="col-span-2">
+          <Field label="الدور / التكليف بالمشروع" className="md:col-span-2 xl:col-span-3">
             <input
               className="input"
               value={form.roleTitle}
@@ -1789,14 +1916,14 @@ function AssignProjectModal({
             />
           </Field>
 
-          <Field label="ملاحظات الإسناد" className="col-span-2">
+          <Field label="ملاحظات الإسناد" className="md:col-span-2 xl:col-span-3">
             <textarea
-              className="input h-14 py-2"
+              className="input h-16 py-2"
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
           </Field>
-        </div>
+        </FormSection>
       </div>
     </Modal>
   );
@@ -1810,7 +1937,8 @@ function InfoTab({ e, onSaved }: { e: any; onSaved: (d: any) => void }) {
 
   useEffect(() => setForm(e), [e]);
 
-  const fields = employeeFields.filter((f) => f.name !== 'code');
+  const fields = useMemo(() => employeeFields.filter((f) => f.name !== 'code'), []);
+  const isDirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(e), [form, e]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -1830,13 +1958,38 @@ function InfoTab({ e, onSaved }: { e: any; onSaved: (d: any) => void }) {
     },
   });
 
+  const handleSave = () => {
+    if (save.isPending) return;
+    const clientErrs = validateFormFields(fields, form, true);
+    if (Object.keys(clientErrs).length > 0) {
+      setErrors(clientErrs);
+      toast.error('يرجى مراجعة الحقول المطلوبة المميزة باللون الأحمر');
+      return;
+    }
+    save.mutate();
+  };
+
   return (
-    <div className="card p-4">
-      <EntityForm fields={fields} value={form} onChange={setForm} errors={errors} editing />
-      <div className="mt-4 flex justify-end">
-        <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending && <Spinner />} حفظ البيانات
-        </button>
+    <div className="space-y-4">
+      <EntityForm fields={fields} value={form} onChange={setForm} errors={errors} editing autoFocusFirst={false} />
+      <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/90 dark:border-slate-700/80 bg-white/95 dark:bg-[#0c1427]/95 backdrop-blur-md px-5 py-3 shadow-lg">
+        <div className="text-xs text-slate-500 dark:text-slate-400">
+          {isDirty ? (
+            <span className="font-semibold text-amber-600 dark:text-amber-400">يوجد تعديلات غير محفوظة في ملف الموظف</span>
+          ) : (
+            <span>جميع البيانات محدثة ومتطابقة</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {isDirty && (
+            <button type="button" className="btn-secondary text-xs" disabled={save.isPending} onClick={() => setForm(e)}>
+              تراجع عن التعديلات
+            </button>
+          )}
+          <button type="button" className="btn-primary flex items-center gap-1.5" disabled={save.isPending} onClick={handleSave}>
+            {save.isPending ? <Spinner /> : <Save className="size-4" />} حفظ البيانات
+          </button>
+        </div>
       </div>
     </div>
   );

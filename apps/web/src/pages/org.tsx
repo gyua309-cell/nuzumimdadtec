@@ -1,27 +1,27 @@
 import { useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Download, History, Percent, Plus, RotateCcw, Trash2, Upload, Database } from 'lucide-react';
+import { Building2, CalendarDays, Download, Globe, History, Percent, Plus, RotateCcw, Save, Trash2, Upload, Database } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { saveStoredCompany } from '../lib/storage-company';
 import { exportAllErpData, importAllErpData, resetSystemToZero } from '../lib/local-store';
 import { date, dateTime } from '../lib/format';
-import { ActiveBadge, cleanPayload, CrudPage, EntityForm, FieldDef, fieldErrors } from '../components/CrudPage';
+import { ActiveBadge, cleanPayload, CrudPage, EntityForm, FieldDef, fieldErrors, validateFormFields } from '../components/CrudPage';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
 const nameOf = (r: any) => `${r.code} — ${r.nameAr ?? r.name ?? r.titleAr}`;
 
 // ------------------------------------------------------------------ company
 const companyFields: FieldDef[] = [
-  { name: 'nameAr', label: 'الاسم بالعربية', type: 'text', required: true },
-  { name: 'nameEn', label: 'الاسم بالإنجليزية', type: 'text', ltr: true },
-  { name: 'legalName', label: 'الاسم القانوني الكامل', type: 'text' },
-  { name: 'taxNumber', label: 'الرقم الضريبي (VAT)', type: 'text', ltr: true },
-  { name: 'commercialReg', label: 'السجل التجاري', type: 'text', ltr: true },
-  { name: 'countryCode', label: 'رمز الدولة', type: 'text', ltr: true },
-  { name: 'timezone', label: 'المنطقة الزمنية', type: 'text', ltr: true },
-  { name: 'baseCurrency', label: 'العملة الأساسية (SAR)', type: 'text', ltr: true },
-  { name: 'address', label: 'العنوان الوطني / المقر الرئيسي', type: 'textarea' },
+  { name: 'nameAr', label: 'الاسم بالعربية', type: 'text', required: true, autoFocus: true, section: 'هوية المنشأة', sectionIcon: <Building2 className="size-4" /> },
+  { name: 'nameEn', label: 'الاسم بالإنجليزية', type: 'text', ltr: true, section: 'هوية المنشأة' },
+  { name: 'legalName', label: 'الاسم القانوني الكامل', type: 'text', section: 'هوية المنشأة' },
+  { name: 'taxNumber', label: 'الرقم الضريبي (VAT)', type: 'text', ltr: true, section: 'البيانات القانونية والضريبية' },
+  { name: 'commercialReg', label: 'السجل التجاري', type: 'text', ltr: true, section: 'البيانات القانونية والضريبية' },
+  { name: 'countryCode', label: 'رمز الدولة', type: 'text', ltr: true, section: 'الإعدادات الإقليمية والعملة والعنوان', sectionIcon: <Globe className="size-4" /> },
+  { name: 'timezone', label: 'المنطقة الزمنية', type: 'text', ltr: true, section: 'الإعدادات الإقليمية والعملة والعنوان' },
+  { name: 'baseCurrency', label: 'العملة الأساسية (SAR)', type: 'text', ltr: true, section: 'الإعدادات الإقليمية والعملة والعنوان' },
+  { name: 'address', label: 'العنوان الوطني / المقر الرئيسي', type: 'textarea', section: 'الإعدادات الإقليمية والعملة والعنوان' },
 ];
 
 export function CompanyPage() {
@@ -169,13 +169,32 @@ export function CompanyPage() {
       <Modal
         open={!!form}
         onClose={() => setForm(null)}
+        size="xl"
+        dirty={Boolean(form && c && JSON.stringify(form) !== JSON.stringify(c))}
+        saving={save.isPending}
+        onSaveShortcut={() => {
+          if (!form || save.isPending) return;
+          const errs = validateFormFields(companyFields, form, true);
+          if (Object.keys(errs).length > 0) {
+            toast.error('يرجى التحقق من الحقول الإلزامية');
+            return;
+          }
+          save.mutate();
+        }}
         title="تعديل بيانات وهوية المنشأة والترخيص"
-        wide
         footer={
           <>
-            <button className="btn-secondary" onClick={() => setForm(null)}>إلغاء</button>
-            <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-              {save.isPending && <Spinner />} حفظ التعديلات وتحديث المنظومة
+            <button type="button" className="btn-secondary" disabled={save.isPending} onClick={() => setForm(null)}>إلغاء</button>
+            <button type="button" className="btn-primary flex items-center gap-1.5" disabled={save.isPending} onClick={() => {
+              if (!form || save.isPending) return;
+              const errs = validateFormFields(companyFields, form, true);
+              if (Object.keys(errs).length > 0) {
+                toast.error('يرجى التحقق من الحقول الإلزامية');
+                return;
+              }
+              save.mutate();
+            }}>
+              {save.isPending ? <Spinner /> : <Save className="size-3.5" />} حفظ التعديلات وتحديث المنظومة
             </button>
           </>
         }
