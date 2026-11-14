@@ -570,7 +570,7 @@ export function ActiveBadge({ v }: { v: boolean }) {
   return v ? <Badge color="green" dot>نشط</Badge> : <Badge color="slate">غير نشط</Badge>;
 }
 
-// ------------------------------------------------------------------ CSV Bulk Import Modal
+// ------------------------------------------------------------------ CSV & Excel (.xlsx) Bulk Import Modal
 export function CsvImportModal({
   open,
   onClose,
@@ -578,6 +578,7 @@ export function CsvImportModal({
   fields,
   path,
   onSuccess,
+  transformRow,
 }: {
   open: boolean;
   onClose: () => void;
@@ -585,6 +586,7 @@ export function CsvImportModal({
   fields: FieldDef[];
   path: string;
   onSuccess: () => void;
+  transformRow?: (cleaned: Record<string, any>, rawRow: Record<string, any>) => Record<string, any>;
 }) {
   const toast = useToast();
   const [file, setFile] = useState<File | null>(null);
@@ -602,49 +604,137 @@ export function CsvImportModal({
     downloadCsv(`template-${title}.csv`, [colLabels]);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const downloadExcelTemplate = async () => {
+    try {
+      const { ExportEngine } = await import('../engine/export-engine');
+      await ExportEngine.exportExcel({
+        title: `قالب استيراد ${title}`,
+        filename: `template-${title}`,
+        includeHeaderBanner: false,
+        columns: importableFields.map((f) => ({
+          key: f.name,
+          header: f.label.replace(/\s*\*$/, ''),
+          width: 22,
+          type: f.type === 'decimal' || f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text',
+        })),
+        data: [],
+      });
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+
+  const processRawGrid = (raw: string[][]) => {
+    if (raw.length < 2) {
+      toast.error('الملف فارغ أو لا يحتوي على صفوف بيانات بعد الترويسة');
+      return;
+    }
+
+    // Smart header row detection (scans first 10 rows to support both plain templates and ExportEngine reports with banners)
+    let bestRowIdx = 0;
+    let bestMatchCount = -1;
+    const scanLimit = Math.min(raw.length, 10);
+    for (let r = 0; r < scanLimit; r++) {
+      let matches = 0;
+      for (const cell of raw[r]) {
+        const cleanH = String(cell ?? '').trim().replace(/\s*\*$/, '').toLowerCase();
+        if (!cleanH) continue;
+        const found = importableFields.some(
+          (fd) => fd.label.replace(/\s*\*$/, '').toLowerCase() === cleanH || fd.name.toLowerCase() === cleanH
+        );
+        if (found) matches++;
+      }
+      if (matches > bestMatchCount) {
+        bestMatchCount = matches;
+        bestRowIdx = r;
+      }
+    }
+
+    const fileHeaders = raw[bestRowIdx].map((h) => String(h ?? '').trim());
+    setHeaders(fileHeaders.filter(Boolean));
+
+    const headerMap: Record<number, FieldDef> = {};
+    fileHeaders.forEach((h, idx) => {
+      const cleanH = h.replace(/\s*\*$/, '').toLowerCase();
+      const found = importableFields.find(
+        (fd) => fd.label.replace(/\s*\*$/, '').toLowerCase() === cleanH || fd.name.toLowerCase() === cleanH
+      );
+      if (found) headerMap[idx] = found;
+    });
+
+    const parsed: Record<string, any>[] = [];
+    for (let i = bestRowIdx + 1; i < raw.length; i++) {
+      const rowData = raw[i];
+      if (!rowData || rowData.every((c) => !String(c ?? '').trim())) continue;
+      const firstCell = String(rowData[0] ?? '').trim();
+      if (firstCell.startsWith('الإجمالي') || firstCell.startsWith('إجمالي')) continue;
+
+      const rowObj: Record<string, any> = {};
+      rowData.forEach((val, colIdx) => {
+        const fieldDef = headerMap[colIdx];
+        if (fieldDef) {
+          const strVal = String(val ?? '').trim();
+          let v: any = strVal;
+          if (fieldDef.type === 'bool') {
+            v = strVal === 'true' || strVal === '1' || strVal === 'نعم' || strVal === 'نشط' || strVal === 'TRUE';
+          } else if (fieldDef.type === 'number' || fieldDef.type === 'decimal') {
+            const cleanNum = strVal.replace(/,/g, '');
+            v = cleanNum === '' ? null : Number(cleanNum);
+          }
+          rowObj[fieldDef.name] = v;
+        }
+      });
+      if (Object.keys(rowObj).length > 0) {
+        parsed.push(rowObj);
+      }
+    }
+    setParsedRows(parsed);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     setFile(f);
     setLogs([]);
+
+    if (f.name.toLowerCase().endsWith('.xlsx')) {
+      try {
+        const ExcelJSImport = await import('exceljs');
+        const ExcelJS = (ExcelJSImport as any).default ?? ExcelJSImport;
+        const wb = new ExcelJS.Workbook();
+        const buf = await f.arrayBuffer();
+        await wb.xlsx.load(buf);
+        const ws = wb.worksheets[0];
+        if (!ws) {
+          toast.error('ملف الإكسل لا يحتوي على أي ورقة عمل');
+          return;
+        }
+        const grid: string[][] = [];
+        ws.eachRow({ includeEmpty: false }, (row: any) => {
+          const vals: string[] = [];
+          row.eachCell({ includeEmpty: true }, (cell: any, colNumber: number) => {
+            let v = cell.value;
+            if (v && typeof v === 'object') {
+              if ('result' in v) v = v.result;
+              else if ('text' in v) v = v.text;
+              else if (v instanceof Date) v = v.toISOString().slice(0, 10);
+            }
+            vals[colNumber - 1] = v === null || v === undefined ? '' : String(v).trim();
+          });
+          grid.push(vals);
+        });
+        processRawGrid(grid);
+      } catch (err) {
+        toast.error(err);
+      }
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (evt) => {
       const text = (evt.target?.result as string) || '';
       const raw = parseCsv(text);
-      if (raw.length < 2) {
-        toast.error('الملف فارغ أو لا يحتوي على صفوف بيانات بعد الترويسة');
-        return;
-      }
-      const fileHeaders = raw[0].map((h) => h.trim());
-      setHeaders(fileHeaders);
-
-      const headerMap: Record<number, FieldDef> = {};
-      fileHeaders.forEach((h, idx) => {
-        const cleanH = h.replace(/\s*\*$/, '').toLowerCase();
-        const found = importableFields.find(
-          (fd) => fd.label.replace(/\s*\*$/, '').toLowerCase() === cleanH || fd.name.toLowerCase() === cleanH
-        );
-        if (found) headerMap[idx] = found;
-      });
-
-      const parsed: Record<string, any>[] = [];
-      for (let i = 1; i < raw.length; i++) {
-        const rowData = raw[i];
-        const rowObj: Record<string, any> = {};
-        rowData.forEach((val, colIdx) => {
-          const fieldDef = headerMap[colIdx];
-          if (fieldDef) {
-            let v: any = val;
-            if (fieldDef.type === 'bool') v = val === 'true' || val === '1' || val === 'نعم' || val === 'TRUE';
-            else if (fieldDef.type === 'number' || fieldDef.type === 'decimal') {
-              v = val === '' ? null : Number(val);
-            }
-            rowObj[fieldDef.name] = v;
-          }
-        });
-        parsed.push(rowObj);
-      }
-      setParsedRows(parsed);
+      processRawGrid(raw);
     };
     reader.readAsText(f, 'utf-8');
   };
@@ -660,7 +750,9 @@ export function CsvImportModal({
     for (let i = 0; i < parsedRows.length; i++) {
       const row = parsedRows[i];
       try {
-        await api.post(path, cleanPayload(fields, row, false));
+        const cleaned = cleanPayload(fields, row, false);
+        const payload = transformRow ? transformRow(cleaned, row) : cleaned;
+        await api.post(path, payload);
         successCount++;
       } catch (err: any) {
         failCount++;
@@ -685,14 +777,19 @@ export function CsvImportModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={`استيراد بيانات ${title} من ملف CSV`}
+      title={`استيراد بيانات ${title} (Excel .xlsx / CSV)`}
       wide
       maxWidth="max-w-4xl"
       footer={
         <div className="flex flex-wrap items-center justify-between gap-2 w-full">
-          <button type="button" className="btn-secondary text-xs" onClick={downloadTemplate}>
-            <Download className="size-3.5 text-amber-500" /> تنزيل قالب الأعمدة الفارغ (CSV)
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-secondary text-xs" onClick={downloadExcelTemplate}>
+              <FileSpreadsheet className="size-3.5 text-emerald-600" /> تنزيل قالب Excel (.xlsx)
+            </button>
+            <button type="button" className="btn-secondary text-xs" onClick={downloadTemplate}>
+              <Download className="size-3.5 text-amber-500" /> تنزيل قالب (CSV)
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             <button type="button" className="btn-secondary" onClick={onClose} disabled={importing}>
               إلغاء
@@ -715,7 +812,7 @@ export function CsvImportModal({
           <input
             type="file"
             id="csv-file-input"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="hidden"
             onChange={handleFileChange}
             disabled={importing}
@@ -725,10 +822,10 @@ export function CsvImportModal({
               <FileSpreadsheet className="size-6" />
             </div>
             <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
-              {file ? file.name : 'انقر لاختيار ملف CSV للمعاينة والتحقق قبل الحفظ'}
+              {file ? file.name : 'انقر لاختيار ملف Excel (.xlsx) أو CSV للمعاينة والتحقق قبل الحفظ'}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              يتم التحقق وعرض المعاينة الكاملة للبيانات قبل كتابة أي سجل في قاعدة البيانات (UTF-8).
+              يدعم ملفات Excel (.xlsx) وملفات CSV (ترميز UTF-8) مع معاينة فورية للبيانات قبل الحفظ.
             </p>
           </label>
         </div>
@@ -953,9 +1050,9 @@ export function CrudPage({
               type="button"
               className="btn-secondary text-xs flex items-center gap-1.5"
               onClick={() => setImportingOpen(true)}
-              title="استيراد CSV"
+              title="استيراد بيانات من ملف Excel (.xlsx) أو CSV"
             >
-              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد CSV
+              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
             </button>
             <button
               type="button"

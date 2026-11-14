@@ -3,14 +3,15 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Decimal from 'decimal.js';
 import {
-  CheckCircle2, ChevronDown, ChevronLeft, Download, Eye, FileCode, FlaskConical,
-  Folder, FolderOpen, List, Network, Pencil, Plus, Printer, Send, Trash2, Undo2, XCircle,
+  CheckCircle2, ChevronDown, ChevronLeft, Eye, FileCode, FlaskConical,
+  Folder, FolderOpen, List, Network, Pencil, Plus, Printer, Send, Trash2, Undo2, Upload, XCircle,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
-import { date, dateTime, downloadCsv, money, today } from '../lib/format';
-import { ACCOUNT_CLASS, ACCOUNT_SOURCE, ACCOUNT_SUBTYPE, CASH_FLOW, DIMENSION_POLICY, JE_STATUS, JOURNAL_TYPE, LEDGER } from '../lib/labels';
-import { ActiveBadge, CrudPage, fieldErrors, useRefOptions } from '../components/CrudPage';
+import { date, dateTime, money, today } from '../lib/format';
+import { ACCOUNT_CLASS, ACCOUNT_SOURCE, ACCOUNT_SUBTYPE, CASH_FLOW, DIMENSION_POLICY, JE_STATUS, JOURNAL_TYPE, LEDGER, opts } from '../lib/labels';
+import { ActiveBadge, CrudPage, CsvImportModal, FieldDef, fieldErrors, useRefOptions } from '../components/CrudPage';
+import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, useToast } from '../components/ui';
 
@@ -62,6 +63,19 @@ export function AccountSelect({ value, onChange, accounts, className = '' }: { v
 // ------------------------------------------------------------------ chart of accounts
 const emptyAccount = { parentId: '', code: '', nameAr: '', nameEn: '', accountClass: 'ASSET', subtype: '', isContra: false, currencyCode: '', isPosting: true, isControl: false, isActive: true, cashFlowCategory: '', requiresCostCenter: false, requiresProject: false, requiresEmployee: false, description: '' };
 
+const accountImportFields: FieldDef[] = [
+  { name: 'code', label: 'الرمز', type: 'text', required: true, ltr: true },
+  { name: 'nameAr', label: 'اسم الحساب بالعربية', type: 'text', required: true },
+  { name: 'nameEn', label: 'اسم الحساب بالإنجليزية', type: 'text', ltr: true },
+  { name: 'accountClass', label: 'التصنيف', type: 'select', options: opts(ACCOUNT_CLASS), default: 'ASSET', required: true },
+  { name: 'subtype', label: 'النوع الفرعي', type: 'select', options: opts(ACCOUNT_SUBTYPE) },
+  { name: 'currencyCode', label: 'العملة', type: 'text', ltr: true },
+  { name: 'isPosting', label: 'حساب تفصيلي', type: 'bool', default: true },
+  { name: 'isControl', label: 'حساب رقابي', type: 'bool', default: false },
+  { name: 'isActive', label: 'الحالة', type: 'bool', default: true },
+  { name: 'description', label: 'الوصف', type: 'textarea' },
+];
+
 export function AccountsPage() {
   const toast = useToast();
   const qc = useQueryClient();
@@ -71,6 +85,7 @@ export function AccountsPage() {
   const [viewMode, setViewMode] = useState<'TREE' | 'TABLE'>('TREE');
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [errs, setErrs] = useState<Record<string, string>>({});
+  const [importingOpen, setImportingOpen] = useState(false);
   const save = useMutation({
     mutationFn: () => {
       const f = form!;
@@ -97,16 +112,6 @@ export function AccountsPage() {
   const rows = search ? all.filter((a) => a.code.includes(search) || a.nameAr.includes(search)) : all.filter((a) => !hiddenBy(a));
   const headers = all.filter((a) => !a.isPosting);
   const set = (k: string, v: any) => setForm({ ...form!, [k]: v });
-
-  const handleExport = () => {
-    downloadCsv(`chart-of-accounts-${today()}.csv`, [
-      ['الرمز', 'اسم الحساب بالعربية', 'اسم الحساب بالإنجليزية', 'التصنيف', 'النوع الفرعي', 'الطبيعة', 'العملة', 'حساب تفصيلي', 'حساب رقابي', 'الحالة'],
-      ...all.map((a) => [
-        a.code, a.nameAr, a.nameEn || '', ACCOUNT_CLASS[a.accountClass] || a.accountClass, a.subtype || '', a.normalBalance, a.currencyCode || 'كل العملات', a.isPosting ? 'نعم' : 'لا', a.isControl ? 'نعم' : 'لا', a.isActive ? 'نشط' : 'معطل',
-      ]),
-    ]);
-    toast.success('تم تصدير شجرة الحسابات إلى ملف CSV بنجاح');
-  };
 
   return (
     <div>
@@ -141,11 +146,35 @@ export function AccountsPage() {
               </button>
             </div>
 
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
+            <ExportMenu
+              title="شجرة الحسابات المحاسبية"
+              filename={`chart-of-accounts-${today()}`}
+              columns={[
+                { key: 'code', header: 'الرمز', width: 14 },
+                { key: 'nameAr', header: 'اسم الحساب بالعربية', width: 28 },
+                { key: 'nameEn', header: 'اسم الحساب بالإنجليزية', width: 22 },
+                { key: 'accountClassLabel', header: 'التصنيف', width: 16 },
+                { key: 'normalBalanceLabel', header: 'الطبيعة', width: 12 },
+                { key: 'currencyLabel', header: 'العملة', width: 14 },
+                { key: 'isPostingLabel', header: 'حساب تفصيلي', width: 12 },
+                { key: 'isActiveLabel', header: 'الحالة', width: 12 },
+              ]}
+              data={all.map((a) => ({
+                ...a,
+                accountClassLabel: ACCOUNT_CLASS[a.accountClass] || a.accountClass,
+                normalBalanceLabel: a.normalBalance === 'DEBIT' ? 'مدين' : 'دائن',
+                currencyLabel: a.currencyCode || 'كل العملات',
+                isPostingLabel: a.isPosting ? 'نعم' : 'لا',
+                isActiveLabel: a.isActive ? 'نشط' : 'معطل',
+              }))}
+            />
+            <button
+              type="button"
+              className="btn-secondary text-xs flex items-center gap-1.5"
+              onClick={() => setImportingOpen(true)}
+              title="استيراد شجرة الحسابات من ملف Excel (.xlsx) أو CSV"
+            >
+              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
             </button>
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => { setErrs({}); setForm({ ...emptyAccount }); }}>
               <Plus className="size-4" /> حساب جديد
@@ -327,6 +356,33 @@ export function AccountsPage() {
           </div>
         )}
       </Drawer>
+      <CsvImportModal
+        open={importingOpen}
+        onClose={() => setImportingOpen(false)}
+        title="شجرة الحسابات المحاسبية"
+        fields={accountImportFields}
+        path="/accounts"
+        transformRow={(v) => {
+          const revClassMap: Record<string, string> = {};
+          for (const [k, label] of Object.entries(ACCOUNT_CLASS)) revClassMap[label] = k;
+          const accountClass = revClassMap[v.accountClass] || v.accountClass || 'ASSET';
+          return {
+            ...emptyAccount,
+            ...v,
+            accountClass,
+            parentId: v.parentId || null,
+            subtype: v.subtype || null,
+            currencyCode: v.currencyCode && v.currencyCode !== 'كل العملات' ? v.currencyCode : null,
+            cashFlowCategory: v.cashFlowCategory || null,
+            isPosting: v.isPosting ?? true,
+            isActive: v.isActive ?? true,
+          };
+        }}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['accounts'] });
+          qc.invalidateQueries({ queryKey: ['ref'] });
+        }}
+      />
     </div>
   );
 }
@@ -514,17 +570,6 @@ export function JournalsPage() {
   const base = useBaseCurrency();
   const list: any[] = Array.isArray(q.data) ? q.data : (q.data?.data ?? []);
 
-  const handleExport = () => {
-    if (!list.length) return;
-    downloadCsv(`journal-entries-${today()}.csv`, [
-      ['رقم القيد', 'التاريخ', 'الفترة', 'النوع', 'الدفتر', 'الوصف', 'المصدر', `مدين (${base})`, `دائن (${base})`, 'الحالة'],
-      ...list.map((e: any) => [
-        e.entryNo || '', e.entryDate || '', e.periodName || '', JOURNAL_TYPE[e.journalType] || e.journalType, LEDGER[e.ledger] || e.ledger, e.description || '', `${e.sourceModule}/${e.sourceType}`, e.totalDebitBase, e.totalCreditBase, JE_STATUS[e.status]?.label || e.status,
-      ]),
-    ]);
-    toast.success('تم تصدير القيود اليومية إلى ملف CSV بنجاح');
-  };
-
   return (
     <div>
       <PageHeader
@@ -532,12 +577,30 @@ export function JournalsPage() {
         subtitle="القيد المرحّل لا يعدل ولا يحذف؛ التصحيح يتم بقيد عكسي أو قيد تسوية."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="دفتر قيود اليومية"
+              filename={`journal-entries-${today()}`}
+              currency={base}
+              columns={[
+                { key: 'entryNo', header: 'رقم القيد', width: 16 },
+                { key: 'entryDate', header: 'التاريخ', width: 14, type: 'date' },
+                { key: 'periodName', header: 'الفترة', width: 16 },
+                { key: 'journalTypeLabel', header: 'النوع', width: 16 },
+                { key: 'ledgerLabel', header: 'الدفتر', width: 12 },
+                { key: 'description', header: 'الوصف', width: 32 },
+                { key: 'sourceLabel', header: 'المصدر', width: 18 },
+                { key: 'totalDebitBase', header: `مدين (${base})`, width: 16, type: 'currency', isTotal: true },
+                { key: 'totalCreditBase', header: `دائن (${base})`, width: 16, type: 'currency', isTotal: true },
+                { key: 'statusLabel', header: 'الحالة', width: 14 },
+              ]}
+              data={list.map((e: any) => ({
+                ...e,
+                journalTypeLabel: JOURNAL_TYPE[e.journalType] || e.journalType,
+                ledgerLabel: LEDGER[e.ledger] || e.ledger,
+                sourceLabel: `${e.sourceModule}/${e.sourceType}`,
+                statusLabel: JE_STATUS[e.status]?.label || e.status,
+              }))}
+            />
             <Link className="btn-primary text-xs flex items-center gap-1.5" to="/acc/journals/new">
               <Plus className="size-4" /> قيد يدوي جديد
             </Link>

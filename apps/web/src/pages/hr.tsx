@@ -21,6 +21,7 @@ import {
   Search,
   Square,
   Trash2,
+  Upload,
   User,
   UserPlus,
   Wallet,
@@ -29,7 +30,7 @@ import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, money, today } from '../lib/format';
 import { DOC_TYPE, EMPLOYEE_STATUS, EMPLOYMENT_TYPE, opts } from '../lib/labels';
-import { ActiveBadge, cleanPayload, CrudPage, EntityForm, FieldDef, fieldErrors, validateFormFields } from '../components/CrudPage';
+import { ActiveBadge, cleanPayload, CrudPage, CsvImportModal, EntityForm, FieldDef, fieldErrors, validateFormFields } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
@@ -121,6 +122,7 @@ export function EmployeesPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [creating, setCreating] = useState(false);
+  const [importingOpen, setImportingOpen] = useState(false);
   const [assignModalEmp, setAssignModalEmp] = useState<any | null>(null);
   const [form, setForm] = useState<Record<string, any>>({
     employmentType: 'FULL_TIME',
@@ -285,6 +287,14 @@ export function EmployeesPage() {
               ]}
               data={empList}
             />
+            <button
+              type="button"
+              className="btn-secondary text-xs flex items-center gap-1.5"
+              onClick={() => setImportingOpen(true)}
+              title="استيراد موظفين من ملف Excel (.xlsx) أو CSV"
+            >
+              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
+            </button>
             <button
               className="btn-primary"
               onClick={() => {
@@ -524,6 +534,46 @@ export function EmployeesPage() {
           }}
         />
       )}
+
+      {/* Bulk CSV / Excel Import Modal */}
+      <CsvImportModal
+        open={importingOpen}
+        onClose={() => setImportingOpen(false)}
+        title="الموظفين والكوادر البشرية"
+        fields={hireFields}
+        path="/employees"
+        transformRow={(v) => {
+          const body: Record<string, any> = {};
+          for (const f of employeeFields) {
+            if (v[f.name] !== undefined && v[f.name] !== null) body[f.name] = v[f.name];
+          }
+          body.employmentType = v.employmentType || 'FULL_TIME';
+          body.hireDate = v.hireDate || today();
+          body.placement = Object.fromEntries(placementFields.map((f) => [f.name, v[f.name] ?? null]));
+          if (v.basicSalary) {
+            body.compensation = {
+              basicSalary: String(v.basicSalary),
+              salaryCurrency: v.salaryCurrency || 'SAR',
+              insuranceSalary: String(v.insuranceSalary || '0'),
+              insuranceCurrency: v.insuranceCurrency || v.salaryCurrency || 'SAR',
+            };
+            body.basicSalary = String(v.basicSalary);
+            body.salaryCurrency = v.salaryCurrency || 'SAR';
+            body.insuranceSalary = String(v.insuranceSalary || '0');
+            body.insuranceCurrency = v.insuranceCurrency || v.salaryCurrency || 'SAR';
+          }
+          body.costProfileId = v.costProfileId ?? null;
+          if (v.defaultBillingRate) body.defaultBillingRate = String(v.defaultBillingRate);
+          if (v.defaultBillingBasis) body.defaultBillingBasis = v.defaultBillingBasis;
+          if (v.fullNameAr) body.fullNameAr = v.fullNameAr;
+          if (v.fullNameEn) body.fullNameEn = v.fullNameEn;
+          return body;
+        }}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['/employees'] });
+          qc.invalidateQueries({ queryKey: ['ref'] });
+        }}
+      />
     </div>
   );
 }
@@ -690,6 +740,35 @@ export function EmployeeDetailPage() {
           </div>
         }
       />
+
+      {/* Inter-Module Quick Jump Strip */}
+      <div className="print:hidden flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-[#091020] px-4 py-2.5 text-xs">
+        <span className="font-extrabold text-slate-500 dark:text-slate-400">الترابط السريع بين الأقسام:</span>
+        <Link
+          to="/prj/employee-tracking"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 font-bold text-cyan-700 hover:bg-cyan-500/20 dark:text-cyan-300 transition-colors"
+        >
+          <Briefcase className="size-3.5" /> كروت التشغيل والتتبع
+        </Link>
+        <Link
+          to="/reports/employee-profitability"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 transition-colors"
+        >
+          <Landmark className="size-3.5" /> تقرير ربحية الكوادر
+        </Link>
+        <Link
+          to="/cost/profiles"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 font-bold text-indigo-700 hover:bg-indigo-500/20 dark:text-indigo-300 transition-colors"
+        >
+          <Building2 className="size-3.5" /> ملفات التكلفة
+        </Link>
+        <Link
+          to="/pay/runs"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-bold text-amber-700 hover:bg-amber-500/20 dark:text-amber-300 transition-colors"
+        >
+          <Wallet className="size-3.5" /> مسيرات الرواتب
+        </Link>
+      </div>
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800">

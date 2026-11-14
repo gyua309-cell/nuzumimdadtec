@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Eye, Layers, Pencil, Plus, Printer, Search, Trash2 } from 'lucide-react';
+import { ArrowRight, Download, Eye, FileText, Layers, Pencil, Plus, Printer, Search, Trash2, Upload, Users } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { opts, PRICING_BASIS, PROJECT_STATUS } from '../lib/labels';
-import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
+import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 
 import { FormModal, PeriodSelect, REF } from '../components/forms';
@@ -69,6 +69,7 @@ export function ProjectsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [creating, setCreating] = useState(false);
+  const [importingOpen, setImportingOpen] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => { setSearch(q); setPage(1); }, 300);
     return () => clearTimeout(t);
@@ -108,6 +109,14 @@ export function ProjectsPage() {
               ]}
               data={prjList}
             />
+            <button
+              type="button"
+              className="btn-secondary text-xs flex items-center gap-1.5"
+              onClick={() => setImportingOpen(true)}
+              title="استيراد مشاريع من ملف Excel (.xlsx) أو CSV"
+            >
+              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
+            </button>
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setCreating(true)}>
               <Plus className="size-4" /> إضافة مشروع
             </button>
@@ -236,6 +245,17 @@ export function ProjectsPage() {
           const p: any = await api.post('/projects', b);
           qc.invalidateQueries({ queryKey: ['/projects'] });
           nav(`/prj/projects/${p.id}`);
+        }}
+      />
+      <CsvImportModal
+        open={importingOpen}
+        onClose={() => setImportingOpen(false)}
+        title="المشاريع التعاقدية"
+        fields={projectFormFields}
+        path="/projects"
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['/projects'] });
+          qc.invalidateQueries({ queryKey: ['ref'] });
         }}
       />
     </div>
@@ -413,6 +433,35 @@ export function ProjectDetailPage() {
           </div>
         }
       />
+
+      {/* Inter-Module Quick Jump Strip */}
+      <div className="print:hidden flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-[#091020] px-4 py-2.5 text-xs">
+        <span className="font-extrabold text-slate-500 dark:text-slate-400">الترابط السريع بين الأقسام:</span>
+        <Link
+          to="/prj/clients"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 font-bold text-cyan-700 hover:bg-cyan-500/20 dark:text-cyan-300 transition-colors"
+        >
+          <Users className="size-3.5" /> سجل العملاء ({p.clientName || 'العميل'})
+        </Link>
+        <Link
+          to="/prj/assignments"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 font-bold text-indigo-700 hover:bg-indigo-500/20 dark:text-indigo-300 transition-colors"
+        >
+          <Layers className="size-3.5" /> تخصيصات فريق العمل
+        </Link>
+        <Link
+          to="/sal/invoices"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 transition-colors"
+        >
+          <FileText className="size-3.5" /> فواتير المبيعات والعقود
+        </Link>
+        <Link
+          to="/rev/profitability"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-bold text-amber-700 hover:bg-amber-500/20 dark:text-amber-300 transition-colors"
+        >
+          <Eye className="size-3.5" /> لوحة الربحية والتحليل المالي
+        </Link>
+      </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="الهامش المستهدف" value={p.requiredMarginPct != null ? `${p.requiredMarginPct}%` : '—'} hint="نسبة الربحية المطلوبة" />

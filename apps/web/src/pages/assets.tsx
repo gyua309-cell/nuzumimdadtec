@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Eye, Laptop, Pencil, Play, Plus, Printer, Search, Trash2 } from 'lucide-react';
+import { ArrowRight, Download, Eye, Laptop, Pencil, Play, Plus, Printer, Search, Trash2, Upload } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { ASSET_KIND, ASSET_STATUS, DEP_METHOD, opts, RUN_STATUS } from '../lib/labels';
-import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
+import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
+import { ExportMenu } from '../components/ExportMenu';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import { Badge, EmptyState, ErrorState, Field, Loading, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
 
@@ -73,6 +74,7 @@ export function AssetsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [creating, setCreating] = useState(false);
+  const [importingOpen, setImportingOpen] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => { setSearch(q); setPage(1); }, 300);
     return () => clearTimeout(t);
@@ -84,17 +86,6 @@ export function AssetsPage() {
   const totalBookValue = assetItems.reduce((acc, a) => acc + (parseFloat(a.netBookValueBase) || 0), 0);
   const activeCount = assetItems.filter((a) => a.status === 'ACTIVE').length;
 
-  const handleExportCsv = () => {
-    if (!assetItems.length) return;
-    downloadCsv(`assets-${today()}.csv`, [
-      ['رقم الأصل', 'اسم الأصل', 'الفئة', 'الرقم التسلسلي', 'تاريخ الشراء', 'التكلفة بالعملة الأساسية', 'مجمع الإهلاك', 'صافي القيمة الدفترية', 'الموظف المسؤول (العهدة)', 'الحالة'],
-      ...assetItems.map((a: any) => [
-        a.assetNo, a.name, a.categoryName || '', a.serialNo || '', a.purchaseDate || '', a.costBase, a.accumulatedBase, a.netBookValueBase, a.custodianName || '—', a.status,
-      ]),
-    ]);
-    toast.success('تم تصدير سجل الأصول إلى CSV بنجاح');
-  };
-
   return (
     <div className="space-y-4">
       <PageHeader
@@ -102,11 +93,31 @@ export function AssetsPage() {
         subtitle="إدارة أصول الشركة وعهد الموظفين التقنية (أجهزة، لابتوبات، تراخيص). تُحسب أقساط إهلاكها وتدخل ضمن تكلفة الموظف."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
+            <ExportMenu
+              title="سجل الأصول الثابتة والعهد"
+              filename={`assets-${today()}`}
+              currency={base}
+              columns={[
+                { key: 'assetNo', header: 'رقم الأصل', width: 14 },
+                { key: 'name', header: 'اسم الأصل', width: 25 },
+                { key: 'categoryName', header: 'الفئة', width: 20 },
+                { key: 'serialNo', header: 'الرقم التسلسلي', width: 18 },
+                { key: 'purchaseDate', header: 'تاريخ الشراء', width: 14, type: 'date' },
+                { key: 'costBase', header: `التكلفة (${base})`, width: 18, type: 'currency', isTotal: true },
+                { key: 'accumulatedBase', header: `مجمع الإهلاك (${base})`, width: 18, type: 'currency', isTotal: true },
+                { key: 'netBookValueBase', header: `صافي القيمة الدفترية (${base})`, width: 20, type: 'currency', isTotal: true },
+                { key: 'custodianName', header: 'الموظف المسؤول (العهدة)', width: 22 },
+                { key: 'status', header: 'الحالة', width: 12 },
+              ]}
+              data={assetItems}
+            />
+            <button
+              type="button"
+              className="btn-secondary text-xs flex items-center gap-1.5"
+              onClick={() => setImportingOpen(true)}
+              title="استيراد أصول من ملف Excel (.xlsx) أو CSV"
+            >
+              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
             </button>
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setCreating(true)}>
               <Plus className="size-4" /> إضافة أصل
@@ -206,6 +217,16 @@ export function AssetsPage() {
       </div>
       <FormModal open={creating} wide title="إضافة أصل (مسودة)" fields={assetFormFields} onClose={() => setCreating(false)}
         onSubmit={async (b) => { const a: any = await api.post('/assets', b); qc.invalidateQueries({ queryKey: ['/assets'] }); nav(`/assets/list/${a.id}`); }} />
+      <CsvImportModal
+        open={importingOpen}
+        onClose={() => setImportingOpen(false)}
+        title="الأصول الثابتة والعهد"
+        fields={assetFormFields}
+        path="/assets"
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['/assets'] });
+        }}
+      />
     </div>
   );
 }

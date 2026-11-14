@@ -443,8 +443,16 @@ export function DashboardPage() {
       accCost += costBase * w;
       return Number(accCost.toFixed(2));
     });
+    const curve3 = curve1.map((r, idx) => Number(Math.max(0, r - curve2[idx]).toFixed(2)));
 
     return {
+      legend: {
+        top: 0,
+        right: 8,
+        itemWidth: 10,
+        itemHeight: 10,
+        textStyle: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 700 },
+      },
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'line', lineStyle: { color: '#06b6d4', type: 'dashed' } },
@@ -462,7 +470,7 @@ export function DashboardPage() {
           return html;
         },
       },
-      grid: { left: 16, right: 16, top: 24, bottom: 24, containLabel: true },
+      grid: { left: 16, right: 16, top: 34, bottom: 24, containLabel: true },
       xAxis: {
         type: 'category',
         data: days,
@@ -491,15 +499,31 @@ export function DashboardPage() {
           showSymbol: true,
           symbolSize: 7,
           itemStyle: { color: '#06b6d4' },
-          lineStyle: { width: 3, color: '#06b6d4' },
+          lineStyle: { width: 3, color: '#06b6d4', shadowColor: 'rgba(6, 182, 212, 0.35)', shadowBlur: 10 },
           areaStyle: {
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: 'rgba(6, 182, 212, 0.32)' }, { offset: 1, color: 'rgba(6, 182, 212, 0.0)' }],
+              colorStops: [{ offset: 0, color: 'rgba(6, 182, 212, 0.34)' }, { offset: 1, color: 'rgba(6, 182, 212, 0.0)' }],
             },
           },
           data: curve1,
+        },
+        {
+          name: 'صافي الربح التشغيلي',
+          type: 'line',
+          smooth: 0.45,
+          showSymbol: false,
+          itemStyle: { color: '#f59e0b' },
+          lineStyle: { width: 2.5, color: '#f59e0b' },
+          areaStyle: {
+            color: {
+              type: 'linear',
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [{ offset: 0, color: 'rgba(245, 158, 11, 0.22)' }, { offset: 1, color: 'rgba(245, 158, 11, 0.0)' }],
+            },
+          },
+          data: curve3,
         },
         {
           name: 'المصروفات المباشرة والتكاليف',
@@ -682,10 +706,16 @@ export function DashboardPage() {
             <div>
               <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
                 <TrendingUp className="size-4 text-cyan-500" />
-                <span>مؤشر نمو المبيعات الأسبوعي التفاعلي</span>
+                <span>مؤشر نمو المبيعات وصافي الربح التفاعلي</span>
+                <Link
+                  to="/rev/profitability"
+                  className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline ms-1"
+                >
+                  تحليل الربحية ←
+                </Link>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                منحنى الإيرادات والمصروفات المباشرة الفعلية على مدار أيام الأسبوع ({base})
+                منحنى الإيرادات والمصروفات المباشرة وصافي الربح الفعلي على مدار أيام الأسبوع ({base})
               </p>
             </div>
 
@@ -729,14 +759,22 @@ export function DashboardPage() {
 
         {/* Operation Cards Donut Ring Chart */}
         <div className="card cyber-card-emerald p-5 flex flex-col justify-between">
-          <div className="border-b border-slate-100 pb-3.5 dark:border-slate-800/80">
-            <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
-              <Activity className="size-4 text-emerald-500" />
-              <span>كروت التشغيل وتوزيع الكوادر</span>
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              التوزيع الفعلي للكوادر بين المفوتر وقيد التنفيذ والجاهز
-            </p>
+          <div className="border-b border-slate-100 pb-3.5 dark:border-slate-800/80 flex items-center justify-between gap-2">
+            <div>
+              <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
+                <Activity className="size-4 text-emerald-500" />
+                <span>كروت التشغيل وتوزيع الكوادر</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                التوزيع الفعلي للكوادر بين المفوتر وقيد التنفيذ والجاهز
+              </p>
+            </div>
+            <Link
+              to="/prj/employee-tracking"
+              className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline shrink-0"
+            >
+              كروت التتبع ←
+            </Link>
           </div>
 
           <div className="h-52 w-full my-2">

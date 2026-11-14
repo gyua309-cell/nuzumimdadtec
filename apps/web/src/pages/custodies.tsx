@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftRight, CheckCircle2,
-  Clock, Download, Eye, FileCheck, FileText, Layers,
+  Clock, Eye, FileCheck, FileText, Layers,
   Pencil, Plus, Printer, Save, Trash2, Wallet
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
-import { date, downloadCsv, money, today } from '../lib/format';
+import { date, money, today } from '../lib/format';
 import { getStoredCompany } from '../lib/storage-company';
+import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
@@ -331,28 +333,6 @@ export function CustodiesPage() {
   const custodies = custodiesData?.data || [];
   const kpis = reportData?.kpis;
 
-  // Export CSV
-  const handleExportCsv = () => {
-    downloadCsv(`custodies-report-${today()}.csv`, [
-      ['رقم العهدة', 'أمين العهدة', 'عنوان العهدة', 'عملة الصرف', 'المبلغ المصروف', 'عملة الهدف', 'سعر التحويل', 'المبلغ المحول', 'المنصرف المسوّى', 'الرصيد المتبقي', 'الحالة', 'تاريخ الإنشاء'],
-      ...custodies.map((c) => [
-        c.custody_no,
-        c.employeeNameAr,
-        c.title_ar,
-        c.source_currency,
-        c.disbursed_amount,
-        c.target_currency,
-        c.conversion_rate,
-        c.converted_amount_target,
-        c.total_settled_amount_target,
-        c.remaining_balance_target,
-        CUSTODY_STATUS_CONFIG[c.status]?.label || c.status,
-        c.created_at,
-      ]),
-    ]);
-    toast.success('تم تصدير سجلات العهد بنجاح');
-  };
-
   return (
     <div className="space-y-6">
       {/* Top Header */}
@@ -361,9 +341,23 @@ export function CustodiesPage() {
         subtitle="نظام متكامل لإصدار وتحويل عهد الريال إلى الجنيه لفرع مصر، والصرف المباشر وإثبات الفواتير الضريبية والإقفال"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv}>
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="سجل العهد النقدية والتسويات متعددة العملات"
+              filename={`custodies-${today()}`}
+              columns={[
+                { key: 'custody_no', header: 'رقم العهدة', width: 16 },
+                { key: 'employeeNameAr', header: 'الموظف', width: 24 },
+                { key: 'title_ar', header: 'عنوان العهدة', width: 26 },
+                { key: 'disbursed_amount', header: 'المبلغ المنصرف', width: 16, type: 'currency', isTotal: true },
+                { key: 'source_currency', header: 'عملة الصرف', width: 12 },
+                { key: 'converted_amount_target', header: 'المبلغ المحول', width: 16, type: 'currency', isTotal: true },
+                { key: 'target_currency', header: 'العملة المستهدفة', width: 14 },
+                { key: 'total_settled_amount_target', header: 'المسوى الفعلي', width: 16, type: 'currency', isTotal: true },
+                { key: 'remaining_balance_target', header: 'الرصيد المتبقي', width: 16, type: 'currency', isTotal: true },
+                { key: 'status', header: 'الحالة', width: 14 },
+              ]}
+              data={custodies}
+            />
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setCreateModalOpen(true)}>
               <Plus className="size-4" /> طلب عهدة جديدة
             </button>
@@ -569,7 +563,16 @@ export function CustodiesPage() {
 
                       {/* Employee */}
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900">{c.employeeNameAr}</div>
+                        {c.employee_id ? (
+                          <Link
+                            to={`/hr/employees/${c.employee_id}`}
+                            className="font-bold text-brand-600 hover:text-brand-700 hover:underline"
+                          >
+                            {c.employeeNameAr}
+                          </Link>
+                        ) : (
+                          <div className="font-bold text-slate-900">{c.employeeNameAr}</div>
+                        )}
                         <div className="text-[11px] text-slate-500 font-mono">{c.employeeCode}</div>
                       </td>
 
@@ -585,6 +588,16 @@ export function CustodiesPage() {
                         {c.disbursedFromAccountNameAr && (
                           <div className="text-[10px] text-slate-400 font-normal truncate max-w-[120px] mx-auto">
                             {c.disbursedFromAccountNameAr}
+                          </div>
+                        )}
+                        {c.disbursement_journal_entry_id && (
+                          <div className="mt-0.5">
+                            <Link
+                              to={`/acc/journals/${c.disbursement_journal_entry_id}`}
+                              className="inline-flex items-center gap-1 rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-700 hover:underline"
+                            >
+                              <FileText className="size-2.5" /> {c.disbursementEntryNo || 'القيد'}
+                            </Link>
                           </div>
                         )}
                       </td>

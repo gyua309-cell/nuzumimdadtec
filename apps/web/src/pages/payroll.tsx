@@ -5,6 +5,7 @@ import { Download, Eye, Play, Plus, Printer, Search, Trash2, Calculator, Award, 
 import { api, Page } from '../lib/api';
 import { date as _date, downloadCsv, money, today } from '../lib/format';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
+import { ExportMenu } from '../components/ExportMenu';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
 
@@ -108,16 +109,6 @@ export function MonthlyVariablesPage() {
   const totalApproved = rows.filter((v: any) => v.status === 'APPROVED').reduce((s: number, v: any) => s + Number(v.computedAmount), 0) ?? 0;
   const totalDraft = rows.filter((v: any) => v.status === 'DRAFT').reduce((s: number, v: any) => s + Number(v.computedAmount), 0) ?? 0;
 
-  const handleExport = () => {
-    downloadCsv(`monthly-variables-${periodId || today()}.csv`, [
-      ['الموظف', 'النوع', 'الفئة', 'المشروع', 'المبلغ المحسوب', 'الحالة'],
-      ...rows.map((v: any) => [
-        v.employeeName, v.variableTypeName, VAR_CATEGORY[v.category]?.label || v.category, v.projectName || '', v.computedAmount, v.status,
-      ]),
-    ]);
-    toast.success('تم تصدير المتغيرات الشهرية بنجاح');
-  };
-
   return (
     <div className="space-y-4">
       <PageHeader
@@ -125,12 +116,24 @@ export function MonthlyVariablesPage() {
         subtitle="مكافآت وإضافي وخصومات وبدلات الشهر. يجب اعتماد المتغير قبل تضمينه في مسيّر الرواتب."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="سجل المتغيرات الشهرية"
+              periodLabel={periodId || 'الحالية'}
+              filename={`monthly-variables-${periodId || today()}`}
+              columns={[
+                { key: 'employeeName', header: 'الموظف', width: 22 },
+                { key: 'variableTypeName', header: 'النوع', width: 20 },
+                { key: 'categoryLabel', header: 'الفئة', width: 14 },
+                { key: 'projectName', header: 'المشروع', width: 20 },
+                { key: 'computedAmount', header: 'المبلغ المحسوب', width: 16, type: 'currency', isTotal: true },
+                { key: 'status', header: 'الحالة', width: 12 },
+              ]}
+              data={rows.map((v: any) => ({
+                ...v,
+                categoryLabel: VAR_CATEGORY[v.category]?.label || v.category,
+                projectName: v.projectName || '—',
+              }))}
+            />
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAdding(true)}>
               <Plus className="size-4" /> إضافة متغير
             </button>
@@ -222,16 +225,6 @@ export function LoansPage() {
     return true;
   });
 
-  const handleExportCsv = () => {
-    downloadCsv(`employee-loans-${today()}.csv`, [
-      ['رقم القرض', 'الموظف', 'مبلغ السلفة', 'عدد الأقساط', 'تاريخ البدء', 'الحالة', 'السبب'],
-      ...filteredLoans.map((l: any) => [
-        l.loanNo, l.employeeName, l.principalBase, l.installments, l.startPeriodName || '', LOAN_STATUS[l.status]?.label || l.status, l.reason,
-      ]),
-    ]);
-    toast.success('تم تصدير سجل القروض والسلف بنجاح');
-  };
-
   const loanFields: FieldDef[] = [
     { name: 'employeeId', label: 'الموظف', type: 'ref', ref: REF.employee, required: true, section: 'الموظف وتفاصيل السلفة' },
     { name: 'reason', label: 'السبب / الغرض', type: 'textarea', required: true, autoFocus: true, section: 'الموظف وتفاصيل السلفة' },
@@ -249,12 +242,24 @@ export function LoansPage() {
         subtitle="إدارة سلف العاملين وجداول الأقساط الشهرية والتتبع الآلي للاستقطاعات من مسيّر الرواتب."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()}>
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv}>
-              <Download className="size-3.5" /> تصدير CSV
-            </button>
+            <ExportMenu
+              title="سجل قروض وسلف الموظفين"
+              filename={`employee-loans-${today()}`}
+              columns={[
+                { key: 'loanNo', header: 'رقم القرض', width: 14 },
+                { key: 'employeeName', header: 'الموظف', width: 22 },
+                { key: 'principalBase', header: 'مبلغ السلفة', width: 16, type: 'currency', isTotal: true },
+                { key: 'installments', header: 'عدد الأقساط', width: 12, type: 'number' },
+                { key: 'startPeriodName', header: 'تاريخ البدء', width: 16 },
+                { key: 'statusLabel', header: 'الحالة', width: 12 },
+                { key: 'reason', header: 'السبب', width: 26 },
+              ]}
+              data={filteredLoans.map((l: any) => ({
+                ...l,
+                startPeriodName: l.startPeriodName || '',
+                statusLabel: LOAN_STATUS[l.status]?.label || l.status,
+              }))}
+            />
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAdding(true)}>
               <Plus className="size-4" /> إضافة سلفة جديدة
             </button>
@@ -376,7 +381,17 @@ export function LoansPage() {
                       >
                         <td className="font-mono text-xs font-bold text-slate-800">{l.loanNo}</td>
                         <td>
-                          <div className="font-bold text-slate-900">{l.employeeName}</div>
+                          {l.employeeId ? (
+                            <Link
+                              to={`/hr/employees/${l.employeeId}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="font-bold text-brand-700 hover:underline"
+                            >
+                              {l.employeeName}
+                            </Link>
+                          ) : (
+                            <div className="font-bold text-slate-900">{l.employeeName}</div>
+                          )}
                           <div className="text-[10px] text-slate-400 font-mono">{l.employeeCode || ''}</div>
                         </td>
                         <td className="text-slate-600 max-w-xs">{l.reason}</td>
@@ -621,25 +636,25 @@ export function PayrollRunsPage() {
         subtitle="تجميع الرواتب الأساسية والمتغيرات المعتمدة وأقساط القروض في قيد واحد شهري. قيد الرواتب لا يمكن حذفه — يُلغى بعكس قيد."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button
-              className="btn-secondary text-xs flex items-center gap-1.5"
-              onClick={() => {
-                const runList = Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? []);
-                downloadCsv(`payroll-runs-${today()}.csv`, [
-                  ['رقم المسيّر', 'الفترة', 'عدد الموظفين', 'إجمالي الرواتب', 'إجمالي المتغيرات', 'صافي الاستحقاق', 'رقم القيد', 'الحالة'],
-                  ...runList.map((r: any) => [
-                    r.runNo, r.periodName, r.employeeCount, r.totalSalaryBase, r.totalVariablesBase, r.netPayableBase, r.journalEntryNo || '', r.status,
-                  ]),
-                ]);
-                toast.success('تم تصدير مسيرات الرواتب إلى CSV بنجاح');
-              }}
-              title="تصدير CSV"
-            >
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="سجل مسيرات الرواتب الشهرية"
+              filename={`payroll-runs-${today()}`}
+              columns={[
+                { key: 'runNo', header: 'رقم المسيّر', width: 14 },
+                { key: 'periodName', header: 'الفترة', width: 16 },
+                { key: 'employeeCount', header: 'عدد الموظفين', width: 14, type: 'number', isTotal: true },
+                { key: 'totalSalaryBase', header: 'إجمالي الرواتب', width: 18, type: 'currency', isTotal: true },
+                { key: 'totalVariablesBase', header: 'إجمالي المتغيرات', width: 18, type: 'currency', isTotal: true },
+                { key: 'netPayableBase', header: 'صافي الاستحقاق', width: 18, type: 'currency', isTotal: true },
+                { key: 'journalEntryNo', header: 'رقم القيد', width: 14 },
+                { key: 'statusLabel', header: 'الحالة', width: 12 },
+              ]}
+              data={(Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? [])).map((r: any) => ({
+                ...r,
+                journalEntryNo: r.journalEntryNo || '—',
+                statusLabel: RUN_STATUS[r.status]?.label || r.status,
+              }))}
+            />
           </div>
         }
       />

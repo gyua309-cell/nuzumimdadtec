@@ -4,10 +4,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle, ArrowRight, Building2, CheckCircle2, Download, Eye, FileText,
   Filter, Pencil, Plus, Printer, RotateCcw, Save, Search, Send, ShieldCheck,
-  ShoppingCart, Sparkles, Trash2, Truck, Wallet,
+  ShoppingCart, Sparkles, Trash2, Truck, Upload, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { downloadCsv, money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
+import { CsvImportModal, FieldDef } from '../components/CrudPage';
+import { ExportMenu } from '../components/ExportMenu';
 import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
 import {
@@ -18,11 +20,25 @@ import {
 // ============================================================================
 // Vendors Page
 // ============================================================================
+const vendorImportFields: FieldDef[] = [
+  { name: 'code', label: 'كود المورد', type: 'text', required: true, ltr: true },
+  { name: 'nameAr', label: 'اسم المورد بالعربية', type: 'text', required: true },
+  { name: 'nameEn', label: 'الاسم بالإنجليزية', type: 'text', ltr: true },
+  { name: 'taxRegistrationNo', label: 'الرقم الضريبي', type: 'text', ltr: true },
+  { name: 'crNumber', label: 'السجل التجاري', type: 'text', ltr: true },
+  { name: 'contactPerson', label: 'مسؤول الاتصال', type: 'text' },
+  { name: 'phone', label: 'الهاتف', type: 'text', ltr: true },
+  { name: 'email', label: 'البريد الإلكتروني', type: 'text', ltr: true },
+  { name: 'paymentTermsDays', label: 'شروط السداد (أيام)', type: 'number', default: 30 },
+  { name: 'isActive', label: 'الحالة', type: 'bool', default: true },
+];
+
 export function VendorsPage() {
   const qc = useQueryClient();
   const toast = useToast();
   const [q, setQ] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [importingOpen, setImportingOpen] = useState(false);
   const [editingVendor, setEditingVendor] = useState<any | null>(null);
   const [viewingVendor, setViewingVendor] = useState<any | null>(null);
 
@@ -35,16 +51,6 @@ export function VendorsPage() {
   const activeCount = list.filter((v) => v.isActive).length;
   const vatCount = list.filter((v) => v.taxRegistrationNo).length;
 
-  const handleExport = () => {
-    downloadCsv(`vendors-${today()}.csv`, [
-      ['كود المورد', 'اسم المورد بالعربية', 'الاسم بالإنجليزية', 'الرقم الضريبي', 'السجل التجاري', 'مسؤول الاتصال', 'الهاتف', 'البريد الإلكتروني', 'شروط السداد (أيام)', 'الحالة'],
-      ...list.map((v) => [
-        v.code, v.nameAr, v.nameEn || '', v.taxRegistrationNo || '', v.crNumber || '', v.contactPerson || '', v.phone || '', v.email || '', v.paymentTermsDays, v.isActive ? 'نشط' : 'معطل',
-      ]),
-    ]);
-    toast.success('تم تصدير قائمة الموردين إلى CSV بنجاح');
-  };
-
   return (
     <div className="space-y-5">
       <PageHeader
@@ -52,11 +58,30 @@ export function VendorsPage() {
         subtitle="إدارة الموردين، شركات التراخيص السحابية، الاستشارات الخارجية ومقاولي الباطن للمشاريع مع أرقامهم الضريبية والسجلات التجارية."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
+            <ExportMenu
+              title="دليل الموردين والجهات الخارجية"
+              filename={`vendors-${today()}`}
+              columns={[
+                { key: 'code', header: 'كود المورد', width: 14 },
+                { key: 'nameAr', header: 'اسم المورد بالعربية', width: 25 },
+                { key: 'nameEn', header: 'الاسم بالإنجليزية', width: 20 },
+                { key: 'taxRegistrationNo', header: 'الرقم الضريبي', width: 18 },
+                { key: 'crNumber', header: 'السجل التجاري', width: 16 },
+                { key: 'contactPerson', header: 'مسؤول الاتصال', width: 20 },
+                { key: 'phone', header: 'الهاتف', width: 16 },
+                { key: 'email', header: 'البريد الإلكتروني', width: 22 },
+                { key: 'paymentTermsDays', header: 'شروط السداد (أيام)', width: 14, type: 'number' },
+                { key: 'isActiveLabel', header: 'الحالة', width: 12 },
+              ]}
+              data={list.map((v: any) => ({ ...v, isActiveLabel: v.isActive ? 'نشط' : 'معطل' }))}
+            />
+            <button
+              type="button"
+              className="btn-secondary text-xs flex items-center gap-1.5"
+              onClick={() => setImportingOpen(true)}
+              title="استيراد موردين من ملف Excel (.xlsx) أو CSV"
+            >
+              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
             </button>
             <button
               className="btn-primary text-xs flex items-center gap-1.5"
@@ -286,6 +311,18 @@ export function VendorsPage() {
           </div>
         </div>
       </Drawer>
+
+      <CsvImportModal
+        open={importingOpen}
+        onClose={() => setImportingOpen(false)}
+        title="دليل الموردين"
+        fields={vendorImportFields}
+        path="/vendors"
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['/vendors'] });
+          qc.invalidateQueries({ queryKey: ['ref'] });
+        }}
+      />
     </div>
   );
 }
@@ -459,16 +496,6 @@ export function PurchaseInvoicesPage() {
     }
   };
 
-  const handleExport = () => {
-    downloadCsv(`purchase-invoices-${today()}.csv`, [
-      ['رقم الفاتورة الداخلي', 'رقم فاتورة المورد', 'نوع الفاتورة', 'المورد', 'الرقم الضريبي للمورد', 'المشروع', 'تاريخ الإصدار', 'تاريخ الاستحقاق', 'المبلغ قبل الضريبة', 'ضريبة المدخلات 15%', 'الإجمالي شامل الضريبة', 'رقم القيد المحاسبي', 'الحالة'],
-      ...list.map((inv) => [
-        inv.invoiceNo, inv.vendorInvoiceNo || '', inv.invoiceType, inv.vendorName, inv.vendorTaxNo || '', inv.projectName || '', inv.issueDate, inv.dueDate || '', inv.subtotal, inv.vatAmount, inv.totalAmount, inv.journalEntryNo || '—', inv.status,
-      ]),
-    ]);
-    toast.success('تم تصدير فواتير المشتريات إلى CSV بنجاح');
-  };
-
   return (
     <div className="space-y-5">
       <PageHeader
@@ -476,12 +503,25 @@ export function PurchaseInvoicesPage() {
         subtitle="تسجيل فواتير الموردين ومصروفات السيرفرات والتراخيص واستشارات المشاريع. الترحيل يولّد القيد المحاسبي المزدوج آلياً في دفاتر اليومية."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="فواتير المشتريات ومصروفات المشاريع"
+              filename={`purchase-invoices-${today()}`}
+              columns={[
+                { key: 'invoiceNo', header: 'رقم الفاتورة الداخلي', width: 16 },
+                { key: 'vendorInvoiceNo', header: 'رقم فاتورة المورد', width: 16 },
+                { key: 'invoiceType', header: 'نوع الفاتورة', width: 16 },
+                { key: 'vendorName', header: 'المورد', width: 24 },
+                { key: 'vendorTaxNo', header: 'الرقم الضريبي للمورد', width: 18 },
+                { key: 'projectName', header: 'المشروع', width: 20 },
+                { key: 'issueDate', header: 'تاريخ الإصدار', width: 14, type: 'date' },
+                { key: 'subtotal', header: 'المبلغ قبل الضريبة', width: 16, type: 'currency', isTotal: true },
+                { key: 'vatAmount', header: 'ضريبة المدخلات 15%', width: 16, type: 'currency', isTotal: true },
+                { key: 'totalAmount', header: 'الإجمالي شامل الضريبة', width: 18, type: 'currency', isTotal: true },
+                { key: 'journalEntryNo', header: 'رقم القيد المحاسبي', width: 16 },
+                { key: 'status', header: 'الحالة', width: 14 },
+              ]}
+              data={list}
+            />
             <button
               className="btn-primary text-xs flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 shadow-sm"
               onClick={() => setShowCreateModal(true)}
