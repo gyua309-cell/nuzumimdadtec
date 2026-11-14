@@ -97,13 +97,17 @@ export function useToast() {
 
 // ------------------------------------------------------------------ layout bits
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
+  const safeTitle =
+    typeof title === 'string' && title.trim() && title.trim() !== 'undefined' && title.trim() !== 'null'
+      ? title.trim()
+      : 'لوحة التحكم والبيانات';
   return (
     <div className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200/85 bg-white px-5 py-4 shadow-2xs dark:border-slate-800/90 dark:bg-[#0c1427]">
       <div className="flex items-start gap-3.5 min-w-0">
         <div className="mt-1 h-8 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-amber-400 via-amber-500 to-cyan-500 shadow-xs" />
         <div className="space-y-0.5 min-w-0">
           <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-snug">
-            {title}
+            {safeTitle}
           </h1>
           {subtitle && (
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-3xl leading-relaxed">{subtitle}</p>

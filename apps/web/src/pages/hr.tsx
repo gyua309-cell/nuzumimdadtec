@@ -1310,9 +1310,19 @@ function EmployeeAssignmentsTab({
                     <tr key={a.id}>
                       <td>
                         <div className="font-bold text-slate-900 dark:text-white">
-                          {a.projectName || a.projectCode || 'مشروع'}
+                          {a.projectId ? (
+                            <Link to={`/prj/projects/${a.projectId}`} className="text-brand-600 hover:text-brand-700 hover:underline">
+                              {a.projectName || a.projectCode || 'مشروع'}
+                            </Link>
+                          ) : (
+                            a.projectName || a.projectCode || 'مشروع'
+                          )}
                         </div>
-                        <div className="text-xs text-slate-500">{a.clientName || 'عميل'}</div>
+                        <div className="text-xs text-slate-500">
+                          <Link to="/prj/clients" className="hover:text-slate-700 dark:hover:text-slate-300 hover:underline">
+                            {a.clientName || 'عميل'}
+                          </Link>
+                        </div>
                       </td>
                       <td>
                         <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">

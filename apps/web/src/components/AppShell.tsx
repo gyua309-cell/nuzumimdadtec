@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, Calculator, CheckCircle2, ChevronDown, ChevronLeft,
-  Cloud, Coins, Command, Database, FileText, Globe, Landmark, LayoutDashboard, LogOut, Menu, Moon, Package,
+  Activity, AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, Calculator, CheckCircle2, ChevronDown, ChevronLeft,
+  Cloud, Coins, Command, Database, FileText, Globe, Landmark, LayoutDashboard, Loader2, LogOut, Menu, Moon, Package,
   PanelRightClose, Plus, Search, Server, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet, X,
 } from 'lucide-react';
-import { api, getCustomApiUrl, setCustomApiUrl } from '../lib/api';
+import { api, getApiBaseUrl, getCustomApiUrl, setCustomApiUrl } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JobsCenterButton } from './JobsCenterModal';
@@ -110,6 +110,21 @@ const COLOR_CLASSES: Record<SectionColor, { iconBg: string; text: string; active
     activeBg: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
   },
 };
+
+export const PINNED_FAVORITES: Array<{
+  label: string;
+  path: string;
+  icon: any;
+  color: string;
+}> = [
+  { label: 'الموظفون', path: '/hr/employees', icon: Users, color: 'text-amber-500' },
+  { label: 'المشاريع', path: '/prj/projects', icon: Briefcase, color: 'text-cyan-500' },
+  { label: 'الفواتير', path: '/sal/invoices', icon: FileText, color: 'text-emerald-500' },
+  { label: 'شجرة الحسابات', path: '/acc/accounts', icon: BookOpen, color: 'text-indigo-500' },
+  { label: 'قيود اليومية', path: '/acc/journals', icon: Landmark, color: 'text-teal-500' },
+  { label: 'ربحية الكوادر', path: '/reports/employee-profitability', icon: BarChart3, color: 'text-purple-500' },
+  { label: 'منصة زاتكا', path: '/zatca/hub', icon: ShieldCheck, color: 'text-rose-500' },
+];
 
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -562,6 +577,29 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const [cloudModalOpen, setCloudModalOpen] = useState(false);
   const [cloudUrlInput, setCloudUrlInput] = useState(() => getCustomApiUrl());
   const isCloudConfigured = !!getCustomApiUrl();
+  const [testingPing, setTestingPing] = useState(false);
+  const [pingResult, setPingResult] = useState<{ ok: boolean; latencyMs?: number; message?: string } | null>(null);
+
+  const handleTestCloudPing = async () => {
+    setTestingPing(true);
+    setPingResult(null);
+    const start = Date.now();
+    const targetUrl = cloudUrlInput.trim() || getApiBaseUrl();
+    try {
+      const clean = targetUrl.replace(/\/$/, '');
+      const res = await fetch(`${clean}/health`, { method: 'GET', signal: AbortSignal.timeout(4000) });
+      const elapsed = Date.now() - start;
+      if (res.ok) {
+        setPingResult({ ok: true, latencyMs: elapsed, message: `متصل بنجاح بالسيرفر السحابي! سرعة الاستجابة: ${elapsed}ms` });
+      } else {
+        setPingResult({ ok: false, latencyMs: elapsed, message: `استجاب السيرفر برمز ${res.status}` });
+      }
+    } catch {
+      setPingResult({ ok: false, message: 'تعذر الاتصال بالسيرفر. تأكد من تشغيل السيرفر أو الرابط وإتاحة CORS.' });
+    } finally {
+      setTestingPing(false);
+    }
+  };
 
   // Active branch selector state (does NOT blank out companyId!)
   const [activeBranchId, setActiveBranchId] = useState<string>(() => localStorage.getItem('idham.activeBranchId') ?? '');
@@ -761,6 +799,38 @@ export function AppShell({ children }: { children?: ReactNode }) {
           </div>
         )}
 
+        {/* Quick Access Pinned Favorites */}
+        {(!collapsed || mobileMenuOpen) && (
+          <div className="px-3 pt-2 pb-1">
+            <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 px-1">
+              <span>الوصول السريع المفضّل</span>
+              <span className="text-[10px] text-amber-500 font-extrabold">★ مفضلة ERP</span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {PINNED_FAVORITES.map((fav) => {
+                const Icon = fav.icon;
+                const isActive = location.pathname.startsWith(fav.path);
+                return (
+                  <NavLink
+                    key={fav.path}
+                    to={fav.path}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-bold transition-all truncate ${
+                      isActive
+                        ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                        : 'bg-slate-100/80 hover:bg-slate-200/80 dark:bg-slate-900/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                    title={fav.label}
+                  >
+                    <Icon className={`size-3.5 shrink-0 ${fav.color}`} />
+                    <span className="truncate">{fav.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Grouped Navigation Links with Custom Sleek Scrollbar */}
         <nav className="flex-1 space-y-3.5 overflow-y-auto px-3 py-2.5 custom-scrollbar">
           {filteredNavGroups.length === 0 ? (
@@ -886,10 +956,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20'
                 : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
             }`}
-            title="حالة اتصال قاعدة البيانات والسيرفر السحابي (اضغط لضبط السحابة والمزامنة)"
+            title="حالة اتصال قاعدة البيانات والسيرفر السحابي (اضغط لضبط السحابة والمزامنة الفورية)"
           >
             <span className={`size-2 rounded-full ${isCloudConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`} />
-            <span>{isCloudConfigured ? 'سحابي متصل' : 'وضع محلي (أوفلاين)'}</span>
+            <span>{isCloudConfigured ? 'سحابي متزامن وقتياً' : 'قاعدة محلية (آمنة)'}</span>
             <Database className="size-3 opacity-70" />
           </button>
 
@@ -1197,21 +1267,47 @@ export function AppShell({ children }: { children?: ReactNode }) {
               <Server className="size-4 text-cyan-600" />
               عنوان السيرفر السحابي (Cloud API Endpoint):
             </label>
-            <div className="flex items-center gap-2">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                <Cloud className="size-4" />
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="flex items-center gap-2 flex-1">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                  <Cloud className="size-4" />
+                </div>
+                <input
+                  type="url"
+                  dir="ltr"
+                  className="input font-mono flex-1 text-sm"
+                  placeholder="https://api.yourdomain.com أو https://idham-api.onrender.com"
+                  value={cloudUrlInput}
+                  onChange={(e) => setCloudUrlInput(e.target.value)}
+                />
               </div>
-              <input
-                type="url"
-                dir="ltr"
-                className="input font-mono flex-1 text-sm"
-                placeholder="https://api.yourdomain.com أو https://idham-api.onrender.com"
-                value={cloudUrlInput}
-                onChange={(e) => setCloudUrlInput(e.target.value)}
-              />
+              <button
+                type="button"
+                className="btn-secondary text-xs flex items-center justify-center gap-1.5 shrink-0 px-3 py-2 cursor-pointer"
+                disabled={testingPing}
+                onClick={handleTestCloudPing}
+                title="فحص الاتصال الفوري بالسيرفر وقياس سرعة الاستجابة"
+              >
+                {testingPing ? <Loader2 className="size-3.5 animate-spin" /> : <Activity className="size-3.5 text-cyan-600" />}
+                <span>فحص الاتصال (Ping Test)</span>
+              </button>
             </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              ملاحظة: يمكنك نشر مجلد <code>apps/api</code> على منصات سحابية سريعة مثل Render أو Railway أو Supabase ووضع رابطه هنا لتعمل كل الشاشات حية 100%.
+            {pingResult && (
+              <div className={`p-3 rounded-xl border text-xs flex items-center gap-2.5 animate-fade-in ${
+                pingResult.ok
+                  ? 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-300/80 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-rose-50/90 dark:bg-rose-950/40 border-rose-300/80 dark:border-rose-800 text-rose-800 dark:text-rose-300'
+              }`}>
+                {pingResult.ok ? (
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertTriangle className="size-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                )}
+                <span className="font-semibold">{pingResult.message}</span>
+              </div>
+            )}
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              ملاحظة: يمكنك نشر مجلد <code>apps/api</code> على منصات سحابية سريعة مثل Render أو Railway أو Supabase ووضع رابطه هنا لتعمل كل الشاشات حية 100% متزامنة بين جميع الفروع.
             </p>
           </div>
         </div>

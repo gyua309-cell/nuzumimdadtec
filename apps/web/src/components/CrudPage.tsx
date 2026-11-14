@@ -481,6 +481,27 @@ export function EntityForm({
             />
           ))}
         </FormSection>
+        <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            disabled={activeTab === 0}
+            onClick={() => setActiveTab((prev) => Math.max(0, prev - 1))}
+          >
+            ← الخطوة السابقة
+          </button>
+          <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500">
+            القسم {activeTab + 1} من {sections.groups.length}
+          </span>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            disabled={activeTab === sections.groups.length - 1}
+            onClick={() => setActiveTab((prev) => Math.min(sections.groups.length - 1, prev + 1))}
+          >
+            الخطوة التالية →
+          </button>
+        </div>
       </div>
     );
   }
