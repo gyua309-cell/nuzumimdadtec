@@ -197,6 +197,15 @@ export const defaultCostProfilesList = [
   },
 ];
 
+export const defaultVariableTypesList = [
+  { id: 'vt-bonus', code: 'VAR-BON', nameAr: 'بونص أداء استثنائي', category: 'BONUS', calcMethod: 'FIXED', defaultMultiplier: '1.0', affectsCost: true, isProjectLinked: false, isActive: true },
+  { id: 'vt-overtime', code: 'VAR-OT', nameAr: 'ساعات عمل إضافي (Overtime)', category: 'OVERTIME', calcMethod: 'HOURS_RATE', defaultMultiplier: '1.5', affectsCost: true, isProjectLinked: true, isActive: true },
+  { id: 'vt-additional', code: 'VAR-ADD', nameAr: 'أجر إضافي خاص بمشروع (Additional Pay)', category: 'ADDITIONAL_PAY', calcMethod: 'DAYS_RATE', defaultMultiplier: '1.0', affectsCost: true, isProjectLinked: true, isActive: true },
+  { id: 'vt-reward', code: 'VAR-REW', nameAr: 'مكافأة نسبة من الأساسي', category: 'REWARD', calcMethod: 'PCT_BASIC', defaultMultiplier: '1.0', affectsCost: true, isProjectLinked: false, isActive: true },
+  { id: 'vt-allowance', code: 'VAR-ALW', nameAr: 'بدل انتقالات ومهام خاصة', category: 'ALLOWANCE', calcMethod: 'FIXED', defaultMultiplier: '1.0', affectsCost: true, isProjectLinked: false, isActive: true },
+  { id: 'vt-deduction', code: 'VAR-DED', nameAr: 'خصم غياب أو جزاء إداري', category: 'DEDUCTION', calcMethod: 'DAYS_RATE', defaultMultiplier: '1.0', affectsCost: false, isProjectLinked: false, isActive: true },
+];
+
 export const defaultAccountsList = [
   { id: 'acc-101', code: '10101', nameAr: 'الصندوق والعهد النقدية', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-102', code: '10201', nameAr: 'النقدية بالبنوك (ريال سعودي)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
@@ -600,7 +609,7 @@ export function computeEmployeeCostBreakdown(
   }
 
   // 3) Section 17: Active Fixed Assets Assigned to Employee (Monthly Depreciation)
-  const empAssets = assets.filter((a: any) => (a.custodianEmployeeId === emp.id || a.employeeId === emp.id) && a.status === 'ACTIVE');
+  const empAssets = assets.filter((a: any) => (a.custodianEmployeeId === emp.id || a.employeeId === emp.id) && a.status === 'ACTIVE' && a.includeInEmployeeCost !== false);
   const assetDeprCost = empAssets.reduce((sum: number, a: any) => {
     const cost = Number(a.costBase || a.cost || 0);
     const salvage = Number(a.salvageValueBase || 0);
@@ -1170,7 +1179,7 @@ export function computeAccountStatement(params: { accountId?: string; from?: str
 }
 
 // ---------------------------------------------------------------------------
-// 7. Live Period Closing Checks (Section 27)
+// 7. Live Period Closing Checks (Section 27 — 9 Operational Areas)
 // ---------------------------------------------------------------------------
 export function evaluatePeriodClosingChecks(periodId: string): any {
   const periods = getEntityList<any>('fiscal_periods', defaultFiscalPeriodsList);
@@ -1189,12 +1198,38 @@ export function evaluatePeriodClosingChecks(periodId: string): any {
   // CHK-03: Trial balance check
   const tb = computeTrialBalance({ from: target?.startDate, to: target?.endDate });
 
-  // CHK-04: Payroll run check in period (advisory warning if active employees exist without posted payroll run)
+  // CHK-04: Employees & Payroll Run check (Sec 27: الموظفين + التكاليف)
   const emps = getEntityList<any>('employees', []).filter((e) => e.status === 'ACTIVE');
   const payRuns = getEntityList<any>('payroll_runs', []).filter((r) => r.fiscalPeriodId === target?.id && r.status === 'POSTED');
 
-  // CHK-05: Unapproved monthly variables in period
+  // CHK-05: Unapproved monthly variables in period (Sec 27: المتغيرات)
   const draftVars = getEntityList<any>('monthly_variables', []).filter((v) => v.status === 'DRAFT' && (!target || v.fiscalPeriodId === target.id));
+
+  // CHK-06: Project Allocations & Unutilized Bench Time (Sec 27: التخصيصات + الوقت غير المستغل)
+  const assignments = getEntityList<any>('assignments', []);
+  const unutilizedEmps = emps.filter((e) => {
+    const tot = assignments
+      .filter((a) => (a.employeeId === e.id || a.employeeCode === e.code) && (!a.endDate || !target?.startDate || a.endDate >= target.startDate))
+      .reduce((s, a) => s + Number(a.allocationPct || 0), 0);
+    return tot < 100;
+  });
+
+  // CHK-07: Service Prices & Revenues check (Sec 27: الإيرادات)
+  const servicePrices = getEntityList<any>('service_prices', []);
+  const activeAssignsWithoutPrice = assignments.filter((a) => {
+    if (a.endDate && target?.startDate && a.endDate < target.startDate) return false;
+    const hasSp = servicePrices.some((sp) => sp.employeeId === a.employeeId && (!sp.projectId || sp.projectId === a.projectId) && (!sp.effectiveTo || !target?.startDate || sp.effectiveTo >= target.startDate));
+    const emp = emps.find((e) => e.id === a.employeeId || e.code === a.employeeCode);
+    return !hasSp && !(Number(emp?.defaultBillingRate || 0) > 0);
+  });
+
+  // CHK-08: Overhead Policy & 3-Level Profitability check (Sec 27: الأوفر هيد + الربحية)
+  const overheadPol = getOverheadPolicy();
+
+  // CHK-09: Pending Retroactive Adjustments check (Sec 27 & 29: التسويات)
+  const pendingAdjustments = getEntityList<any>('revenue_adjustments', []).filter(
+    (adj) => (adj.status === 'DRAFT' || adj.status === 'PENDING_APPROVAL') && (!target || adj.adjustmentPeriodId === target.id || adj.originalPeriodId === target.id),
+  );
 
   const results = [
     {
@@ -1217,15 +1252,39 @@ export function evaluatePeriodClosingChecks(periodId: string): any {
     },
     {
       code: 'CHK-04',
-      titleAr: 'فحص اعتماد وترحيل مسير الرواتب الشهري',
+      titleAr: 'مراجعة الموظفين والتكاليف ومسير الرواتب الشهري',
       status: emps.length > 0 && payRuns.length === 0 ? 'WARN' : 'PASS',
-      message: emps.length > 0 && payRuns.length === 0 ? 'تنبيه: يوجد موظفون نشطون ولم يُنفذ مسير رواتب لهذه الفترة بعد' : 'مسير الرواتب مستوفى أو لا توجد التزامات معلقة',
+      message: emps.length > 0 && payRuns.length === 0 ? `تنبيه: يوجد ${emps.length} موظفون نشطون ولم يُرحّل مسير رواتب لهذه الفترة بعد` : `ملفات التكلفة ومسير الرواتب لعدد (${emps.length}) موظفين مستوفاة`,
     },
     {
       code: 'CHK-05',
-      titleAr: 'فحص المتغيرات الشهرية المسودة وغير المعتمدة',
+      titleAr: 'مراجعة المتغيرات الشهرية المسودة وغير المعتمدة',
       status: draftVars.length > 0 ? 'WARN' : 'PASS',
       message: draftVars.length > 0 ? `يوجد عدد ${draftVars.length} متغيرات شهرية مسودة لم تُعتمد بعد` : 'جميع المتغيرات الشهرية لهذه الفترة معتمدة',
+    },
+    {
+      code: 'CHK-06',
+      titleAr: 'مراجعة التخصيصات والوقت غير المستغل (Bench Time)',
+      status: unutilizedEmps.length > 0 ? 'WARN' : 'PASS',
+      message: unutilizedEmps.length > 0 ? `يوجد ${unutilizedEmps.length} موظف بنسبة تخصيص أقل من 100% (وقت غير مستغل يُحمّل على ربحية الشركة)` : 'جميع الكوادر النشطة مخصصة بالكامل على المشاريع (100%)',
+    },
+    {
+      code: 'CHK-07',
+      titleAr: 'مراجعة أسعار الخدمات واحتساب الإيرادات الشهرية',
+      status: activeAssignsWithoutPrice.length > 0 ? 'WARN' : 'PASS',
+      message: activeAssignsWithoutPrice.length > 0 ? `تنبيه: يوجد ${activeAssignsWithoutPrice.length} تخصيص نشط بدون سعر خدمة محدد` : 'أسعار الخدمات ومعادلات احتساب الإيرادات مكتملة لجميع التخصيصات',
+    },
+    {
+      code: 'CHK-08',
+      titleAr: 'مراجعة سياسة الأوفر هيد والربحية (3 مستويات)',
+      status: 'PASS',
+      message: `سياسة الأوفر هيد المعتمدة (${overheadPol.method} — ${overheadPol.rate}) مفعّلة في احتساب ربحية الموظف والمشروع والشركة`,
+    },
+    {
+      code: 'CHK-09',
+      titleAr: 'مراجعة التسويات المعلقة بانتظار الاعتماد (Adjustments Workflow)',
+      status: pendingAdjustments.length > 0 ? 'WARN' : 'PASS',
+      message: pendingAdjustments.length > 0 ? `يوجد عدد ${pendingAdjustments.length} تسويات في حالة مسودة أو بانتظار الاعتماد` : 'لا توجد تسويات معلقة بدون اعتماد في هذه الفترة',
     },
   ];
 

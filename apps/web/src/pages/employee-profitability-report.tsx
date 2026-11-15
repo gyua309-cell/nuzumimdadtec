@@ -320,16 +320,17 @@ export function EmployeeProfitabilityReportPage() {
                         <th>غير المستغل%</th>
                         <th>تكلفة التفرغ</th>
                         <th>التكلفة المباشرة</th>
+                        <th>الأوفر هيد والإجمالي</th>
                         <th>الإيراد المولد</th>
                         <th>صافي الربح</th>
-                        <th>الهامش%</th>
+                        <th>الهامش / المستهدف</th>
                         <th>الحالة</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredEmployees.length === 0 ? (
                         <tr>
-                          <td colSpan={11} className="text-center text-slate-500 py-8">
+                          <td colSpan={12} className="text-center text-slate-500 py-8">
                             لا توجد بيانات كوادر مسجلة بعد.
                           </td>
                         </tr>
@@ -347,9 +348,12 @@ export function EmployeeProfitabilityReportPage() {
                               <div className="text-[11px] text-slate-400">{e.departmentName}</div>
                             </td>
                             <td className="num font-mono">
-                              <span className={e.allocatedPct >= 100 ? 'text-emerald-600 font-bold' : 'text-slate-600'}>
+                              <span className={e.allocatedPct > 100 ? 'text-amber-600 font-bold' : e.allocatedPct >= 100 ? 'text-emerald-600 font-bold' : 'text-slate-600'}>
                                 {e.allocatedPct}%
                               </span>
+                              {e.overAllocatedPct > 0 && (
+                                <div className="text-[10px] text-amber-600 font-semibold">فائض +{e.overAllocatedPct}%</div>
+                              )}
                             </td>
                             <td className="num font-mono">
                               <span className={e.unutilizedPct > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}>
@@ -360,6 +364,10 @@ export function EmployeeProfitabilityReportPage() {
                               {money(e.unutilizedCostBase)}
                             </td>
                             <td className="num font-mono">{money(e.directCostBase)}</td>
+                            <td className="num font-mono">
+                              <div className="font-bold text-slate-800 dark:text-slate-200">{money(e.totalCostBase)}</div>
+                              <div className="text-[10px] text-slate-400">أوفرهيد: {money(e.overheadBase)}</div>
+                            </td>
                             <td className="num font-mono font-bold text-emerald-600">{money(e.revenueBase)}</td>
                             <td className={`num font-mono font-bold ${e.grossProfitBase >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                               {money(e.grossProfitBase)}
@@ -368,6 +376,9 @@ export function EmployeeProfitabilityReportPage() {
                               <span className={e.grossMarginPct >= e.targetMarginPct ? 'text-emerald-600' : e.grossProfitBase >= 0 ? 'text-amber-600' : 'text-rose-600'}>
                                 {e.grossMarginPct}%
                               </span>
+                              <div className="text-[10px] text-slate-400 font-normal">
+                                مستهدف {e.targetMarginPct ?? 25}% ({Number(e.deltaMarginPct) >= 0 ? `+${e.deltaMarginPct}` : e.deltaMarginPct}%)
+                              </div>
                             </td>
                             <td>
                               <Badge color={e.status === 'TOP_PERFORMER' ? 'green' : e.status === 'PROFITABLE' ? 'blue' : 'red'}>

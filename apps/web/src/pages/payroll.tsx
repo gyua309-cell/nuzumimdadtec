@@ -18,6 +18,7 @@ const CALC_METHOD: Record<string, string> = {
 const VAR_CATEGORY: Record<string, { label: string; color?: string }> = {
   BONUS: { label: 'مكافأة', color: 'green' },
   OVERTIME: { label: 'إضافي', color: 'blue' },
+  ADDITIONAL_PAY: { label: 'أجر إضافي (مشروع)', color: 'blue' },
   REWARD: { label: 'حافز', color: 'green' },
   ALLOWANCE: { label: 'بدل', color: 'blue' },
   DEDUCTION: { label: 'خصم', color: 'red' },
@@ -84,7 +85,7 @@ export const VariableTypesPage = () => (
 export function MonthlyVariablesPage() {
   const qc = useQueryClient();
   const toast = useToast();
-  const [periodId, setPeriodId] = useState('');
+  const [periodId, setPeriodId] = useState('fp-2026-11');
   const [adding, setAdding] = useState(false);
   const list = useQuery({
     queryKey: ['/monthly-variables', periodId],
@@ -206,6 +207,7 @@ export function LoansPage() {
   const [selected, setSelected] = useState<any>(null);
   const [postponeId, setPostponeId] = useState<string | null>(null);
   const [postponePeriodId, setPostponePeriodId] = useState('');
+  const [postponeReason, setPostponeReason] = useState('');
 
   useEffect(() => { const t = setTimeout(() => { setSearch(q); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
 
@@ -529,7 +531,11 @@ export function LoansPage() {
                         {detail.data?.installments_list?.map((inst: any) => (
                           <tr key={inst.id} className="hover:bg-slate-50">
                             <td className="num font-bold text-slate-500">{inst.installmentNo}</td>
-                            <td className="font-medium text-slate-800">{inst.periodName}</td>
+                            <td className="font-medium text-slate-800">
+                              <div>{inst.periodName}</div>
+                              {inst.postponedFrom && <div className="text-[10px] text-amber-600">مؤجل من: {inst.postponedFrom}</div>}
+                              {inst.postponedReason && <div className="text-[10px] text-slate-500">سبب التأجيل: {inst.postponedReason}</div>}
+                            </td>
                             <td className="num font-mono font-bold">{money(inst.dueAmount)}</td>
                             <td>
                               <Badge color={INST_STATUS[inst.status]?.color}>{INST_STATUS[inst.status]?.label ?? inst.status}</Badge>
@@ -538,7 +544,7 @@ export function LoansPage() {
                               {inst.status === 'PENDING' && (
                                 <button
                                   className="btn-secondary text-[11px] px-2 py-0.5 font-bold"
-                                  onClick={() => setPostponeId(inst.id)}
+                                  onClick={() => { setPostponeId(inst.id); setPostponeReason(''); }}
                                 >
                                   تأجيل
                                 </button>
@@ -582,10 +588,15 @@ export function LoansPage() {
               className="btn-primary text-xs"
               onClick={async () => {
                 try {
-                  await api.post(`/loans/installments/${postponeId}/postpone`, { toPeriodId: postponePeriodId, reason: 'تأجيل إداري' });
+                  if (!postponeReason.trim()) {
+                    toast.error('يرجى إدخال سبب تأجيل القسط');
+                    return;
+                  }
+                  await api.post(`/loans/installments/${postponeId}/postpone`, { toPeriodId: postponePeriodId, reason: postponeReason.trim() });
                   qc.invalidateQueries({ queryKey: ['loan', selected?.id] });
-                  toast.success('تم تأجيل القسط بنجاح');
+                  toast.success('تم تأجيل القسط وتوثيق السبب بنجاح');
                   setPostponeId(null);
+                  setPostponeReason('');
                 } catch (e) {
                   toast.error(e);
                 }
@@ -597,8 +608,17 @@ export function LoansPage() {
         }
       >
         <div className="space-y-4 text-xs">
-          <Field label="ترحيل القسط إلى الفترة المالية:">
+          <Field label="ترحيل القسط إلى الفترة المالية *" required>
             <PeriodSelect value={postponePeriodId} onChange={setPostponePeriodId} />
+          </Field>
+          <Field label="سبب التأجيل *" required>
+            <input
+              type="text"
+              className="input"
+              placeholder="مثال: طلب الموظف لظروف طارئة / قرار إداري"
+              value={postponeReason}
+              onChange={(e) => setPostponeReason(e.target.value)}
+            />
           </Field>
         </div>
       </Modal>

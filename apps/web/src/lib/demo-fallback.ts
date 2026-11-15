@@ -7,6 +7,7 @@ import {
   defaultExchangeRatesList,
   defaultCostComponentsList,
   defaultCostProfilesList,
+  defaultVariableTypesList,
   defaultFiscalPeriodsList,
   defaultBankAccountsList,
   defaultAssetCategoriesList,
@@ -176,6 +177,43 @@ export const defaultClients = [
 
 export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   // Handle mutations (POST/PATCH/PUT/DELETE) for all entities
+  const recomputeEmployeeOverAllocation = (targetEmpIdOrCode?: string) => {
+    const allAsg = getEntityList<any>('assignments', []);
+    if (allAsg.length === 0) return;
+    const empTotals = new Map<string, number>();
+    for (const a of allAsg) {
+      if (a.endDate || a.effectiveTo) continue;
+      const key = String(a.employeeId || a.employeeCode || '');
+      if (!key) continue;
+      if (targetEmpIdOrCode && key !== targetEmpIdOrCode && a.employeeCode !== targetEmpIdOrCode) continue;
+      const pct = Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
+      empTotals.set(key, (empTotals.get(key) || 0) + pct);
+    }
+    let changed = false;
+    const updated = allAsg.map((a: any) => {
+      const key = String(a.employeeId || a.employeeCode || '');
+      if (targetEmpIdOrCode && key !== targetEmpIdOrCode && a.employeeCode !== targetEmpIdOrCode) return a;
+      if (a.endDate || a.effectiveTo) {
+        if (a.isOverAllocated) {
+          changed = true;
+          return { ...a, isOverAllocated: false, overAllocatedPct: 0 };
+        }
+        return a;
+      }
+      const tot = empTotals.get(key) || 0;
+      const isOver = tot > 100;
+      const overPct = Math.max(0, Number((tot - 100).toFixed(1)));
+      if (a.isOverAllocated !== isOver || a.overAllocatedPct !== overPct) {
+        changed = true;
+        return { ...a, isOverAllocated: isOver, overAllocatedPct: overPct };
+      }
+      return a;
+    });
+    if (changed) {
+      localStorage.setItem('idham_prod_assignments', JSON.stringify(updated));
+    }
+  };
+
   if (method !== 'GET') {
     if (path.includes('/companies/current')) {
       return saveStoredCompany(body);
@@ -193,12 +231,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
       if (method === 'DELETE' && !subAction) {
         if (empIndex >= 0) {
-          deleteEntityItem('employees', emps[empIndex].id);
+          const delEmp = emps[empIndex];
+          deleteEntityItem('employees', delEmp.id);
           const allAsg = getEntityList('assignments', []);
-          const remainingAsg = allAsg.filter((a: any) => a.employeeId !== emps[empIndex].id && a.employeeId !== emps[empIndex].code);
+          const remainingAsg = allAsg.filter((a: any) => a.employeeId !== delEmp.id && a.employeeId !== delEmp.code);
           if (remainingAsg.length !== allAsg.length) {
             localStorage.setItem('idham_prod_assignments', JSON.stringify(remainingAsg));
           }
+          recordAudit({ action: 'DELETE_EMPLOYEE', schemaName: 'hr', tableName: 'employees', entityId: delEmp.id, oldValues: { code: delEmp.code, fullNameAr: delEmp.fullNameAr }, reason: 'حذف ملف موظف' });
         }
         return { success: true, message: 'تم حذف الموظف بنجاح' };
       }
@@ -216,11 +256,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           rowVersion: ((targetEmp.rowVersion) || 1) + 1,
         };
         saveEntityItem('employees', updated);
+        recordAudit({ action: 'UPDATE_EMPLOYEE', schemaName: 'hr', tableName: 'employees', entityId: updated.id, oldValues: emp ? { fullNameAr: emp.fullNameAr, basicSalary: emp.basicSalary } : null, newValues: body, reason: 'تحديث البيانات الأساسية للموظف' });
         return updated;
       }
 
       if (emp) {
         if (subAction === 'compensations' && method === 'POST') {
+          const oldSalary = emp.basicSalary;
           const newComp = {
             id: `cmp-${Date.now()}`,
             effectiveFrom: body.effectiveFrom || new Date().toISOString().slice(0, 10),
@@ -241,6 +283,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           emp.insuranceCurrency = newComp.insuranceCurrency;
           emp.compensations = [newComp, ...curComps];
           saveEntityItem('employees', emp);
+          recordAudit({ action: 'UPDATE_EMPLOYEE_SALARY', schemaName: 'hr', tableName: 'employee_compensations', entityId: emp.id, oldValues: { basicSalary: oldSalary }, newValues: newComp, reason: newComp.changeReason });
           return emp;
         }
 
@@ -275,6 +318,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           emp.branchName = newPlc.branchName;
           emp.placements = [newPlc, ...curPlcs];
           saveEntityItem('employees', emp);
+          recordAudit({ action: 'UPDATE_EMPLOYEE_PLACEMENT', schemaName: 'hr', tableName: 'employee_placements', entityId: emp.id, newValues: newPlc, reason: newPlc.changeReason });
           return emp;
         }
 
@@ -283,8 +327,9 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             const curP = Array.isArray(emp.costProfiles) ? emp.costProfiles : [];
             if (curP.length > 0) curP[0].effectiveTo = body.effectiveTo || new Date().toISOString().slice(0, 10);
             emp.costProfiles = curP;
+            recordAudit({ action: 'END_EMPLOYEE_COST_PROFILE', schemaName: 'cost', tableName: 'employee_cost_profiles', entityId: emp.id, newValues: { effectiveTo: body.effectiveTo }, reason: 'إنهاء سريان ملف تكلفة الموظف' });
           } else {
-            const profiles = getEntityList('cost_profiles', []);
+            const profiles = getEntityList('cost_profiles', defaultCostProfilesList);
             const prf = profiles.find((p) => p.id === body.profileId);
             const newP = {
               id: `ecp-${Date.now()}`,
@@ -299,6 +344,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             emp.costProfileId = newP.profileId;
             emp.costProfileName = newP.profileName;
             emp.costProfiles = [newP, ...curP];
+            recordAudit({ action: 'ASSIGN_EMPLOYEE_COST_PROFILE', schemaName: 'cost', tableName: 'employee_cost_profiles', entityId: emp.id, newValues: newP, reason: `ربط الموظف بملف التكلفة (${newP.profileName})` });
           }
           saveEntityItem('employees', emp);
           return emp;
@@ -309,6 +355,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           if (cleanP.endsWith('/end') && subId) {
             const targetO = curO.find((o: any) => o.id === subId);
             if (targetO) targetO.effectiveTo = body.effectiveTo;
+            recordAudit({ action: 'END_EMPLOYEE_OVERRIDE', schemaName: 'cost', tableName: 'employee_cost_overrides', entityId: emp.id, newValues: { overrideId: subId, effectiveTo: body.effectiveTo }, reason: 'إنهاء استثناء تكلفة موظف' });
           } else {
             const newO = {
               id: `ovr-${Date.now()}`,
@@ -322,12 +369,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
               effectiveTo: null,
             };
             emp.overrides = [newO, ...curO];
+            recordAudit({ action: 'CREATE_EMPLOYEE_OVERRIDE', schemaName: 'cost', tableName: 'employee_cost_overrides', entityId: emp.id, newValues: newO, reason: newO.reason });
           }
           saveEntityItem('employees', emp);
           return emp;
         }
 
         if (subAction === 'status' && method === 'POST') {
+          const oldStatus = emp.status;
           const newStatus = body.newStatus || 'ACTIVE';
           const newSh = {
             id: `sh-${Date.now()}`,
@@ -341,6 +390,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           emp.status = newStatus;
           emp.statusHistory = [newSh, ...(Array.isArray(emp.statusHistory) ? emp.statusHistory : [])];
           saveEntityItem('employees', emp);
+          recordAudit({ action: 'UPDATE_EMPLOYEE_STATUS', schemaName: 'hr', tableName: 'employees', entityId: emp.id, oldValues: { status: oldStatus }, newValues: { status: newStatus }, reason: newSh.reason });
           return emp;
         }
 
@@ -359,6 +409,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           };
           emp.documents = [newDoc, ...(Array.isArray(emp.documents) ? emp.documents : [])];
           saveEntityItem('employees', emp);
+          recordAudit({ action: 'ADD_EMPLOYEE_DOCUMENT', schemaName: 'hr', tableName: 'employee_documents', entityId: emp.id, newValues: newDoc, reason: `إضافة مستند (${newDoc.title})` });
           return emp;
         }
 
@@ -371,6 +422,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           if (arrKey && Array.isArray(emp[arrKey])) {
             emp[arrKey] = emp[arrKey].filter((x: any) => x.id !== subId);
             saveEntityItem('employees', emp);
+            recordAudit({ action: 'DELETE', schemaName: 'hr', tableName: arrKey, entityId: subId, reason: `حذف سجل فرعي (${arrKey}) للموظف ${emp.fullNameAr}` });
           }
           return { success: true };
         }
@@ -395,6 +447,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           if (remainingAsg.length !== allAsg.length) {
             localStorage.setItem('idham_prod_assignments', JSON.stringify(remainingAsg));
           }
+          recordAudit({ action: 'DELETE_PROJECT', schemaName: 'pmo', tableName: 'projects', entityId: prjs[prjIndex].id, reason: 'حذف مشروع' });
         }
         return { success: true, message: 'تم حذف المشروع بنجاح' };
       }
@@ -409,6 +462,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             nameAr: body.nameAr || prj.nameAr,
           };
           saveEntityItem('projects', updated);
+          recordAudit({ action: 'UPDATE_PROJECT', schemaName: 'pmo', tableName: 'projects', entityId: updated.id, newValues: body, reason: 'تحديث بيانات المشروع' });
           return updated;
         }
       }
@@ -429,16 +483,74 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             changedAt: new Date().toISOString(),
           });
           saveEntityItem('projects', prj);
+          recordAudit({ action: 'UPDATE_PROJECT_STATUS', schemaName: 'pmo', tableName: 'projects', entityId: prj.id, oldValues: { status: oldStatus }, newValues: { status: body.newStatus }, reason: body.reason || 'تحديث حالة المشروع' });
           return prj;
         }
       }
     }
 
-    // --- 2. Robust Assignment Mutations ---
+    // --- 1.2 Service Prices End Route (Business Process Section 6 & 8) ---
+    if (path.startsWith('/service-prices/') && path.endsWith('/end') && method === 'POST') {
+      const spId = path.split('?')[0].split('/')[2];
+      const list = getEntityList<any>('service_prices', []);
+      const idx = list.findIndex((s) => s.id === spId);
+      if (idx >= 0) {
+        const endDate = body?.effectiveTo || body?.endDate || new Date().toISOString().slice(0, 10);
+        list[idx].effectiveTo = endDate;
+        saveEntityItem('service_prices', list[idx]);
+        recordAudit({
+          action: 'END_SERVICE_PRICE',
+          schemaName: 'revenue',
+          tableName: 'service_prices',
+          entityId: spId,
+          oldValues: { effectiveTo: null },
+          newValues: { effectiveTo: endDate },
+          reason: `إنهاء سريان سعر خدمة الموظف ${list[idx].employeeName || ''}`,
+        });
+        return list[idx];
+      }
+    }
+
+    // --- 2. Robust Assignment Mutations (Business Process Section 7 & 11) ---
     if (path.startsWith('/assignments')) {
+      const cleanP = path.split('?')[0].replace(/\/$/, '');
+      if (cleanP.endsWith('/end') && method === 'POST') {
+        const asgId = cleanP.split('/')[2];
+        const allAsg = getEntityList<any>('assignments', []);
+        const idx = allAsg.findIndex((a) => a.id === asgId);
+        if (idx >= 0) {
+          const endDate = body?.endDate || body?.effectiveTo || new Date().toISOString().slice(0, 10);
+          allAsg[idx].endDate = endDate;
+          allAsg[idx].effectiveTo = endDate;
+          saveEntityItem('assignments', allAsg[idx]);
+          recomputeEmployeeOverAllocation(allAsg[idx].employeeId || allAsg[idx].employeeCode);
+          recordAudit({
+            action: 'END_ASSIGNMENT',
+            schemaName: 'pmo',
+            tableName: 'assignments',
+            entityId: asgId,
+            oldValues: { endDate: null },
+            newValues: { endDate },
+            reason: body?.reason || `إنهاء تخصيص الموظف ${allAsg[idx].employeeName || ''} في مشروع ${allAsg[idx].projectName || ''}`,
+          });
+          return allAsg[idx];
+        }
+      }
       if (method === 'DELETE') {
-        const id = path.split('?')[0].split('/').filter(Boolean).pop();
+        const id = cleanP.split('/').filter(Boolean).pop();
+        const existing = getEntityList<any>('assignments', []).find((a) => a.id === id);
         if (id) deleteEntityItem('assignments', id);
+        if (existing) {
+          recomputeEmployeeOverAllocation(existing.employeeId || existing.employeeCode);
+          recordAudit({
+            action: 'DELETE_ASSIGNMENT',
+            schemaName: 'pmo',
+            tableName: 'assignments',
+            entityId: id!,
+            oldValues: existing,
+            reason: `حذف تخصيص الموظف ${existing.employeeName || ''}`,
+          });
+        }
         return { success: true, message: 'تم حذف الإسناد بنجاح' };
       }
       if (typeof body === 'object' && body !== null) {
@@ -453,8 +565,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           allocDays = Number(body.allocatedDays || workingDays);
           allocPct = (allocDays / workingDays) * 100;
         }
-        const billableRate = Number(body.billableRate || 1500);
-        const billingBasis = body.billingBasis || 'DAILY';
+        const billableRate = Number(body.billableRate || emp?.defaultBillingRate || 1500);
+        const billingBasis = body.billingBasis || emp?.defaultBillingBasis || 'DAILY';
         let rev = 0;
         if (billingBasis === 'DAILY') rev = allocDays * billableRate;
         else if (billingBasis === 'MONTHLY') rev = (allocPct / 100) * billableRate;
@@ -462,6 +574,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
         const empSalary = Number(emp?.basicSalary || 0);
         const allocatedCost = (allocPct / 100) * empSalary;
+        const startDateStr = body.startDate || body.effectiveFrom || new Date().toISOString().slice(0, 10);
+        const endDateStr = body.endDate || body.effectiveTo || null;
 
         const enrichedAsg = {
           id: body.id || `asg-${Date.now()}`,
@@ -473,22 +587,37 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           projectName: prj?.nameAr || body.projectName || 'مشروع',
           clientName: prj?.clientName || body.clientName || 'عميل',
           allocationBasis: body.allocationBasis || 'PERCENTAGE',
-          allocationPct: allocPct,
-          allocatedDays: allocDays,
+          allocationPct: Number(allocPct.toFixed(2)),
+          allocatedDays: Number(allocDays.toFixed(2)),
+          allocatedHours: body.allocatedHours ? Number(body.allocatedHours) : null,
           workingDaysInMonth: workingDays,
           billableRate,
           billingBasis,
           billingCurrency: body.billingCurrency || 'SAR',
-          effectiveFrom: body.startDate || body.effectiveFrom || new Date().toISOString().slice(0, 10),
-          effectiveTo: body.endDate || body.effectiveTo || null,
+          startDate: startDateStr,
+          endDate: endDateStr,
+          effectiveFrom: startDateStr,
+          effectiveTo: endDateStr,
           roleTitle: body.roleTitle || emp?.positionTitle || 'مهندس برمجيات',
           isBillable: body.isBillable !== false,
           monthlyRevenue: rev,
           allocatedCost,
           marginPct: rev > 0 ? (((rev - allocatedCost) / rev) * 100).toFixed(1) : '0',
           changeReason: body.changeReason || body.notes || 'إسناد الموظف إلى المشروع',
+          notes: body.notes || body.changeReason || null,
         };
-        return saveEntityItem('assignments', enrichedAsg);
+        const saved = saveEntityItem('assignments', enrichedAsg);
+        recomputeEmployeeOverAllocation(enrichedAsg.employeeId || enrichedAsg.employeeCode);
+        const refreshed = getEntityList<any>('assignments', []).find((a) => a.id === saved.id) || saved;
+        recordAudit({
+          action: 'CREATE_ASSIGNMENT',
+          schemaName: 'pmo',
+          tableName: 'assignments',
+          entityId: refreshed.id,
+          newValues: { employeeName: refreshed.employeeName, projectName: refreshed.projectName, allocationPct: refreshed.allocationPct, isOverAllocated: refreshed.isOverAllocated },
+          reason: refreshed.changeReason,
+        });
+        return refreshed;
       }
     }
 
@@ -514,6 +643,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const tbFinancial = computeTrialBalance({ from: periodObj.startDate, to: periodObj.endDate, ledger: 'FINANCIAL' });
       const isPeriod = computeIncomeStatement({ from: periodObj.startDate, to: periodObj.endDate });
       const bsPeriod = computeBalanceSheet({ asOf: periodObj.endDate });
+      const profOverview = getDemoFallback(`/reports/profitability/overview?periodId=${periodId}`);
       const snapData = {
         periodId,
         periodName: periodObj.name,
@@ -524,6 +654,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         trialBalance: { financial: tbFinancial },
         incomeStatement: { period: isPeriod },
         balanceSheet: bsPeriod,
+        profitability: profOverview,
       };
       const snapHash = sha256Hex(JSON.stringify(snapData));
       const snap = {
@@ -1031,7 +1162,62 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
     }
 
-    // --- 2.4 Robust Retroactive Adjustments Operations (Business Process Section 18) ---
+    // --- 2.4 Robust Retroactive Adjustments & Approval Workflow (Business Process Section 18 & 29) ---
+    if (path.startsWith('/revenue-adjustments/') && (path.endsWith('/submit') || path.endsWith('/approve') || path.endsWith('/reject')) && method === 'POST') {
+      const cleanP = path.split('?')[0].replace(/\/$/, '');
+      const segs = cleanP.split('/').filter(Boolean); // ['revenue-adjustments', id, action]
+      const adjId = segs[1];
+      const act = segs[2];
+      const list = getEntityList<any>('revenue_adjustments', []);
+      const idx = list.findIndex((r) => r.id === adjId);
+      if (idx >= 0) {
+        const oldStatus = list[idx].status;
+        if (act === 'submit') {
+          list[idx].status = 'PENDING_APPROVAL';
+          list[idx].submittedAt = new Date().toISOString();
+          saveEntityItem('revenue_adjustments', list[idx]);
+          recordAudit({
+            action: 'SUBMIT_ADJUSTMENT',
+            schemaName: 'revenue',
+            tableName: 'revenue_adjustments',
+            entityId: adjId,
+            oldValues: { status: oldStatus },
+            newValues: { status: 'PENDING_APPROVAL' },
+            reason: `إرسال تسوية الإيراد للموظف ${list[idx].employeeName} للاعتماد`,
+          });
+        } else if (act === 'approve') {
+          list[idx].status = 'APPROVED';
+          list[idx].approvedAt = new Date().toISOString();
+          list[idx].approvedBy = 'المدير التنفيذي';
+          saveEntityItem('revenue_adjustments', list[idx]);
+          recordAudit({
+            action: 'APPROVE_ADJUSTMENT',
+            schemaName: 'revenue',
+            tableName: 'revenue_adjustments',
+            entityId: adjId,
+            oldValues: { status: oldStatus },
+            newValues: { status: 'APPROVED', grossRevenueBase: list[idx].grossRevenueBase },
+            reason: body?.reason || `اعتماد تسوية الإيراد للموظف ${list[idx].employeeName}`,
+          });
+        } else if (act === 'reject') {
+          list[idx].status = 'REJECTED';
+          list[idx].rejectedAt = new Date().toISOString();
+          list[idx].rejectReason = body?.reason || 'رفض التسوية';
+          saveEntityItem('revenue_adjustments', list[idx]);
+          recordAudit({
+            action: 'REJECT_ADJUSTMENT',
+            schemaName: 'revenue',
+            tableName: 'revenue_adjustments',
+            entityId: adjId,
+            oldValues: { status: oldStatus },
+            newValues: { status: 'REJECTED', rejectReason: list[idx].rejectReason },
+            reason: list[idx].rejectReason,
+          });
+        }
+        return list[idx];
+      }
+    }
+
     if (path.includes('/revenue-adjustments/retroactive') && method === 'POST') {
       assertPeriodOpen(body.fiscalPeriodId, 'تسجيل تسوية إيراد بأثر رجعي');
       const emps = getEntityList('employees', []);
@@ -1044,6 +1230,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const units = Number(body.units || 1);
       const unitPrice = Number(body.unitPrice || 0);
       const { amountBase: grossRev } = convertToBase(units * unitPrice, body.currencyCode || 'SAR');
+      const initialStatus = body.status || 'APPROVED';
       const retroItem = {
         id: `retro-${Date.now()}`,
         employeeId: body.employeeId,
@@ -1065,7 +1252,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         adjustmentReason: body.adjustmentReason || 'تسوية إيراد أثر رجعي',
         createdAt: new Date().toISOString(),
         createdBy: 'المدير التنفيذي',
-        status: 'RECORDED',
+        status: initialStatus,
       };
       saveEntityItem('revenue_adjustments', retroItem);
       recordAudit({
@@ -1073,7 +1260,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         schemaName: 'revenue',
         tableName: 'revenue_adjustments',
         entityId: retroItem.id,
-        newValues: { originalPeriodId: retroItem.originalPeriodId, fiscalPeriodId: retroItem.fiscalPeriodId, grossRevenueBase: retroItem.grossRevenueBase },
+        newValues: { originalPeriodId: retroItem.originalPeriodId, fiscalPeriodId: retroItem.fiscalPeriodId, grossRevenueBase: retroItem.grossRevenueBase, status: initialStatus },
         reason: retroItem.adjustmentReason,
       });
       return retroItem;
@@ -1322,6 +1509,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       if (targetKey === 'exchange_rates') getEntityList('exchange_rates', defaultExchangeRatesList);
       if (targetKey === 'cost_components') getEntityList('cost_components', defaultCostComponentsList);
       if (targetKey === 'cost_profiles') getEntityList('cost_profiles', defaultCostProfilesList);
+      if (targetKey === 'variable_types') getEntityList('variable_types', defaultVariableTypesList);
       if (targetKey === 'asset_categories') getEntityList('asset_categories', defaultAssetCategoriesList);
       if (method === 'DELETE') {
         const id = path.split('?')[0].split('/').filter(Boolean).pop();
@@ -1391,11 +1579,30 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
               createdAt: new Date().toISOString(),
             }
           ];
+          // Seed initial default service price if defaultBillingRate provided (Sec 6)
+          if (Number(body.defaultBillingRate || 0) > 0) {
+            const spItem = {
+              id: `sp-${Date.now()}`,
+              employeeId: body.id,
+              employeeCode: body.code,
+              employeeName: body.fullNameAr,
+              projectId: null,
+              projectCode: null,
+              projectName: null,
+              pricingBasis: body.defaultBillingBasis || 'DAILY',
+              price: String(body.defaultBillingRate),
+              currencyCode: body.billingCurrency || 'SAR',
+              effectiveFrom: body.hireDate,
+              effectiveTo: null,
+            };
+            saveEntityItem('service_prices', spItem);
+          }
           // Initial project assignment if provided
           if (body.initialProjectId) {
             const allPrjs = getEntityList('projects', []);
             const targetPrj = allPrjs.find((p) => p.id === body.initialProjectId);
             if (targetPrj) {
+              const allocPctNum = Number(body.initialAllocationPct || 100);
               const asg = {
                 id: `asg-${Date.now()}`,
                 employeeId: body.id,
@@ -1406,20 +1613,62 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
                 projectName: targetPrj.nameAr,
                 clientName: targetPrj.clientName,
                 allocationBasis: 'PERCENTAGE',
-                allocationPct: Number(body.initialAllocationPct || 100),
-                allocatedDays: 22,
+                allocationPct: allocPctNum,
+                allocatedDays: Number(((allocPctNum / 100) * 22).toFixed(2)),
                 workingDaysInMonth: 22,
                 billableRate: Number(body.defaultBillingRate || 1500),
-                billingBasis: 'DAILY',
+                billingBasis: body.defaultBillingBasis || 'DAILY',
                 billingCurrency: 'SAR',
+                startDate: body.hireDate,
+                endDate: null,
                 effectiveFrom: body.hireDate,
                 effectiveTo: null,
                 changeReason: 'الإسناد المبدئي لمشروع العمل عند التعيين',
               };
               saveEntityItem('assignments', asg);
+              recomputeEmployeeOverAllocation(body.id);
             }
           }
-          return saveEntityItem(targetKey, body);
+          const savedEmp = saveEntityItem(targetKey, body);
+          recordAudit({
+            action: 'CREATE_EMPLOYEE',
+            schemaName: 'hr',
+            tableName: 'employees',
+            entityId: savedEmp.id,
+            newValues: { code: savedEmp.code, fullNameAr: savedEmp.fullNameAr, basicSalary: savedEmp.basicSalary, salaryCurrency: savedEmp.salaryCurrency },
+            reason: `إنشاء وتعيين الموظف ${savedEmp.fullNameAr} (${savedEmp.code})`,
+          });
+          return savedEmp;
+        }
+
+        // 1.5) Service prices enrichment (Sec 6 & 8)
+        if (targetKey === 'service_prices') {
+          const emps = getEntityList('employees', []);
+          const prjs = getEntityList('projects', []);
+          const emp = emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId);
+          const prj = body.projectId ? prjs.find((p: any) => p.id === body.projectId || p.code === body.projectId) : null;
+          body.id = body.id || `sp-${Date.now()}`;
+          body.employeeId = emp?.id || body.employeeId;
+          body.employeeCode = emp?.code || body.employeeCode || '';
+          body.employeeName = emp?.fullNameAr || body.employeeName || 'الموظف';
+          body.projectId = prj?.id || body.projectId || null;
+          body.projectCode = prj?.code || body.projectCode || null;
+          body.projectName = prj?.nameAr || body.projectName || null;
+          body.pricingBasis = body.pricingBasis || 'DAILY';
+          body.price = String(body.price || '0.00');
+          body.currencyCode = body.currencyCode || 'SAR';
+          body.effectiveFrom = body.effectiveFrom || new Date().toISOString().slice(0, 10);
+          body.effectiveTo = body.effectiveTo || null;
+          const savedSp = saveEntityItem('service_prices', body);
+          recordAudit({
+            action: 'CREATE_SERVICE_PRICE',
+            schemaName: 'revenue',
+            tableName: 'service_prices',
+            entityId: savedSp.id,
+            newValues: { employeeName: savedSp.employeeName, projectName: savedSp.projectName || 'سعر افتراضي عام', price: savedSp.price, pricingBasis: savedSp.pricingBasis },
+            reason: `تسجيل سعر خدمة للموظف ${savedSp.employeeName}`,
+          });
+          return savedSp;
         }
 
         // 2) Project enrichment
@@ -1438,12 +1687,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           }
         }
 
-        // 2.5) Monthly variables enrichment
+        // 2.5) Monthly variables enrichment (Sec 12, 13, 14, 15)
         if (targetKey === 'monthly_variables') {
           if (body.fiscalPeriodId) assertPeriodOpen(body.fiscalPeriodId, 'تسجيل متغير شهري');
           const emps = getEntityList('employees', []);
           const prjs = getEntityList('projects', []);
-          const varTypes = getEntityList('variable_types', []);
+          const varTypes = getEntityList('variable_types', defaultVariableTypesList);
           const emp = emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId);
           const prj = prjs.find((p: any) => p.id === body.projectId || p.code === body.projectId);
           const vt = varTypes.find((v: any) => v.id === body.variableTypeId || v.code === body.variableTypeId);
@@ -1458,17 +1707,32 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           const bSal = Number(emp?.basicSalary || emp?.basic_salary || 0);
           const dailyRate = bSal > 0 ? (bSal / 22) : 500;
           const hourlyRate = dailyRate / 8;
+          const calcMethod = body.calcMethod || vt?.calcMethod || 'FIXED';
           let computed = Number(body.amount || 0);
-          if (body.hours) {
+          if (calcMethod === 'PCT_BASIC' && !body.hours && !body.days) {
+            const pct = Number(body.rate || body.pct || body.amount || 0);
+            const mult = Number(body.multiplier || vt?.defaultMultiplier || 1);
+            computed = (pct / 100) * bSal * mult;
+          } else if (body.hours || calcMethod === 'HOURS_RATE') {
             const mult = Number(body.multiplier || vt?.defaultMultiplier || 1.5);
             const r = Number(body.rate || hourlyRate);
-            computed = Number(body.hours) * r * mult;
-          } else if (body.days) {
-            const mult = Number(body.multiplier || 1);
+            computed = Number(body.hours || 0) * r * mult;
+          } else if (body.days || calcMethod === 'DAYS_RATE') {
+            const mult = Number(body.multiplier || vt?.defaultMultiplier || 1);
             const r = Number(body.rate || dailyRate);
-            computed = Number(body.days) * r * mult;
+            computed = Number(body.days || 0) * r * mult;
           }
           body.computedAmount = String(computed.toFixed(2));
+          const savedVar = saveEntityItem(targetKey, body);
+          recordAudit({
+            action: 'CREATE_VARIABLE',
+            schemaName: 'pay',
+            tableName: 'monthly_variables',
+            entityId: savedVar.id,
+            newValues: { employeeName: savedVar.employeeName, variableTypeName: savedVar.variableTypeName, computedAmount: savedVar.computedAmount, projectId: savedVar.projectId || null },
+            reason: `إضافة متغير شهري (${savedVar.variableTypeName}) للموظف ${savedVar.employeeName}`,
+          });
+          return savedVar;
         }
 
         // 2.6) Loans enrichment (Business Process Section 16: Installment schedule tied to fiscal periods)
@@ -1502,6 +1766,16 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
               status: 'PENDING',
             };
           });
+          const savedLoan = saveEntityItem(targetKey, body);
+          recordAudit({
+            action: 'CREATE_LOAN',
+            schemaName: 'pay',
+            tableName: 'loans',
+            entityId: savedLoan.id,
+            newValues: { loanNo: savedLoan.loanNo, employeeName: savedLoan.employeeName, principalBase: savedLoan.principalBase, installments: savedLoan.installments },
+            reason: `إضافة سلفة موظف (${savedLoan.loanNo}) للموظف ${savedLoan.employeeName} — لا تدخل ضمن تكلفة الربحية`,
+          });
+          return savedLoan;
         }
 
         // 2.7) Assets enrichment
@@ -1645,12 +1919,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const emps = getEntityList('employees', []);
     const prjs = getEntityList('projects', []);
     const clients = getEntityList('clients', defaultClients);
-    const assignments = getEntityList('assignments', []);
+    const assignments = getEntityList('assignments', []).filter((a: any) => !a.endDate && !a.effectiveTo);
     const depts = getEntityList('departments', defaultDepartments);
     const deptMap = new Map(depts.map((d: any) => [d.id, d.nameAr]));
     const monthlyVars = getEntityList('monthly_variables', []);
-    const retroAdjs = getEntityList('revenue_adjustments', []);
-    const servicePrices = getEntityList('service_prices', []);
+    const retroAdjs = getEntityList('revenue_adjustments', []).filter((r: any) => r.status !== 'REJECTED' && (!periodFilterId || r.fiscalPeriodId === periodFilterId || r.originalPeriodId === periodFilterId));
+    const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
     const overheadPolicy = getOverheadPolicy();
     const targetPeriod = periodFilterId ? resolvePeriodByIdOrDate(periodFilterId, null) : undefined;
     const empBreakdownMap = new Map<string, ReturnType<typeof computeEmployeeCostBreakdown>>();
@@ -1691,11 +1965,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       let empRev = 0;
       const empProjects: any[] = [];
       for (const a of myAsgs) {
-        // Section 6 & 8: Check project price override priority + FX conversion to Base SAR
-        const override = servicePrices.find((sp: any) => sp.employeeId === emp.id && sp.projectId === a.projectId)
-          || servicePrices.find((sp: any) => sp.employeeId === emp.id && !sp.projectId);
-        let rawRate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
-        let basis = a.billingBasis || a.allocationBasis || 'DAILY';
+        // Section 6 & 8: Check project price override priority + default employee price + FX conversion to Base SAR
+        const override = servicePrices.find((sp: any) => (sp.employeeId === emp.id || sp.employeeId === emp.code) && (sp.projectId === a.projectId || sp.projectCode === a.projectCode))
+          || servicePrices.find((sp: any) => (sp.employeeId === emp.id || sp.employeeId === emp.code) && !sp.projectId);
+        let rawRate = Number(a.billableRate || a.dailyRate || a.unitPrice || emp.defaultBillingRate || 0);
+        let basis = a.billingBasis || emp.defaultBillingBasis || a.allocationBasis || 'DAILY';
         let rateCur = a.billingCurrency || 'SAR';
         if (override) {
           rawRate = Number(override.price || rawRate);
@@ -2061,6 +2335,26 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           createdAt: new Date().toISOString(),
         };
 
+        const activeAssets = getEntityList<any>('assets', []).filter(
+          (a) => (a.custodianEmployeeId === singleEmp.id || a.employeeId === singleEmp.id || a.custodianEmployeeId === singleEmp.code) && a.status === 'ACTIVE',
+        );
+        const assetCustodies = activeAssets.map((a) => ({
+          id: `cst-${a.id}`,
+          assetId: a.id,
+          assetCode: a.code || a.assetCode || 'AST',
+          assetNameAr: a.nameAr || a.assetNameAr || 'أصل تشغيلي',
+          assignedDate: a.assignedDate || a.purchaseDate || singleEmp.hireDate || new Date().toISOString().slice(0, 10),
+          returnedDate: null,
+          conditionOut: 'جيد جداً',
+          conditionIn: null,
+          monthlyDepreciationBase: Math.round(((Number(a.costBase || a.cost || 0) - Number(a.salvageValueBase || 0)) / (Number(a.usefulLifeMonths) || 36)) * 100) / 100,
+        }));
+        const existingCustodies = Array.isArray(singleEmp.custodies) ? singleEmp.custodies : [];
+        const mergedCustodies = [
+          ...assetCustodies,
+          ...existingCustodies.filter((c: any) => !assetCustodies.some((ac) => ac.assetId === c.assetId || ac.assetCode === c.assetCode)),
+        ];
+
         return {
           ...singleEmp,
           fullNameAr: singleEmp.fullNameAr || singleEmp.full_name_ar || singleEmp.nameAr || 'موظف',
@@ -2078,7 +2372,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           costProfiles: Array.isArray(singleEmp.costProfiles) ? singleEmp.costProfiles : [],
           assignments: empAsg,
           overrides: Array.isArray(singleEmp.overrides) ? singleEmp.overrides : [],
-          custodies: Array.isArray(singleEmp.custodies) ? singleEmp.custodies : [],
+          custodies: mergedCustodies,
           documents: Array.isArray(singleEmp.documents) ? singleEmp.documents : [],
           statusHistory: Array.isArray(singleEmp.statusHistory) && singleEmp.statusHistory.length > 0 ? singleEmp.statusHistory : [
             {
@@ -2518,7 +2812,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/variable-types')) {
-    return makeList(getEntityList('variable_types', []));
+    return makeList(getEntityList('variable_types', defaultVariableTypesList));
   }
 
   if (path.includes('/loans')) {
@@ -2698,7 +2992,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 19. Revenue Recognition & Runs
   if (path.includes('/revenue-adjustments')) {
-    return makeList(getEntityList('revenue_adjustments', []));
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const pId = q.get('periodId');
+    const allAdjs = getEntityList<any>('revenue_adjustments', []);
+    const filtered = pId ? allAdjs.filter((r) => r.fiscalPeriodId === pId || r.originalPeriodId === pId) : allAdjs;
+    return makeList(filtered);
   }
 
   if (path.includes('/revenue-runs')) {
@@ -2707,13 +3005,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     if (cleanP.includes('/preview')) {
       const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
       const period = resolvePeriodByIdOrDate(q.get('periodId'), null);
-      const asgs = getEntityList('assignments', []);
-      const servicePrices = getEntityList('service_prices', []);
+      const asgs = getEntityList('assignments', []).filter((a: any) => !a.endDate && !a.effectiveTo);
+      const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
       const existing = runs.find((r) => r.fiscalPeriodId === period?.id && r.status === 'POSTED');
       let totalRev = 0;
       const lines = asgs.map((a: any, idx: number) => {
-        const override = servicePrices.find((sp: any) => sp.employeeId === a.employeeId && sp.projectId === a.projectId)
-          || servicePrices.find((sp: any) => sp.employeeId === a.employeeId && !sp.projectId);
+        const override = servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeCode === a.employeeCode) && (sp.projectId === a.projectId || sp.projectCode === a.projectCode))
+          || servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeCode === a.employeeCode) && !sp.projectId);
         const rawRate = Number(override?.price ?? a.billableRate ?? a.dailyRate ?? a.unitPrice ?? 0);
         const rateCur = override?.currencyCode || a.billingCurrency || 'SAR';
         const basis = override?.pricingBasis || a.billingBasis || a.allocationBasis || 'DAILY';
@@ -2763,6 +3061,17 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   // 20. Reports & Financial Intelligence
+  if (path.includes('/reports/profitability/overview')) {
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const prof = computeDynamicProfitability(q.get('periodId'));
+    return {
+      summary: prof.empSummary,
+      employees: prof.empList,
+      projects: prof.projectList,
+      clients: prof.clientList,
+    };
+  }
+
   if (path.includes('/reports/executive-intelligence')) {
     const prof = computeDynamicProfitability();
     const is = computeIncomeStatement();
@@ -2781,6 +3090,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         totalDevelopers: prof.empList.length,
       },
       topClients: prof.clientList,
+      profitability: {
+        summary: prof.empSummary,
+        employees: prof.empList,
+        projects: prof.projectList,
+        clients: prof.clientList,
+      },
     };
   }
 
@@ -2839,9 +3154,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/roles')) {
     const defaultRoles = [
-      { id: 'role-1', code: 'ADMIN', nameAr: 'مدير النظام التنفيذي', description: 'كامل الصلاحيات المالية والإدارية والتقنية', userCount: 1, permissionCount: 12, isTemplate: false, isSystem: true, permissions: ['org.companies.read', 'org.companies.write', 'hr.employees.read', 'hr.employees.write', 'prj.projects.read', 'prj.projects.write', 'pay.runs.read', 'pay.runs.write', 'acc.journals.read', 'acc.journals.write', 'sal.zatca.read', 'sal.zatca.write'], rowVersion: 1 },
-      { id: 'role-2', code: 'FIN_MANAGER', nameAr: 'مدير مالي ومحاسب قانوني', description: 'إدارة القيود، الحسابات، الضرائب وهيئة الزكاة', userCount: 0, permissionCount: 6, isTemplate: false, isSystem: false, permissions: ['acc.journals.read', 'acc.journals.write', 'sal.zatca.read', 'sal.zatca.write', 'org.companies.read'], rowVersion: 1 },
-      { id: 'role-3', code: 'HR_PMO', nameAr: 'مدير المشاريع والموارد البشرية', description: 'إدارة الموظفين وتوزيع الكوادر ونسب الإنجاز', userCount: 0, permissionCount: 4, isTemplate: false, isSystem: false, permissions: ['hr.employees.read', 'hr.employees.write', 'prj.projects.read', 'prj.projects.write'], rowVersion: 1 },
+      { id: 'role-1', code: 'ADMIN', nameAr: 'مدير النظام التنفيذي (Admin)', description: 'كامل الصلاحيات المالية والإدارية والتقنية وإقفال وإعادة فتح الشهور', userCount: 1, permissionCount: 12, isTemplate: false, isSystem: true, permissions: ['org.companies.read', 'org.companies.write', 'hr.employees.read', 'hr.employees.write', 'prj.projects.read', 'prj.projects.write', 'pay.runs.read', 'pay.runs.write', 'acc.journals.read', 'acc.journals.write', 'sal.zatca.read', 'sal.zatca.write'], rowVersion: 1 },
+      { id: 'role-2', code: 'HR', nameAr: 'إدارة الموارد البشرية (HR)', description: 'إدارة الموظفين والرواتب والبدلات والسلف والمتغيرات الشهرية', userCount: 1, permissionCount: 5, isTemplate: false, isSystem: false, permissions: ['hr.employees.read', 'hr.employees.write', 'pay.runs.read', 'pay.runs.write', 'org.companies.read'], rowVersion: 1 },
+      { id: 'role-3', code: 'FINANCE', nameAr: 'الإدارة المالية والمحاسبة (Finance)', description: 'إدارة التكاليف، الإيرادات، الأوفر هيد، القيود، الضرائب، وإقفال الشهر', userCount: 1, permissionCount: 6, isTemplate: false, isSystem: false, permissions: ['acc.journals.read', 'acc.journals.write', 'sal.zatca.read', 'sal.zatca.write', 'pay.runs.read', 'org.companies.read'], rowVersion: 1 },
+      { id: 'role-4', code: 'PROJECT_MANAGER', nameAr: 'مدير المشاريع والعمليات (Project Manager)', description: 'إدارة المشاريع، تخصيص الكوادر، ومتابعة ربحية المشاريع والوقت غير المستغل', userCount: 1, permissionCount: 4, isTemplate: false, isSystem: false, permissions: ['prj.projects.read', 'prj.projects.write', 'hr.employees.read', 'org.companies.read'], rowVersion: 1 },
+      { id: 'role-5', code: 'VIEWER', nameAr: 'مراقب ومستعرض تقارير (Viewer)', description: 'صلاحية قراءة واستعراض التقارير ولوحات الربحية فقط دون تعديل', userCount: 0, permissionCount: 5, isTemplate: true, isSystem: false, permissions: ['org.companies.read', 'hr.employees.read', 'prj.projects.read', 'pay.runs.read', 'acc.journals.read'], rowVersion: 1 },
     ];
     const roles = getEntityList('roles', defaultRoles);
     const singleRole = roles.find((r: any) => path.endsWith(`/${r.id}`));

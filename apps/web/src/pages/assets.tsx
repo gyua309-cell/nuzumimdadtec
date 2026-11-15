@@ -61,6 +61,7 @@ const assetFormFields: FieldDef[] = [
   { name: 'depreciationStart', label: 'بداية الإهلاك', type: 'date', hint: 'افتراضيًا تاريخ الشراء — يبدأ الإهلاك بالشهر كاملًا', section: 'سياسة الإهلاك' },
   { name: 'branchId', label: 'الفرع', type: 'ref', ref: REF.branch, section: 'الموقع والملاحظات', sectionCollapsible: true },
   { name: 'costCenterId', label: 'مركز التكلفة', type: 'ref', ref: REF.costCenter, section: 'الموقع والملاحظات' },
+  { name: 'custodianEmployeeId', label: 'الموظف المستلم للعهدة (اختياري)', type: 'ref', ref: REF.employee, hint: 'عند تفعيل الأصل يُحمّل قسط الإهلاك الشهري على تكلفة الموظف', section: 'الموقع والملاحظات' },
   { name: 'notes', label: 'ملاحظات', type: 'textarea', section: 'الموقع والملاحظات' },
 ];
 

@@ -1456,43 +1456,73 @@ function EmployeeProfitabilityTab({ employee }: { employee: any }) {
     queryKey: ['assignments', 'employee', empId],
     queryFn: () => api.get<any>('/assignments', { employeeId: empId }),
   });
+  const costQuery = useQuery({
+    queryKey: ['employee-cost', empId],
+    queryFn: () => api.get<any>(`/employees/${empId}/cost`),
+  });
+  const spQuery = useQuery({
+    queryKey: ['service-prices', empId],
+    queryFn: () => api.get<any>('/service-prices'),
+  });
+  const polQuery = useQuery({
+    queryKey: ['overhead-policy'],
+    queryFn: () => api.get<any>('/overhead-policy'),
+  });
 
   const rawRows = asgQuery.data?.rows || asgQuery.data?.data || asgQuery.data || [];
-  const assignments: any[] = Array.isArray(rawRows) ? rawRows : [];
+  const assignments: any[] = (Array.isArray(rawRows) ? rawRows : []).filter(
+    (a: any) => a.employeeId === empId || a.employeeId === employee.code || a.employeeCode === employee.code,
+  );
+  const servicePrices: any[] = (spQuery.data?.data || spQuery.data || []).filter((sp: any) => !sp.effectiveTo);
 
   const basicSalary = Number(employee.basicSalary || employee.compensations?.[0]?.basicSalary || 0);
   const insuranceSalary = Number(employee.insuranceSalary || employee.compensations?.[0]?.insuranceSalary || 0);
 
-  // Direct Cost = Basic Salary + GOSI/Company Insurance
-  const directCost = basicSalary + insuranceSalary * 0.1185; // approx GOSI or defined cost
-  const overhead = directCost * 0.1; // 10% overhead share
+  // Direct Cost from Live Cost Engine (Basic + Cost Profile + Asset Depreciation + General Variables)
+  const directCost = costQuery.data?.distributableCostBase != null
+    ? Number(costQuery.data.distributableCostBase)
+    : (basicSalary + insuranceSalary * 0.12);
+  const policy = polQuery.data || { method: 'PERCENTAGE', rate: '10' };
+  const overhead = policy.method === 'PERCENTAGE'
+    ? Math.round(directCost * (Number(policy.rate || 10) / 100))
+    : policy.method === 'FIXED_PER_EMPLOYEE'
+      ? Math.round(Number(policy.rate || 0))
+      : Math.round(directCost * 0.1);
   const totalCost = directCost + overhead;
 
-  // Active revenue
+  // Active revenue & allocations
   const t = today();
-  const activeAssignments = assignments.filter((a) => !a.effectiveTo || a.effectiveTo >= t);
+  const activeAssignments = assignments.filter((a) => (!a.endDate && !a.effectiveTo) || (a.effectiveTo || a.endDate) >= t);
+
+  const resolveAssignmentRev = (a: any) => {
+    const override = servicePrices.find((sp: any) => (sp.employeeId === empId || sp.employeeCode === employee.code) && (sp.projectId === a.projectId || sp.projectCode === a.projectCode))
+      || servicePrices.find((sp: any) => (sp.employeeId === empId || sp.employeeCode === employee.code) && !sp.projectId);
+    const rate = Number(override?.price ?? a.billableRate ?? employee.defaultBillingRate ?? 1500);
+    const basis = override?.pricingBasis || a.billingBasis || employee.defaultBillingBasis || 'DAILY';
+    const allocPct = Number(a.allocationPct ?? (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
+    const days = Number(a.allocatedDays || (allocPct / 100) * 22);
+    if (basis === 'DAILY' || basis === 'DAYS') return days * rate;
+    if (basis === 'MONTHLY') return (allocPct / 100) * rate;
+    return (Number(a.allocatedHours) || days * 8) * rate;
+  };
 
   let totalAllocPct = 0;
   let totalRevenue = 0;
 
   for (const a of activeAssignments) {
-    totalAllocPct += Number(a.allocationPct || 0);
-    const rate = Number(a.billableRate || employee.defaultBillingRate || 1500);
-    const days = Number(a.allocatedDays || 22);
-    if (a.billingBasis === 'DAILY') {
-      totalRevenue += days * rate;
-    } else if (a.billingBasis === 'MONTHLY') {
-      totalRevenue += (Number(a.allocationPct || 100) / 100) * rate;
-    } else {
-      totalRevenue += days * 8 * rate;
-    }
+    const allocPct = Number(a.allocationPct ?? (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
+    totalAllocPct += allocPct;
+    totalRevenue += resolveAssignmentRev(a);
   }
 
+  const isOverAllocated = totalAllocPct > 100;
+  const overAllocatedPct = Math.max(0, totalAllocPct - 100);
+  const normRatio = isOverAllocated ? (100 / totalAllocPct) : 1;
   const unutilizedPct = Math.max(0, 100 - totalAllocPct);
-  const unutilizedCost = (unutilizedPct / 100) * directCost;
+  const unutilizedCost = Math.round((unutilizedPct / 100) * directCost);
   const netProfit = totalRevenue - totalCost;
   const realizedMarginPct = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
-  const targetMarginPct = Number(employee.requiredMarginPct || 25);
+  const targetMarginPct = Number(employee.targetMarginPct || employee.requiredMarginPct || 25);
   const delta = realizedMarginPct - targetMarginPct;
 
   return (
@@ -1500,12 +1530,18 @@ function EmployeeProfitabilityTab({ employee }: { employee: any }) {
       {/* Financial Summary */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <Stat label="إجمالي الإيرادات" value={`${money(totalRevenue)} SAR`} hint="عقود بيع الخدمة" tone="green" />
-        <Stat label="التكلفة المباشرة" value={`${money(directCost)} SAR`} hint="الراتب + التأمينات" tone="blue" />
-        <Stat label="تكلفة البنش (غير المستغلة)" value={`${money(unutilizedCost)} SAR`} hint={`${unutilizedPct.toFixed(1)}% طاقة مهدورة`} tone={unutilizedCost > 0 ? 'amber' : 'green'} />
-        <Stat label="المصروفات الإدارية (10%)" value={`${money(overhead)} SAR`} hint="Overhead محمل" />
+        <Stat label="التكلفة المباشرة" value={`${money(directCost)} SAR`} hint="الراتب + الملف + الإهلاك + المتغيرات" tone="blue" />
+        <Stat label="تكلفة البنش (غير المستغلة)" value={`${money(unutilizedCost)} SAR`} hint={isOverAllocated ? `فائض تخصيص +${overAllocatedPct.toFixed(1)}%` : `${unutilizedPct.toFixed(1)}% طاقة مهدورة`} tone={unutilizedCost > 0 ? 'amber' : 'green'} />
+        <Stat label={`الأوفر هيد (${policy.method === 'PERCENTAGE' ? `${policy.rate}%` : policy.method})`} value={`${money(overhead)} SAR`} hint="Overhead محمل" />
         <Stat label="صافي الربح المحقق" value={`${money(netProfit)} SAR`} hint={netProfit >= 0 ? 'ربحية موجبة' : 'خسارة تشغيلية'} tone={netProfit >= 0 ? 'green' : 'red'} />
         <Stat label="الهامش المحقق مقابل المستهدف" value={`${realizedMarginPct.toFixed(1)}% / ${targetMarginPct}%`} hint={`الفارق: ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`} tone={delta >= 0 ? 'green' : 'red'} />
       </div>
+
+      {isOverAllocated && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          <strong>تنبيه تجاوز التخصيص (Over-Allocation — {totalAllocPct.toFixed(1)}%):</strong> تم تطبيع التكلفة المباشرة على المشاريع نسبياً بمعامل ({(normRatio * 100).toFixed(1)}%) بحيث لا تتجاوز إجمالي التكلفة المحمّلة 100% من تكلفة الموظف الشهرية ({money(directCost)} SAR)، مع احتساب كامل إيرادات المشاريع.
+        </div>
+      )}
 
       {/* Profitability Breakdown Table */}
       <Section title="توزيع التكاليف والإيرادات والربحية حسب المشاريع (Business Process)">
@@ -1525,16 +1561,11 @@ function EmployeeProfitabilityTab({ employee }: { employee: any }) {
             </thead>
             <tbody>
               {activeAssignments.map((a: any) => {
-                const allocPct = Number(a.allocationPct || 100);
-                const rate = Number(a.billableRate || employee.defaultBillingRate || 1500);
-                const days = Number(a.allocatedDays || 22);
-                let lineRev = 0;
-                if (a.billingBasis === 'DAILY') lineRev = days * rate;
-                else if (a.billingBasis === 'MONTHLY') lineRev = (allocPct / 100) * rate;
-                else lineRev = days * 8 * rate;
+                const allocPct = Number(a.allocationPct ?? (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
+                const lineRev = resolveAssignmentRev(a);
 
-                const lineDirectCost = (allocPct / 100) * directCost;
-                const lineOverhead = lineDirectCost * 0.1;
+                const lineDirectCost = Math.round((allocPct / 100) * normRatio * directCost);
+                const lineOverhead = Math.round((allocPct / 100) * normRatio * overhead);
                 const lineTotalCost = lineDirectCost + lineOverhead;
                 const lineProfit = lineRev - lineTotalCost;
                 const lineMargin = lineRev > 0 ? ((lineProfit / lineRev) * 100).toFixed(1) : '0';

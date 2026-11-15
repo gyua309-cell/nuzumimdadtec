@@ -331,9 +331,9 @@ export function ProfitabilityPage() {
 
   const retroAdjustments = useQuery({
     queryKey: ['/revenue-adjustments/retroactive', periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any[]>('/revenue-adjustments/retroactive', { periodId }),
+    queryFn: () => api.get<any>('/revenue-adjustments/retroactive', periodId ? { periodId } : {}),
   });
+  const retroRows: any[] = Array.isArray(retroAdjustments.data) ? retroAdjustments.data : (retroAdjustments.data?.data ?? []);
 
   const overheadPolicy = useQuery({
     queryKey: ['/overhead-policy'],
@@ -804,7 +804,7 @@ export function ProfitabilityPage() {
           <div className="card overflow-hidden">
             {retroAdjustments.isLoading ? (
               <Loading />
-            ) : retroAdjustments.data?.length === 0 ? (
+            ) : retroRows.length === 0 ? (
               <EmptyState text="لا توجد تسويات إيرادات بأثر رجعي مسجلة لهذه الفترة." />
             ) : (
               <table className="table w-full text-xs">
@@ -819,24 +819,86 @@ export function ProfitabilityPage() {
                     <th className="num">الوحدات</th>
                     <th className="num">السعر</th>
                     <th className="num">الإيراد المسوى</th>
+                    <th>الحالة (Workflow)</th>
                     <th>سبب التسوية</th>
+                    <th>إجراءات الاعتماد</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {retroAdjustments.data?.map((r: any) => (
-                    <tr key={r.id}>
-                      <td className="font-medium">{r.employeeName}</td>
-                      <td>{r.projectName}</td>
-                      <td>{r.clientName}</td>
-                      <td className="font-mono text-purple-600 font-medium">{r.originalPeriodName}</td>
-                      <td className="font-mono">{r.periodName}</td>
-                      <td>{r.pricingBasis === 'MONTHLY' ? 'شهري' : r.pricingBasis === 'DAILY' ? 'يومي' : 'ساعي'}</td>
-                      <td className="num font-mono">{Number(r.units).toFixed(2)}</td>
-                      <td className="num font-mono">{money(r.unitPrice)}</td>
-                      <td className="num font-bold text-emerald-600">{money(r.grossRevenueBase)}</td>
-                      <td className="max-w-xs truncate" title={r.adjustmentReason}>{r.adjustmentReason}</td>
-                    </tr>
-                  ))}
+                  {retroRows.map((r: any) => {
+                    const st = r.status || 'APPROVED';
+                    const statusBadge = st === 'DRAFT'
+                      ? <Badge color="slate">مسودة (Draft)</Badge>
+                      : st === 'PENDING_APPROVAL'
+                        ? <Badge color="amber">بانتظار الاعتماد (Pending)</Badge>
+                        : st === 'REJECTED'
+                          ? <Badge color="red">مرفوضة (Rejected)</Badge>
+                          : <Badge color="green">معتمدة (Approved)</Badge>;
+                    const refreshRetro = () => {
+                      qc.invalidateQueries({ queryKey: ['/revenue-adjustments/retroactive', periodId] });
+                      qc.invalidateQueries({ queryKey: ['/profitability/projects', periodId] });
+                      qc.invalidateQueries({ queryKey: ['/profitability/employees', periodId] });
+                      qc.invalidateQueries({ queryKey: ['/profitability/clients', periodId] });
+                    };
+                    return (
+                      <tr key={r.id}>
+                        <td className="font-medium">{r.employeeName}</td>
+                        <td>{r.projectName}</td>
+                        <td>{r.clientName}</td>
+                        <td className="font-mono text-purple-600 font-medium">{r.originalPeriodName}</td>
+                        <td className="font-mono">{r.periodName}</td>
+                        <td>{r.pricingBasis === 'MONTHLY' ? 'شهري' : r.pricingBasis === 'DAILY' ? 'يومي' : 'ساعي'}</td>
+                        <td className="num font-mono">{Number(r.units).toFixed(2)}</td>
+                        <td className="num font-mono">{money(r.unitPrice)}</td>
+                        <td className="num font-bold text-emerald-600">{money(r.grossRevenueBase)}</td>
+                        <td>{statusBadge}</td>
+                        <td className="max-w-xs truncate" title={r.adjustmentReason}>{r.adjustmentReason}</td>
+                        <td>
+                          <div className="flex items-center gap-1">
+                            {st === 'DRAFT' && (
+                              <button
+                                className="btn-secondary text-[11px] px-2 py-0.5 font-bold"
+                                onClick={async () => {
+                                  await api.post(`/revenue-adjustments/${r.id}/submit`, {});
+                                  toast.success('تم إرسال التسوية للاعتماد');
+                                  refreshRetro();
+                                }}
+                              >
+                                إرسال للاعتماد
+                              </button>
+                            )}
+                            {(st === 'DRAFT' || st === 'PENDING_APPROVAL') && (
+                              <>
+                                <button
+                                  className="btn-primary text-[11px] px-2 py-0.5 font-bold"
+                                  onClick={async () => {
+                                    await api.post(`/revenue-adjustments/${r.id}/approve`, {});
+                                    toast.success('تم اعتماد التسوية وتحديث الربحية');
+                                    refreshRetro();
+                                  }}
+                                >
+                                  اعتماد
+                                </button>
+                                <button
+                                  className="btn-danger text-[11px] px-2 py-0.5 font-bold"
+                                  onClick={async () => {
+                                    await api.post(`/revenue-adjustments/${r.id}/reject`, { reason: 'رفض التسوية بعد المراجعة' });
+                                    toast.success('تم رفض التسوية');
+                                    refreshRetro();
+                                  }}
+                                >
+                                  رفض
+                                </button>
+                              </>
+                            )}
+                            {(st === 'APPROVED' || st === 'RECORDED' || st === 'REJECTED') && (
+                              <span className="text-[11px] text-slate-400">مكتمل</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -889,8 +951,8 @@ function CreateRetroactiveAdjustmentModal({
   const toast = useToast();
   const [employeeId, setEmployeeId] = useState('');
   const [projectId, setProjectId] = useState('');
-  const [originalPeriodId, setOriginalPeriodId] = useState('');
-  const [fiscalPeriodId, setFiscalPeriodId] = useState(currentPeriodId);
+  const [originalPeriodId, setOriginalPeriodId] = useState('fp-2026-10');
+  const [fiscalPeriodId, setFiscalPeriodId] = useState(currentPeriodId || 'fp-2026-11');
   const [pricingBasis, setPricingBasis] = useState<'MONTHLY' | 'DAILY' | 'HOURLY'>('DAILY');
   const [units, setUnits] = useState('2');
   const [unitPrice, setUnitPrice] = useState('1000');
@@ -911,7 +973,7 @@ function CreateRetroactiveAdjustmentModal({
     queryFn: () => api.get<Page<any>>('/projects', { pageSize: 200 }),
   });
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (initialStatus: 'DRAFT' | 'APPROVED' = 'APPROVED') => {
     if (busy) return;
     if (!employeeId || !projectId || !originalPeriodId || !fiscalPeriodId) {
       toast.error(new Error('يرجى استكمال اختيار الموظف والمشروع والفترات المالية'));
@@ -934,9 +996,10 @@ function CreateRetroactiveAdjustmentModal({
         unitPrice,
         currencyCode,
         adjustmentReason,
+        status: initialStatus,
       });
 
-      toast.success('تم تسجيل تسوية الإيراد بأثر رجعي بنجاح');
+      toast.success(initialStatus === 'DRAFT' ? 'تم حفظ التسوية كمسودة (Draft) للمراجعة' : 'تم تسجيل واعتماد تسوية الإيراد بأثر رجعي بنجاح');
       onSuccess();
       onClose();
     } catch (e) {
@@ -962,12 +1025,15 @@ function CreateRetroactiveAdjustmentModal({
       size="lg"
       dirty={Boolean(employeeId || projectId || adjustmentReason)}
       saving={busy}
-      onSaveShortcut={handleSubmit}
+      onSaveShortcut={() => handleSubmit('APPROVED')}
       title="إضافة تسوية إيراد بأثر رجعي (Retroactive Revenue)"
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>إلغاء</button>
-          <button type="button" className="btn-primary" onClick={handleSubmit} disabled={busy}>
+          <button type="button" className="btn-secondary" onClick={() => handleSubmit('DRAFT')} disabled={busy}>
+            حفظ كمسودة (Draft)
+          </button>
+          <button type="button" className="btn-primary" onClick={() => handleSubmit('APPROVED')} disabled={busy}>
             {busy ? 'جارٍ الحفظ...' : 'حفظ التسوية'}
           </button>
         </>
