@@ -133,12 +133,12 @@ export function ErpModalShell({
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Top brand accent */}
-        <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-cyan-500 to-emerald-500 shrink-0" />
+        <div className="h-1 w-full bg-gradient-to-r from-indigo-600 via-indigo-500 to-sky-500 shrink-0" />
 
         {/* Sticky Modal Header */}
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/90 px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50/85 dark:bg-[#091020] shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/12 border border-indigo-500/25 text-indigo-600 dark:text-indigo-400">
               {icon ?? <Sparkles className="size-4" />}
             </div>
             <div className="min-w-0">

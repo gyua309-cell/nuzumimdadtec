@@ -24,8 +24,17 @@ function useIsDark() {
   return isDark;
 }
 
-function Sparkline({ color, points }: { color: 'cyan' | 'emerald' | 'amber'; points: number[] }) {
-  const strokeColor = color === 'cyan' ? '#06b6d4' : color === 'emerald' ? '#10b981' : '#f59e0b';
+const CHART_FONT = "'IBM Plex Sans Arabic', 'Inter', sans-serif";
+
+function Sparkline({ color, points }: { color: 'indigo' | 'cyan' | 'emerald' | 'amber' | 'rose'; points: number[] }) {
+  const strokeMap = {
+    indigo: '#4f46e5',
+    cyan: '#0ea5e9',
+    emerald: '#10b981',
+    amber: '#f59e0b',
+    rose: '#f43f5e',
+  } as const;
+  const strokeColor = strokeMap[color];
   const gradId = `spark-${color}`;
   const min = Math.min(...points);
   const max = Math.max(...points);
@@ -191,13 +200,13 @@ export function DashboardPage() {
         axisPointer: { type: 'cross', label: { backgroundColor: '#0f172a' } },
         backgroundColor: 'rgba(12, 20, 39, 0.96)',
         borderColor: '#1e293b',
-        textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
+        textStyle: { color: '#f8fafc', fontFamily: CHART_FONT, fontSize: 12 },
         formatter: (params: any[]) => {
           let html = `<div class="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">${params[0]?.axisValueLabel}</div>`;
           params.forEach((p) => {
             html += `<div class="flex items-center justify-between gap-4 text-xs py-0.5">
               <span class="flex items-center gap-1.5"><span class="size-2 rounded-full" style="background:${p.color}"></span>${p.seriesName}</span>
-              <strong class="font-mono text-white">${money(p.value)} ${base}</strong>
+              <strong class="num font-mono text-white">${money(p.value)} ${base}</strong>
             </div>`;
           });
           return html;
@@ -207,7 +216,7 @@ export function DashboardPage() {
         data: ['الإيرادات التعاقدية', 'التكاليف والمصروفات', 'صافي الأرباح التشغيلية'],
         top: 6,
         left: 12,
-        textStyle: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 12, fontWeight: 700 },
+        textStyle: { color: axisLabelColor, fontFamily: CHART_FONT, fontSize: 12, fontWeight: 700 },
       },
       animationDuration: 900,
       animationEasing: 'cubicOut',
@@ -216,7 +225,7 @@ export function DashboardPage() {
         type: 'category',
         data: monthLabels,
         axisLine: { lineStyle: { color: axisLineColor } },
-        axisLabel: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
+        axisLabel: { color: axisLabelColor, fontFamily: CHART_FONT, fontSize: 11, fontWeight: 600 },
       },
       yAxis: [
         {
@@ -226,7 +235,7 @@ export function DashboardPage() {
           splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
           axisLabel: {
             color: axisLabelColor,
-            fontFamily: 'Cairo, sans-serif',
+            fontFamily: CHART_FONT,
             fontSize: 10,
             formatter: (v: number) => `${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`,
           },
@@ -242,7 +251,7 @@ export function DashboardPage() {
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: '#06b6d4' }, { offset: 1, color: '#0284c7' }],
+              colorStops: [{ offset: 0, color: '#4f46e5' }, { offset: 1, color: '#6366f1' }],
             },
           },
           data: revSeries,
@@ -256,7 +265,7 @@ export function DashboardPage() {
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: '#f59e0b' }, { offset: 1, color: '#d97706' }],
+              colorStops: [{ offset: 0, color: '#f43f5e' }, { offset: 1, color: '#e11d48' }],
             },
           },
           data: costSeries,
@@ -288,7 +297,7 @@ export function DashboardPage() {
       ? allocRows.slice(0, 5).map((r: any, i: number) => ({
           name: r.projectName || 'مشروع',
           value: Number(r.revenueGenerated) || 0,
-          itemStyle: { color: ['#06b6d4', '#10b981', '#f59e0b', '#3b82f6', '#a855f7'][i % 5] },
+          itemStyle: { color: ['#4f46e5', '#0ea5e9', '#10b981', '#8b5cf6', '#f59e0b'][i % 5] },
         }))
       : [{ name: 'لا توجد عوائد مشاريع مسجلة بعد', value: 1, isPlaceholder: true, itemStyle: { color: emptyRingColor } }];
 
@@ -297,11 +306,11 @@ export function DashboardPage() {
         trigger: 'item',
         backgroundColor: 'rgba(12, 20, 39, 0.96)',
         borderColor: '#1e293b',
-        textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
+        textStyle: { color: '#f8fafc', fontFamily: CHART_FONT, fontSize: 12 },
         formatter: (params: any) =>
           params.data?.isPlaceholder
             ? '<div class="font-bold">لا توجد إيرادات مشاريع مسجلة</div>'
-            : `<div class="font-bold">${params.name}</div><div class="mt-1 font-mono">${money(params.value)} ${base} (${params.percent}%)</div>`,
+            : `<div class="font-bold">${params.name}</div><div class="mt-1 num font-mono">${money(params.value)} ${base} (${params.percent}%)</div>`,
       },
       legend: {
         orient: 'vertical',
@@ -309,7 +318,7 @@ export function DashboardPage() {
         right: 0,
         itemWidth: 10,
         itemHeight: 10,
-        textStyle: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 10.5, fontWeight: 600 },
+        textStyle: { color: axisLabelColor, fontFamily: CHART_FONT, fontSize: 10.5, fontWeight: 600 },
       },
       series: [
         {
@@ -325,7 +334,7 @@ export function DashboardPage() {
             formatter: '0.00\nبانتظار العقود',
             fontSize: 12,
             fontWeight: 'bold',
-            fontFamily: 'Cairo, sans-serif',
+            fontFamily: CHART_FONT,
             color: axisLabelColor,
           },
           data,
@@ -348,14 +357,14 @@ export function DashboardPage() {
         formatter: (p: any) => (p.data?.isPlaceholder ? 'لا يوجد موظفون مسجلون بعد' : `${p.name}: ${p.value} يوم (${p.percent}%)`),
         backgroundColor: 'rgba(12, 20, 39, 0.96)',
         borderColor: '#1e293b',
-        textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
+        textStyle: { color: '#f8fafc', fontFamily: CHART_FONT, fontSize: 12 },
       },
       legend: {
         bottom: 4,
         left: 'center',
         itemWidth: 10,
         itemHeight: 10,
-        textStyle: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
+        textStyle: { color: axisLabelColor, fontFamily: CHART_FONT, fontSize: 11, fontWeight: 600 },
       },
       series: [
         {
@@ -371,13 +380,13 @@ export function DashboardPage() {
             formatter: `${utilPct}%\nاستغلال`,
             fontSize: 15,
             fontWeight: 'bold',
-            fontFamily: 'Cairo, sans-serif',
+            fontFamily: CHART_FONT,
             color: isDark ? '#f1f5f9' : '#1e293b',
           },
           data: isEmpty
             ? [{ value: 1, name: 'لا توجد أيام مسجلة', isPlaceholder: true, itemStyle: { color: emptyRingColor } }]
             : [
-                { value: allocatedDays, name: 'أيام مخصصة للمشاريع', itemStyle: { color: '#06b6d4' } },
+                { value: allocatedDays, name: 'أيام مخصصة للمشاريع', itemStyle: { color: '#4f46e5' } },
                 { value: benchDays, name: 'أيام تفرغ (Bench)', itemStyle: { color: isDark ? '#1e293b' : '#cbd5e1' } },
               ],
         },
@@ -398,9 +407,9 @@ export function DashboardPage() {
         axisPointer: { type: 'shadow' },
         backgroundColor: 'rgba(12, 20, 39, 0.96)',
         borderColor: '#1e293b',
-        textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
+        textStyle: { color: '#f8fafc', fontFamily: CHART_FONT, fontSize: 12 },
         formatter: (params: any[]) =>
-          `<div class="font-bold">${params[0]?.name}</div><div class="mt-1 font-mono">${money(params[0]?.value)} ${base}</div>`,
+          `<div class="font-bold">${params[0]?.name}</div><div class="mt-1 num font-mono">${money(params[0]?.value)} ${base}</div>`,
       },
       grid: { left: 8, right: 24, top: 14, bottom: 10, containLabel: true },
       xAxis: {
@@ -410,7 +419,7 @@ export function DashboardPage() {
         splitLine: { lineStyle: { color: splitLineColor } },
         axisLabel: {
           color: axisLabelColor,
-          fontFamily: 'Cairo, sans-serif',
+          fontFamily: CHART_FONT,
           fontSize: 10,
           formatter: (v: number) => `${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`,
         },
@@ -419,17 +428,17 @@ export function DashboardPage() {
         type: 'category',
         data: ['مستحقات الموردين (AP)', 'مستحقات العملاء (AR)', 'النقدية والأصول', 'صافي رأس المال العامل'],
         axisLine: { lineStyle: { color: axisLineColor } },
-        axisLabel: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
+        axisLabel: { color: axisLabelColor, fontFamily: CHART_FONT, fontSize: 11, fontWeight: 600 },
       },
       series: [
         {
           type: 'bar',
           barMaxWidth: 14,
           data: [
-            { value: ap, itemStyle: { color: '#ef4444', borderRadius: [0, 5, 5, 0] } },
-            { value: ar, itemStyle: { color: '#3b82f6', borderRadius: [0, 5, 5, 0] } },
+            { value: ap, itemStyle: { color: '#f43f5e', borderRadius: [0, 5, 5, 0] } },
+            { value: ar, itemStyle: { color: '#4f46e5', borderRadius: [0, 5, 5, 0] } },
             { value: cash, itemStyle: { color: '#10b981', borderRadius: [0, 5, 5, 0] } },
-            { value: netWorkingCapital, itemStyle: { color: '#06b6d4', borderRadius: [0, 5, 5, 0] } },
+            { value: netWorkingCapital, itemStyle: { color: '#0ea5e9', borderRadius: [0, 5, 5, 0] } },
           ],
         },
       ],
@@ -462,20 +471,20 @@ export function DashboardPage() {
         right: 8,
         itemWidth: 10,
         itemHeight: 10,
-        textStyle: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 700 },
+        textStyle: { color: axisLabelColor, fontFamily: CHART_FONT, fontSize: 11, fontWeight: 700 },
       },
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'line', lineStyle: { color: '#06b6d4', type: 'dashed' } },
+        axisPointer: { type: 'line', lineStyle: { color: '#4f46e5', type: 'dashed' } },
         backgroundColor: 'rgba(12, 20, 39, 0.96)',
         borderColor: '#1e293b',
-        textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
+        textStyle: { color: '#f8fafc', fontFamily: CHART_FONT, fontSize: 12 },
         formatter: (params: any[]) => {
           let html = `<div class="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">${params[0]?.axisValueLabel}</div>`;
           params.forEach((p) => {
             html += `<div class="flex items-center justify-between gap-4 text-xs py-0.5">
               <span class="flex items-center gap-1.5"><span class="size-2 rounded-full" style="background:${p.color}"></span>${p.seriesName}</span>
-              <strong class="font-mono text-white">${money(p.value)} ${base}</strong>
+              <strong class="num font-mono text-white">${money(p.value)} ${base}</strong>
             </div>`;
           });
           return html;
@@ -487,7 +496,7 @@ export function DashboardPage() {
         data: days,
         boundaryGap: false,
         axisLine: { lineStyle: { color: axisLineColor } },
-        axisLabel: { color: axisLabelColor, fontFamily: 'Cairo, sans-serif', fontSize: 11, fontWeight: 600 },
+        axisLabel: { color: axisLabelColor, fontFamily: CHART_FONT, fontSize: 11, fontWeight: 600 },
       },
       yAxis: {
         type: 'value',
@@ -497,7 +506,7 @@ export function DashboardPage() {
         splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
         axisLabel: {
           color: axisLabelColor,
-          fontFamily: 'Cairo, sans-serif',
+          fontFamily: CHART_FONT,
           fontSize: 10,
           formatter: (v: number) => (revBase === 0 && costBase === 0 ? (v === 0 ? '0' : '') : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : `${v}`),
         },
@@ -509,13 +518,13 @@ export function DashboardPage() {
           smooth: 0.45,
           showSymbol: true,
           symbolSize: 7,
-          itemStyle: { color: '#06b6d4' },
-          lineStyle: { width: 3, color: '#06b6d4', shadowColor: 'rgba(6, 182, 212, 0.35)', shadowBlur: 10 },
+          itemStyle: { color: '#4f46e5' },
+          lineStyle: { width: 3, color: '#4f46e5', shadowColor: 'rgba(79, 70, 229, 0.30)', shadowBlur: 10 },
           areaStyle: {
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: 'rgba(6, 182, 212, 0.34)' }, { offset: 1, color: 'rgba(6, 182, 212, 0.0)' }],
+              colorStops: [{ offset: 0, color: 'rgba(79, 70, 229, 0.28)' }, { offset: 1, color: 'rgba(79, 70, 229, 0.0)' }],
             },
           },
           data: curve1,
@@ -525,13 +534,13 @@ export function DashboardPage() {
           type: 'line',
           smooth: 0.45,
           showSymbol: false,
-          itemStyle: { color: '#f59e0b' },
-          lineStyle: { width: 2.5, color: '#f59e0b' },
+          itemStyle: { color: '#10b981' },
+          lineStyle: { width: 2.5, color: '#10b981' },
           areaStyle: {
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: 'rgba(245, 158, 11, 0.22)' }, { offset: 1, color: 'rgba(245, 158, 11, 0.0)' }],
+              colorStops: [{ offset: 0, color: 'rgba(16, 185, 129, 0.18)' }, { offset: 1, color: 'rgba(16, 185, 129, 0.0)' }],
             },
           },
           data: curve3,
@@ -541,8 +550,8 @@ export function DashboardPage() {
           type: 'line',
           smooth: 0.45,
           showSymbol: false,
-          lineStyle: { width: 2, color: '#10b981', type: 'dashed' },
-          itemStyle: { color: '#10b981' },
+          lineStyle: { width: 2, color: '#f43f5e', type: 'dashed' },
+          itemStyle: { color: '#f43f5e' },
           data: curve2,
         },
       ],
@@ -557,7 +566,7 @@ export function DashboardPage() {
         trigger: 'item',
         backgroundColor: 'rgba(12, 20, 39, 0.96)',
         borderColor: '#1e293b',
-        textStyle: { color: '#f8fafc', fontFamily: 'Cairo, sans-serif', fontSize: 12 },
+        textStyle: { color: '#f8fafc', fontFamily: CHART_FONT, fontSize: 12 },
         formatter: (params: any) =>
           params.data?.isPlaceholder
             ? '<div class="font-bold">لا توجد كروت تشغيل أو كوادر مسجلة بعد</div>'
@@ -580,16 +589,16 @@ export function DashboardPage() {
                 fontSize: 30,
                 fontWeight: '900',
                 color: allocRows.length > 0 ? '#10b981' : isDark ? '#94a3b8' : '#64748b',
-                fontFamily: 'monospace',
+                fontFamily: "'Inter', monospace",
               },
-              sub: { fontSize: 11, fontWeight: '700', color: axisLabelColor, padding: [4, 0, 0, 0] },
+              sub: { fontSize: 11, fontWeight: '700', fontFamily: CHART_FONT, color: axisLabelColor, padding: [4, 0, 0, 0] },
             },
           },
           data: isEmpty
             ? [{ value: 1, name: 'بانتظار تسجيل الكوادر', isPlaceholder: true, itemStyle: { color: emptyRingColor } }]
             : [
                 { value: billedCardsCount, name: 'مغلق ومفوتر', itemStyle: { color: '#10b981' } },
-                { value: activeAssignedCount, name: 'قيد الإسناد والتنفيذ', itemStyle: { color: '#06b6d4' } },
+                { value: activeAssignedCount, name: 'قيد الإسناد والتنفيذ', itemStyle: { color: '#4f46e5' } },
                 { value: benchCount, name: 'جاهز للإعارة (Bench)', itemStyle: { color: '#f59e0b' } },
               ],
         },
@@ -602,8 +611,8 @@ export function DashboardPage() {
       {/* ── 1) Unified Live Operations Ticker Banner (مركز العمليات الموحد) ── */}
       <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-xs dark:border-slate-800/90 dark:bg-[#0c1427]">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 text-xs font-black text-amber-700 dark:text-amber-400">
-            <span className="size-2 rounded-full bg-amber-500 animate-ping" />
+          <span className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-500/12 border border-indigo-500/25 px-2.5 py-1 text-xs font-extrabold text-indigo-700 dark:text-indigo-300">
+            <span className="size-2 rounded-full bg-indigo-500 animate-ping" />
             <span>مباشر</span>
           </span>
           <div className="font-extrabold text-slate-900 dark:text-slate-100 text-xs sm:text-sm">
@@ -613,17 +622,17 @@ export function DashboardPage() {
 
         {/* Live Ticker Counters + Print Shortcut */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
-            كروت قيد العمل: <strong className="text-amber-600 dark:text-amber-400 font-mono">{allocRows.length}</strong>
+          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+            كروت قيد العمل: <strong className="num text-indigo-600 dark:text-indigo-400 font-mono">{allocRows.length}</strong>
           </span>
-          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
-            عقود سارية: <strong className="text-cyan-600 dark:text-cyan-400 font-mono">{totalProjects}</strong>
+          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+            عقود سارية: <strong className="num text-sky-600 dark:text-sky-400 font-mono">{totalProjects}</strong>
           </span>
-          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
-            فواتير معتمدة ZATCA: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{postedInvoicesCount}</strong>
+          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+            فواتير معتمدة ZATCA: <strong className="num text-emerald-600 dark:text-emerald-400 font-mono">{postedInvoicesCount}</strong>
           </span>
-          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
-            بانتظار الفوترة: <strong className="text-rose-600 dark:text-rose-400 font-mono">{allocSummary?.pendingInvoiceCount ?? validInvoices.filter((x) => x.status === 'DRAFT').length}</strong>
+          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+            بانتظار الفوترة: <strong className="num text-rose-600 dark:text-rose-400 font-mono">{allocSummary?.pendingInvoiceCount ?? validInvoices.filter((x) => x.status === 'DRAFT').length}</strong>
           </span>
           <Link
             to="/zatca/hub"
@@ -712,7 +721,7 @@ export function DashboardPage() {
           <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/90 bg-white dark:bg-[#0f172a] p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2.5">
-                <div className="flex size-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                <div className="flex size-8 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-600 dark:text-indigo-400">
                   <Activity className="size-4" />
                 </div>
                 <div>
@@ -725,14 +734,14 @@ export function DashboardPage() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-black text-emerald-700 dark:text-emerald-300">
+                <span className="rounded-lg border border-indigo-500/25 bg-indigo-500/10 px-2.5 py-1 text-xs font-extrabold text-indigo-700 dark:text-indigo-300">
                   {completedSteps} / {cycleSteps.length} مراحل نشطة ({progressPct}%)
                 </span>
               </div>
             </div>
             <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden mb-3">
               <div
-                className="h-full rounded-full bg-gradient-to-l from-emerald-500 via-cyan-500 to-amber-500 transition-all duration-500"
+                className="h-full rounded-full bg-gradient-to-l from-indigo-600 via-indigo-500 to-emerald-500 transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
@@ -748,7 +757,7 @@ export function DashboardPage() {
                         ? 'border-emerald-500/35 bg-emerald-500/5 hover:bg-emerald-500/10'
                         : s.partial
                           ? 'border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10'
-                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 hover:border-cyan-400'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 hover:border-indigo-400'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1 mb-1.5">
@@ -760,7 +769,7 @@ export function DashboardPage() {
                       ) : s.partial ? (
                         <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
                       ) : (
-                        <StepIcon className="size-3.5 text-slate-400 group-hover:text-cyan-500 shrink-0" />
+                        <StepIcon className="size-3.5 text-slate-400 group-hover:text-indigo-500 shrink-0" />
                       )}
                     </div>
                     <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
@@ -777,69 +786,79 @@ export function DashboardPage() {
         );
       })()}
 
-      {/* ── 2) Top 3 Glowing Cyber Neon KPI Cards ─────────────────────────── */}
+      {/* ── 2) Top 3 Executive KPI Cards ─────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Card 1: Cyan Neon Glow - Total Revenue */}
+        {/* Card 1: Royal Indigo - Total Revenue */}
         <div className="cyber-card-cyan rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300">
+            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
               إجمالي الإيرادات الكلية (شامل الضريبة)
             </span>
-            <span className="rounded-lg bg-cyan-500/12 text-cyan-700 dark:text-cyan-400 border border-cyan-500/30 px-2 py-0.5 text-[11px] font-extrabold font-mono">
+            <span className="rounded-lg bg-indigo-500/12 text-indigo-700 dark:text-indigo-300 border border-indigo-500/25 px-2 py-0.5 text-[11px] font-bold font-mono">
               {effectiveRevenue > 0 ? 'نشط • محقق' : '0.0%'}
             </span>
           </div>
-          <div className="text-3xl font-black text-slate-900 dark:text-white mt-2.5 font-mono tracking-tight">
-            {money(effectiveRevenue)}{' '}
-            <span className="text-xs font-extrabold text-slate-500 dark:text-slate-400">{base}</span>
+          <div className="text-3xl font-black text-slate-900 dark:text-white mt-2.5 tracking-tight">
+            <span className="num font-mono">{money(effectiveRevenue)}</span>{' '}
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{base}</span>
           </div>
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
-            عقود كفاءات: <span className="font-mono font-bold">{money(revenueContract)}</span> | مبيعات وفواتير: <span className="font-mono font-bold">{money(invoicesRevenue)}</span>
+            عقود كفاءات: <span className="num font-mono font-bold">{money(revenueContract)}</span> | مبيعات وفواتير: <span className="num font-mono font-bold">{money(invoicesRevenue)}</span>
           </div>
-          <Sparkline color="cyan" points={revenueSpark} />
+          <Sparkline color="indigo" points={revenueSpark} />
         </div>
 
-        {/* Card 2: Emerald Neon Glow - Gross Profit */}
-        <div className="cyber-card-emerald rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5">
+        {/* Card 2: Semantic Net Profit / Cost Before Billing */}
+        <div className={`${effectiveNetProfit < 0 ? 'cyber-card-rose' : 'cyber-card-emerald'} rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5`}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300">
+            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
               الربح الإجمالي (Gross Profit)
             </span>
-            <span className="rounded-lg bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 px-2 py-0.5 text-[11px] font-extrabold font-mono">
-              هامش {marginPct}%
+            <span
+              className={`rounded-lg px-2 py-0.5 text-[11px] font-bold border ${
+                effectiveNetProfit < 0
+                  ? 'bg-rose-500/12 text-rose-700 dark:text-rose-400 border-rose-500/30'
+                  : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+              }`}
+            >
+              {effectiveNetProfit < 0 ? 'تكلفة قبل الفوترة' : <>هامش <span className="num font-mono">{marginPct}%</span></>}
             </span>
           </div>
-          <div className="text-3xl font-black text-emerald-700 dark:text-emerald-400 mt-2.5 font-mono tracking-tight">
-            {money(effectiveNetProfit)}{' '}
-            <span className="text-xs font-extrabold text-slate-500 dark:text-slate-400">{base}</span>
+          <div
+            className={`text-3xl font-black mt-2.5 tracking-tight ${
+              effectiveNetProfit < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'
+            }`}
+          >
+            <span className="num font-mono">{money(effectiveNetProfit)}</span>{' '}
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{base}</span>
           </div>
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
-            الأرباح المحققة بعد خصم تكلفة الكوادر والبدلات ({money(effectiveDirectCost)})
+            الأرباح المحققة بعد خصم تكلفة الكوادر والبدلات (<span className="num font-mono">{money(effectiveDirectCost)}</span>)
           </div>
-          <Sparkline color="emerald" points={profitSpark} />
+          <Sparkline color={effectiveNetProfit < 0 ? 'rose' : 'emerald'} points={profitSpark} />
         </div>
 
-        {/* Card 3: Amber Neon Glow - Active Operation Cards */}
-        <div className="cyber-card-amber rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5">
+        {/* Card 3: Sky Accent - Active Operation Cards */}
+        <div className="cyber-card-blue rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300">
+            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
               كروت التشغيل وتخصيص الكفاءات
             </span>
             <Link
               to="/prj/employee-tracking"
-              className="rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2 py-0.5 text-[11px] font-extrabold transition-colors"
+              className="rounded-lg bg-sky-500/12 hover:bg-sky-500/20 text-sky-700 dark:text-sky-400 border border-sky-500/25 px-2 py-0.5 text-[11px] font-bold transition-colors"
             >
               {allocRows.length > 0 ? 'نشط بالمشاريع' : 'كروت التتبع ←'}
             </Link>
           </div>
-          <div className="text-3xl font-black text-amber-600 dark:text-amber-400 mt-2.5 font-mono tracking-tight">
-            {allocRows.length}{' '}
-            <span className="text-xs font-extrabold text-slate-500 dark:text-slate-400">كادر مخصص</span>
+          <div className="text-3xl font-black text-indigo-700 dark:text-indigo-300 mt-2.5 tracking-tight">
+            <span className="num font-mono">{allocRows.length}</span>{' '}
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">كادر مخصص</span>
           </div>
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
-            إجمالي الموظفين: <span className="font-mono font-bold">{totalEmployees}</span> | جاهز للإعارة (Bench): <span className="font-mono font-bold">{benchCount}</span>
+            إجمالي الموظفين: <span className="num font-mono font-bold">{totalEmployees}</span> | جاهز للإعارة (Bench): <span className="num font-mono font-bold">{benchCount}</span>
           </div>
-          <Sparkline color="amber" points={staffSpark} />
+          <Sparkline color="cyan" points={staffSpark} />
         </div>
       </div>
 
@@ -850,11 +869,11 @@ export function DashboardPage() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-3.5 dark:border-slate-800/80">
             <div>
               <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
-                <TrendingUp className="size-4 text-cyan-500" />
+                <TrendingUp className="size-4 text-indigo-600 dark:text-indigo-400" />
                 <span>مؤشر نمو المبيعات وصافي الربح التفاعلي</span>
                 <Link
                   to="/rev/profitability"
-                  className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline ms-1"
+                  className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline ms-1"
                 >
                   تحليل الربحية ←
                 </Link>
@@ -864,13 +883,13 @@ export function DashboardPage() {
               </p>
             </div>
 
-            <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1 text-xs dark:bg-[#080d1a] border border-slate-200/70 dark:border-slate-800">
+            <div className="flex shrink-0 items-center gap-1 rounded-xl bg-slate-100 p-1 text-xs dark:bg-[#080d1a] border border-slate-200/70 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setWeeklyTab('contracts')}
-                className={`rounded-lg px-3 py-1 font-extrabold transition-all cursor-pointer ${
+                className={`whitespace-nowrap shrink-0 rounded-lg px-3 py-1 font-bold transition-all cursor-pointer ${
                   weeklyTab === 'contracts'
-                    ? 'bg-cyan-600 text-white shadow-xs'
+                    ? 'bg-indigo-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -879,9 +898,9 @@ export function DashboardPage() {
               <button
                 type="button"
                 onClick={() => setWeeklyTab('consulting')}
-                className={`rounded-lg px-3 py-1 font-extrabold transition-all cursor-pointer ${
+                className={`whitespace-nowrap shrink-0 rounded-lg px-3 py-1 font-bold transition-all cursor-pointer ${
                   weeklyTab === 'consulting'
-                    ? 'bg-cyan-600 text-white shadow-xs'
+                    ? 'bg-indigo-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -1106,7 +1125,7 @@ export function DashboardPage() {
         <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3.5 dark:border-slate-800/80">
           <div>
             <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
-              <TrendingUp className="size-4 text-amber-500" />
+              <TrendingUp className="size-4 text-indigo-600 dark:text-indigo-400" />
               <span>ديناميكية الإيرادات والتكاليف وصافي الأرباح (12 شهراً)</span>
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1114,12 +1133,12 @@ export function DashboardPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1 text-xs dark:bg-[#080d1a] border border-slate-200/70 dark:border-slate-800">
+          <div className="flex shrink-0 items-center gap-1 rounded-xl bg-slate-100 p-1 text-xs dark:bg-[#080d1a] border border-slate-200/70 dark:border-slate-800">
             <button
               type="button"
-              className={`px-3 py-1 rounded-lg font-extrabold transition cursor-pointer ${
+              className={`whitespace-nowrap shrink-0 px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
                 chartViewMode === 'MONTHLY'
-                  ? 'bg-white shadow-2xs text-slate-900 dark:bg-slate-800 dark:text-amber-400'
+                  ? 'bg-white shadow-2xs text-indigo-700 dark:bg-slate-800 dark:text-indigo-300'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
               onClick={() => setChartViewMode('MONTHLY')}
@@ -1128,9 +1147,9 @@ export function DashboardPage() {
             </button>
             <button
               type="button"
-              className={`px-3 py-1 rounded-lg font-extrabold transition cursor-pointer ${
+              className={`whitespace-nowrap shrink-0 px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
                 chartViewMode === 'YTD'
-                  ? 'bg-white shadow-2xs text-slate-900 dark:bg-slate-800 dark:text-amber-400'
+                  ? 'bg-white shadow-2xs text-indigo-700 dark:bg-slate-800 dark:text-indigo-300'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
               onClick={() => setChartViewMode('YTD')}
@@ -1139,9 +1158,9 @@ export function DashboardPage() {
             </button>
             <button
               type="button"
-              className={`px-3 py-1 rounded-lg font-extrabold transition cursor-pointer ${
+              className={`whitespace-nowrap shrink-0 px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
                 chartViewMode === 'BUDGET'
-                  ? 'bg-white shadow-2xs text-slate-900 dark:bg-slate-800 dark:text-amber-400'
+                  ? 'bg-white shadow-2xs text-indigo-700 dark:bg-slate-800 dark:text-indigo-300'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
               onClick={() => setChartViewMode('BUDGET')}
@@ -1215,7 +1234,7 @@ export function DashboardPage() {
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3.5 bg-slate-50/70 dark:border-slate-800/80 dark:bg-[#080d1a]">
             <div className="flex items-center gap-2">
-              <Clock className="size-4 text-amber-500" />
+              <Clock className="size-4 text-indigo-600 dark:text-indigo-400" />
               <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">
                 جاهزية الفوترة للخدمات والكوادر (ZATCA)
               </h4>
@@ -1247,7 +1266,7 @@ export function DashboardPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-end">
-                        <div className="font-mono font-extrabold text-emerald-700 dark:text-emerald-400">
+                        <div className="num font-mono font-extrabold text-emerald-700 dark:text-emerald-400">
                           {money(row.revenueGenerated)}
                         </div>
                         <div className="text-[10px] text-slate-400">قيمة الخدمة</div>
@@ -1294,7 +1313,7 @@ export function DashboardPage() {
                   <div key={je.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition">
                     <div className="space-y-0.5">
                       <div className="font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                        <span className="font-mono text-cyan-700 dark:text-cyan-400">{je.entryNo}</span>
+                        <span className="num font-mono text-indigo-700 dark:text-indigo-400">{je.entryNo}</span>
                         <Badge color={je.status === 'POSTED' ? 'green' : 'amber'}>
                           {je.status === 'POSTED' ? 'مرحل' : 'مسودة'}
                         </Badge>
@@ -1305,10 +1324,10 @@ export function DashboardPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-end">
-                        <div className="font-mono font-extrabold text-slate-900 dark:text-slate-100">
+                        <div className="num font-mono font-extrabold text-slate-900 dark:text-slate-100">
                           {money(je.totalDebitBase)}
                         </div>
-                        <div className="text-[10px] text-slate-400">{je.entryDate}</div>
+                        <div className="num text-[10px] text-slate-400">{je.entryDate}</div>
                       </div>
                       <Link to={`/acc/journals/${je.id}`} className="btn-ghost size-7 p-0" title="عرض تفاصيل القيد">
                         <ExternalLink className="size-3.5" />

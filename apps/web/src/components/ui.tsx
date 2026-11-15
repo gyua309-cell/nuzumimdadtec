@@ -104,7 +104,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
   return (
     <div className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200/85 bg-white px-5 py-4 shadow-2xs dark:border-slate-800/90 dark:bg-[#0c1427]">
       <div className="flex items-start gap-3.5 min-w-0">
-        <div className="mt-1 h-8 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-amber-400 via-amber-500 to-cyan-500 shadow-xs" />
+        <div className="mt-1 h-8 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-indigo-600 to-sky-500 shadow-xs" />
         <div className="space-y-0.5 min-w-0">
           <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-snug">
             {safeTitle}
@@ -126,7 +126,7 @@ export function Spinner({ className = '' }: { className?: string }) {
 export function Loading() {
   return (
     <div className="flex flex-col items-center justify-center gap-3.5 p-16 text-sm text-slate-500 animate-fade-in">
-      <div className="relative flex size-14 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-500 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-400 shadow-sm">
+      <div className="relative flex size-14 items-center justify-center rounded-2xl border border-indigo-500/25 bg-indigo-500/10 text-indigo-600 dark:border-indigo-400/30 dark:bg-indigo-500/15 dark:text-indigo-400 shadow-sm">
         <Spinner className="size-6" />
       </div>
       <span className="text-xs font-bold text-slate-600 dark:text-slate-300">جارٍ التحميل ومعالجة البيانات…</span>
@@ -161,7 +161,7 @@ export function EmptyState({ text, action }: { text: string; action?: ReactNode 
   return (
     <div className="flex flex-col items-center gap-3.5 p-14 text-center text-sm text-slate-500 animate-fade-in">
       <div className="size-16 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#080e1c] flex items-center justify-center shadow-2xs">
-        <Inbox className="size-7 text-amber-500/80 dark:text-cyan-400/80" />
+        <Inbox className="size-7 text-indigo-500/80 dark:text-indigo-400/80" />
       </div>
       <div className="font-bold text-slate-700 dark:text-slate-300 max-w-md leading-relaxed">{text}</div>
       {action && <div className="pt-1.5">{action}</div>}
@@ -174,6 +174,7 @@ const badgeColors: Record<string, string> = {
   red:    'bg-rose-500/12 text-rose-700 border border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/35',
   amber:  'bg-amber-500/12 text-amber-800 border border-amber-500/35 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/35',
   blue:   'bg-sky-500/12 text-sky-700 border border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-500/35',
+  indigo: 'bg-indigo-500/12 text-indigo-700 border border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-300 dark:border-indigo-500/35',
   purple: 'bg-purple-500/12 text-purple-700 border border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-500/35',
   cyan:   'bg-cyan-500/12 text-cyan-700 border border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-300 dark:border-cyan-500/35',
   teal:   'bg-teal-500/12 text-teal-700 border border-teal-500/30 dark:bg-teal-500/15 dark:text-teal-300 dark:border-teal-500/35',
@@ -399,7 +400,7 @@ export function Pager({
         >
           <ChevronRight className="size-3.5" /> السابق
         </button>
-        <span className="num rounded-lg bg-amber-500/12 border border-amber-500/30 px-2.5 py-1 font-extrabold text-amber-700 dark:text-amber-300">
+        <span className="num rounded-lg bg-indigo-500/12 border border-indigo-500/30 px-2.5 py-1 font-bold text-indigo-700 dark:text-indigo-300">
           {page} / {pages}
         </span>
         <button
@@ -465,6 +466,12 @@ const TONES = {
     glow: 'bg-slate-500/5',
     accentLine: 'bg-slate-400',
   },
+  indigo: {
+    cyberClass: 'cyber-card-cyan',
+    iconBox: 'bg-indigo-500/12 text-indigo-600 border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-400 dark:border-indigo-500/35',
+    glow: 'bg-indigo-500/10',
+    accentLine: 'bg-indigo-500',
+  },
 };
 
 export function Stat({
@@ -479,7 +486,7 @@ export function Stat({
   label: string;
   value: ReactNode;
   hint?: ReactNode;
-  tone?: 'green' | 'red' | 'blue' | 'amber' | 'purple' | 'cyan' | 'teal' | 'slate';
+  tone?: 'green' | 'red' | 'blue' | 'amber' | 'purple' | 'cyan' | 'teal' | 'slate' | 'indigo';
   icon?: any;
   trend?: { text: string; positive?: boolean };
   className?: string;
@@ -494,7 +501,7 @@ export function Stat({
 
       <div className="relative p-4 sm:p-5">
         <div className="flex items-start justify-between gap-2.5">
-          <span className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-snug">{label}</span>
+          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 leading-snug">{label}</span>
           {Icon && (
             <div
               className={`flex size-9 shrink-0 items-center justify-center rounded-xl border ${theme.iconBox} transition-transform duration-200 group-hover:scale-105`}

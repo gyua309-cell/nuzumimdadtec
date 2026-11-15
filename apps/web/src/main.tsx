@@ -7,7 +7,6 @@ import { ApiError } from './lib/api';
 import { AuthProvider, useAuth } from './lib/auth';
 import { AppShell } from './components/AppShell';
 import { ErrorBoundary, Loading, ToastProvider } from './components/ui';
-import { ChangePasswordPage, LoginPage, SetupWizard } from './pages/auth';
 
 import { installChunkErrorRecovery, lazyWithRetry } from './lib/chunk-recovery';
 
@@ -15,6 +14,11 @@ installChunkErrorRecovery();
 
 const lazyNamed = <T extends Record<string, any>>(loader: () => Promise<T>, name: keyof T) =>
   lazyWithRetry(loader, name);
+
+const loadAuth = () => import('./pages/auth');
+const LoginPage = lazyNamed(loadAuth, 'LoginPage');
+const SetupWizard = lazyNamed(loadAuth, 'SetupWizard');
+const ChangePasswordPage = lazyNamed(loadAuth, 'ChangePasswordPage');
 
 const loadOrg = () => import('./pages/org');
 const BranchesPage = lazyNamed(loadOrg, 'BranchesPage');
@@ -136,9 +140,9 @@ function RouteLoader() {
 function Root() {
   const { status, me, company } = useAuth();
   if (status === 'loading') return <div className="flex h-full items-center justify-center"><Loading /></div>;
-  if (status === 'setup') return <SetupWizard />;
-  if (status === 'anonymous') return <LoginPage />;
-  if (me?.user.mustChangePassword) return <ChangePasswordPage forced />;
+  if (status === 'setup') return <Suspense fallback={<RouteLoader />}><SetupWizard /></Suspense>;
+  if (status === 'anonymous') return <Suspense fallback={<RouteLoader />}><LoginPage /></Suspense>;
+  if (me?.user.mustChangePassword) return <Suspense fallback={<RouteLoader />}><ChangePasswordPage forced /></Suspense>;
   if (!company) return <div className="flex h-full items-center justify-center p-10 text-center">لا توجد شركة مرتبطة بحسابك. تواصل مع مدير النظام لإسناد دور لك.</div>;
   return (
     <Suspense fallback={<RouteLoader />}>

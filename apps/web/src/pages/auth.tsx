@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import {
   Building2, KeyRound, ShieldCheck, UserCog, User, Lock, Eye, EyeOff,
   Sparkles, ArrowRight, Layers, Briefcase, Calculator,
-  TrendingUp, Wallet, Check, Zap, Award,
+  TrendingUp, Wallet, Check, Zap, Award, Landmark,
   Sun, Moon, Globe, HelpCircle,
 } from 'lucide-react';
 import { api, ApiError } from '../lib/api';
@@ -14,13 +14,15 @@ const CURRENCIES = ['EGP', 'SAR', 'AED', 'USD', 'EUR', 'KWD', 'QAR', 'BHD', 'OMR
 
 function Shell({ children, title, subtitle }: { children: React.ReactNode; title: string; subtitle?: string }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f3f6fb] dark:bg-[#070b14] p-4 text-slate-900 dark:text-slate-100">
+    <div className="flex min-h-screen items-center justify-center bg-[#f6f8fc] dark:bg-[#080c16] p-4 text-slate-900 dark:text-slate-100">
       <div className="w-full max-w-xl">
         <div className="mb-6 text-center">
-          <div className="hazard-badge mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl border border-amber-500/40 shadow-lg" />
+          <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 text-white shadow-lg shadow-indigo-600/25">
+            <Landmark className="size-7" />
+          </div>
           <div className="inline-flex items-center gap-2">
             <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">IDHAM ERP</h1>
-            <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-[10px] font-black text-amber-700 dark:text-amber-400 border border-amber-500/30">
+            <span className="rounded-md bg-indigo-500/15 px-2 py-0.5 text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
               PRO
             </span>
           </div>
@@ -28,7 +30,7 @@ function Shell({ children, title, subtitle }: { children: React.ReactNode; title
             نظام الموارد البشرية والمحاسبة المتكامل
           </p>
         </div>
-        <div className="card cyber-card-amber p-6 shadow-xl">
+        <div className="card cyber-card-cyan p-6 shadow-xl">
           <h2 className="mb-1 text-lg font-extrabold text-slate-900 dark:text-white">{title}</h2>
           {subtitle && <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>}
           {children}
@@ -68,7 +70,7 @@ export function LoginPage() {
       u: 'admin',
       p: 'AdminPass12345!',
       icon: Award,
-      badgeColor: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
+      badgeColor: 'bg-indigo-500/12 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
     },
     {
       roleKey: 'finance' as const,
@@ -165,13 +167,13 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-stretch bg-[#f3f6fb] dark:bg-[#070b14] text-slate-900 dark:text-slate-100 font-sans">
-      {/* ── Left / Showcase Pane: Obsidian Cyber Executive Identity (Desktop) ── */}
-      <div className="hidden lg:flex lg:w-1/2 xl:w-7/12 relative overflow-hidden flex-col justify-between p-12 bg-[#070b14] text-white border-e border-slate-800">
-        {/* Ambient Cyber Glow Orbs */}
-        <div className="absolute -top-32 -start-32 size-96 rounded-full bg-amber-500/15 blur-3xl pointer-events-none" />
-        <div className="absolute top-1/3 -end-32 size-96 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-32 start-1/4 size-80 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
+    <div className="min-h-screen w-full flex items-stretch bg-[#f6f8fc] dark:bg-[#080c16] text-slate-900 dark:text-slate-100 font-sans">
+      {/* ── Left / Showcase Pane: Obsidian Indigo Executive Identity (Desktop) ── */}
+      <div className="hidden lg:flex lg:w-1/2 xl:w-7/12 relative overflow-hidden flex-col justify-between p-12 bg-[#090d18] text-white border-e border-slate-800">
+        {/* Ambient Executive Glow Orbs */}
+        <div className="absolute -top-32 -start-32 size-96 rounded-full bg-indigo-500/18 blur-3xl pointer-events-none" />
+        <div className="absolute top-1/3 -end-32 size-96 rounded-full bg-sky-500/15 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 start-1/4 size-80 rounded-full bg-emerald-500/12 blur-3xl pointer-events-none" />
 
         {/* Subtle Grid Pattern */}
         <div
@@ -182,14 +184,16 @@ export function LoginPage() {
           }}
         />
 
-        {/* Top Header & IDHAM Hazard Brand Identity */}
+        {/* Top Header & IDHAM Brand Identity */}
         <div className="relative z-10 flex items-center justify-between">
           <div className="flex items-center gap-3.5">
-            <div className="hazard-badge size-12 rounded-2xl border border-amber-500/40 shadow-xl" />
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 text-white shadow-xl shadow-indigo-950/50">
+              <Landmark className="size-6" />
+            </div>
             <div>
               <div className="text-xl font-black tracking-tight text-white flex items-center gap-2">
                 <span>IDHAM ERP</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-md font-black bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                <span className="text-[10px] px-2 py-0.5 rounded-md font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
                   PRO 2026
                 </span>
               </div>
@@ -212,7 +216,7 @@ export function LoginPage() {
               </>
             ) : (
               <>
-                <Moon className="size-4 text-cyan-400" />
+                <Moon className="size-4 text-sky-400" />
                 <span>الوضع الليلي</span>
               </>
             )}
@@ -221,9 +225,9 @@ export function LoginPage() {
 
         {/* Middle: Feature Carousel Card */}
         <div className="relative z-10 my-auto py-8">
-          <div className="rounded-3xl border border-slate-800/90 bg-[#0c1427]/90 p-8 shadow-2xl backdrop-blur-md space-y-5 max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
-              <Sparkles className="size-3.5 text-amber-400" />
+          <div className="rounded-3xl border border-slate-800/90 bg-[#0f172a]/90 p-8 shadow-2xl backdrop-blur-md space-y-5 max-w-xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-400/25">
+              <Sparkles className="size-3.5 text-indigo-300" />
               <span>{SLIDES[activeSlide].tag}</span>
               <span className="text-white/30">•</span>
               <span className="text-[11px] text-emerald-400 font-extrabold">{SLIDES[activeSlide].pill}</span>
@@ -249,11 +253,11 @@ export function LoginPage() {
                     onClick={() => setActiveSlide(idx)}
                     className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
                       isActive
-                        ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-slate-950 shadow-md'
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50'
                         : 'bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/10'
                     }`}
                   >
-                    <IconComponent className={`size-4 ${isActive ? 'text-slate-950' : 'text-cyan-400'}`} />
+                    <IconComponent className={`size-4 ${isActive ? 'text-white' : 'text-sky-400'}`} />
                     <span className="hidden xl:inline">{s.tag}</span>
                   </button>
                 );
@@ -283,12 +287,14 @@ export function LoginPage() {
       </div>
 
       {/* ── Right / Main Pane: Dual-Mode Executive Login Card ── */}
-      <div className="w-full lg:w-1/2 xl:w-5/12 flex items-center justify-center p-5 sm:p-10 bg-[#f3f6fb] dark:bg-[#070b14]">
+      <div className="w-full lg:w-1/2 xl:w-5/12 flex items-center justify-center p-5 sm:p-10 bg-[#f6f8fc] dark:bg-[#080c16]">
         <div className="w-full max-w-md space-y-5">
           {/* Mobile Header */}
           <div className="flex items-center justify-between lg:hidden mb-4">
             <div className="flex items-center gap-2.5">
-              <div className="hazard-badge size-11 rounded-xl border border-amber-500/40 shadow-md" />
+              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 text-white shadow-md">
+                <Landmark className="size-5.5" />
+              </div>
               <div>
                 <div className="text-lg font-black text-slate-900 dark:text-white">IDHAM ERP</div>
                 <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">نظام الموارد البشرية والمحاسبة</div>
@@ -299,7 +305,7 @@ export function LoginPage() {
               onClick={toggleTheme}
               className="btn-secondary text-xs px-2.5 py-1.5"
             >
-              {isDark ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-amber-600" />}
+              {isDark ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-indigo-600" />}
             </button>
           </div>
 
@@ -307,7 +313,7 @@ export function LoginPage() {
             {/* Form Header */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-amber-700 dark:text-amber-400 bg-amber-500/12 px-2.5 py-1 rounded-full border border-amber-500/25">
+                <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-500/10 px-2.5 py-1 rounded-full border border-indigo-500/25">
                   <Sparkles className="size-3" /> بوابة الدخول الآمنة
                 </span>
                 <span className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 font-extrabold">
@@ -327,7 +333,7 @@ export function LoginPage() {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-bold">
                 <span>اختيار سريع للدور الوظيفي:</span>
-                <span className="text-cyan-700 dark:text-cyan-400">تعبئة تلقائية</span>
+                <span className="text-indigo-700 dark:text-indigo-400">تعبئة تلقائية</span>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
@@ -341,7 +347,7 @@ export function LoginPage() {
                       onClick={() => handleSelectRole(acc.roleKey)}
                       className={`relative p-2.5 rounded-xl text-start transition-all border cursor-pointer ${
                         isCurrent
-                          ? 'bg-amber-500/10 border-amber-500 text-slate-900 dark:text-white shadow-xs ring-1 ring-amber-500/30'
+                          ? 'bg-indigo-50/90 dark:bg-indigo-500/15 border-indigo-500 text-slate-900 dark:text-white shadow-xs ring-1 ring-indigo-500/25'
                           : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 dark:bg-[#080d1a] dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700'
                       }`}
                     >
@@ -349,7 +355,7 @@ export function LoginPage() {
                         <div className={`size-6 rounded-lg flex items-center justify-center ${acc.badgeColor} border`}>
                           <IconComponent className="size-3.5" />
                         </div>
-                        {isCurrent && <Check className="size-3.5 text-amber-600 dark:text-amber-400" />}
+                        {isCurrent && <Check className="size-3.5 text-indigo-600 dark:text-indigo-400" />}
                       </div>
                       <div className="font-extrabold text-[11px] leading-snug truncate">{acc.roleTitle}</div>
                       <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">{acc.u}</div>
@@ -450,7 +456,7 @@ export function LoginPage() {
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="size-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500/20 dark:border-slate-700 dark:bg-slate-800"
+                    className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-800"
                   />
                   <span>تذكر بيانات الجلسة على هذا الجهاز</span>
                 </label>
@@ -459,7 +465,7 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={busy || !username || !password}
-                className="btn-secondary w-full h-10 text-xs font-extrabold gap-2 border-cyan-500/40 text-cyan-800 hover:bg-cyan-50/70 dark:text-cyan-300 dark:hover:bg-cyan-950/30"
+                className="btn-secondary w-full h-10 text-xs font-extrabold gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50/70 dark:border-indigo-500/30 dark:text-indigo-300 dark:hover:bg-indigo-950/30"
               >
                 {busy ? <Spinner /> : <KeyRound className="size-4" />}
                 <span>تسجيل الدخول بالبيانات أعلاه</span>
@@ -610,8 +616,8 @@ export function SetupWizard() {
         {steps.map((s, i) => {
           const Icon = s.icon;
           return (
-            <div key={s.title} className={`flex items-center gap-2 ${i === step ? 'text-amber-600 dark:text-amber-400 font-extrabold' : i < step ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
-              <div className={`flex size-8 items-center justify-center rounded-full text-xs font-extrabold ${i === step ? 'bg-amber-500 text-slate-950' : i < step ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+            <div key={s.title} className={`flex items-center gap-2 ${i === step ? 'text-indigo-600 dark:text-indigo-400 font-extrabold' : i < step ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
+              <div className={`flex size-8 items-center justify-center rounded-full text-xs font-extrabold ${i === step ? 'bg-indigo-600 text-white' : i < step ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
                 {i < step ? '✓' : <Icon className="size-3.5" />}
               </div>
               <span className="text-xs hidden sm:inline">{s.title}</span>
