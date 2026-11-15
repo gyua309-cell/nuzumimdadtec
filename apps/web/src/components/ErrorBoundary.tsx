@@ -28,6 +28,7 @@ export class ErrorBoundary extends Component<Props, State> {
     this.setState({ errorInfo });
     // Log error to console for diagnostics
     console.error('[ErrorBoundary caught error]:', error, errorInfo);
+    void import('../lib/chunk-recovery').then((m) => m.tryRecoverChunkError(error));
   }
 
   private handleReset = () => {

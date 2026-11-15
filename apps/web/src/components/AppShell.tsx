@@ -7,7 +7,7 @@ import {
   Cloud, Coins, Command, Database, FileText, Globe, Landmark, LayoutDashboard, Loader2, LogOut, Menu, Moon, Package,
   PanelRightClose, Plus, Search, Server, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet, X,
 } from 'lucide-react';
-import { api, getApiBaseUrl, getCustomApiUrl, setCustomApiUrl } from '../lib/api';
+import { api, getApiBaseUrl, getCustomApiUrl, resetApiOfflineCache, setCustomApiUrl } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JobsCenterButton } from './JobsCenterModal';
@@ -27,6 +27,7 @@ export interface NavSection {
   items?: NavItem[];
   to?: string;
   soon?: boolean;
+  step?: string;
   color?: SectionColor;
 }
 
@@ -120,9 +121,10 @@ export const PINNED_FAVORITES: Array<{
   { label: 'الموظفون', path: '/hr/employees', icon: Users, color: 'text-amber-500' },
   { label: 'المشاريع', path: '/prj/projects', icon: Briefcase, color: 'text-cyan-500' },
   { label: 'الفواتير', path: '/sal/invoices', icon: FileText, color: 'text-emerald-500' },
+  { label: 'العهد والبنوك', path: '/fin/custodies', icon: Coins, color: 'text-teal-500' },
   { label: 'شجرة الحسابات', path: '/acc/accounts', icon: BookOpen, color: 'text-indigo-500' },
-  { label: 'قيود اليومية', path: '/acc/journals', icon: Landmark, color: 'text-teal-500' },
-  { label: 'ربحية الكوادر', path: '/reports/employee-profitability', icon: BarChart3, color: 'text-purple-500' },
+  { label: 'قيود اليومية', path: '/acc/journals', icon: Landmark, color: 'text-sky-500' },
+  { label: 'ميزان المراجعة', path: '/reports/trial-balance', icon: BarChart3, color: 'text-purple-500' },
   { label: 'منصة زاتكا', path: '/zatca/hub', icon: ShieldCheck, color: 'text-rose-500' },
 ];
 
@@ -136,10 +138,11 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: 'operations',
-    label: 'المديولات التشغيلية والإدخالات',
+    label: 'الوحدات التشغيلية والإدخالات',
     sections: [
       {
         key: 'hr',
+        step: '01',
         label: 'الموارد البشرية',
         icon: Users,
         color: 'emerald',
@@ -150,6 +153,7 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         key: 'cost',
+        step: '02',
         label: 'تكلفة الموظفين',
         icon: Calculator,
         color: 'indigo',
@@ -160,21 +164,8 @@ export const NAV_GROUPS: NavGroup[] = [
         ],
       },
       {
-        key: 'pay',
-        label: 'الرواتب والبدلات',
-        icon: Wallet,
-        color: 'violet',
-        items: [
-          { to: '/pay/runs', label: 'مسيّر الرواتب' },
-          { to: '/pay/eosb', label: 'مكافأة نهاية الخدمة (نظام العمل)' },
-          { to: '/reports/multi-currency-payroll', label: 'رواتب العملات (SAR/EGP)' },
-          { to: '/pay/variables', label: 'البدلات والخصومات' },
-          { to: '/pay/loans', label: 'سلف الموظفين' },
-          { to: '/pay/variable-types', label: 'أنواع البدلات' },
-        ],
-      },
-      {
         key: 'prj',
+        step: '03',
         label: 'المشاريع والمطورين',
         icon: Briefcase,
         color: 'cyan',
@@ -191,17 +182,18 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         key: 'sal',
+        step: '04',
         label: 'المبيعات والفوترة',
         icon: FileText,
         color: 'emerald',
         items: [
           { to: '/sal/invoices', label: 'فواتير المبيعات' },
           { to: '/sal/credit-notes', label: 'إشعارات دائنة' },
-          { to: '/zatca/hub', label: 'الربط مع هيئة الزكاة (ZATCA)' },
         ],
       },
       {
         key: 'pur',
+        step: '05',
         label: 'المشتريات والموردين',
         icon: ShoppingCart,
         color: 'amber',
@@ -213,16 +205,17 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         key: 'fin',
+        step: '06',
         label: 'العهد النقدية',
         icon: Coins,
         color: 'cyan',
         items: [
           { to: '/fin/custodies', label: 'إدارة العهد النقدية' },
-          { to: '/reports/custody-movement', label: 'حركة وتسوية العهد' },
         ],
       },
       {
         key: 'ast',
+        step: '07',
         label: 'الأصول الثابتة',
         icon: Package,
         color: 'teal',
@@ -233,7 +226,22 @@ export const NAV_GROUPS: NavGroup[] = [
         ],
       },
       {
+        key: 'pay',
+        step: '08',
+        label: 'الرواتب والبدلات',
+        icon: Wallet,
+        color: 'violet',
+        items: [
+          { to: '/pay/runs', label: 'مسيّر الرواتب' },
+          { to: '/pay/eosb', label: 'مكافأة نهاية الخدمة (نظام العمل)' },
+          { to: '/pay/variables', label: 'البدلات والخصومات' },
+          { to: '/pay/loans', label: 'سلف الموظفين' },
+          { to: '/pay/variable-types', label: 'أنواع البدلات' },
+        ],
+      },
+      {
         key: 'acc',
+        step: '09',
         label: 'المحاسبة العامة',
         icon: BookOpen,
         color: 'blue',
@@ -283,7 +291,6 @@ export const NAV_GROUPS: NavGroup[] = [
           { to: '/reports/balance-sheet', label: 'الميزانية العمومية' },
           { to: '/reports/cash-flow', label: 'التدفقات النقدية' },
           { to: '/reports/account-statement', label: 'كشف الحساب' },
-          { to: '/reports/zakat', label: 'الزكاة وضريبة الدخل' },
         ],
       },
       {
@@ -297,10 +304,8 @@ export const NAV_GROUPS: NavGroup[] = [
           { to: '/reports/ar-aging', label: 'أعمار ديون العملاء' },
           { to: '/rev/profitability', label: 'ربحية المشاريع' },
           { to: '/rev/revenue', label: 'تحليل الإيرادات' },
-          { to: '/prj/allocation-days', label: 'توزيع الأيام بالمبيعات' },
-          { to: '/reports/vat-return', label: 'الإقرار الضريبي (ZATCA)' },
-          { to: '/reports/custody-movement', label: 'تسوية العهد (SAR/EGP)' },
-          { to: '/reports/multi-currency-payroll', label: 'رواتب العملات المجمعة' },
+          { to: '/reports/custody-movement', label: 'حركة وتسوية العهد (SAR/EGP)' },
+          { to: '/reports/multi-currency-payroll', label: 'رواتب العملات (SAR/EGP)' },
           { to: '/closing/snapshots', label: 'لقطات الإقفال' },
           { to: '/audit/log', label: 'سجل التدقيق' },
         ],
@@ -503,8 +508,15 @@ function Section({
         </div>
         {!collapsed && (
           <>
-            <span className="flex-1 whitespace-nowrap text-start text-[13px]">{s.label}</span>
-            <div className="flex items-center gap-1.5">
+            <span className="flex flex-1 items-center gap-1.5 whitespace-nowrap text-start text-[13px] truncate">
+              {s.step && (
+                <span className="inline-flex h-4 min-w-[18px] items-center justify-center rounded bg-slate-200/75 dark:bg-white/10 px-1 font-mono text-[9.5px] font-black text-slate-500 dark:text-slate-400">
+                  {s.step}
+                </span>
+              )}
+              <span className="truncate">{s.label}</span>
+            </span>
+            <div className="flex shrink-0 items-center gap-1.5">
               {s.items && (
                 <span className="rounded-md bg-slate-200/70 dark:bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:text-slate-400">
                   {s.items.length}
@@ -581,6 +593,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const [pingResult, setPingResult] = useState<{ ok: boolean; latencyMs?: number; message?: string } | null>(null);
 
   const handleTestCloudPing = async () => {
+    resetApiOfflineCache();
     setTestingPing(true);
     setPingResult(null);
     const start = Date.now();
@@ -809,7 +822,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             <div className="grid grid-cols-2 gap-1.5">
               {PINNED_FAVORITES.map((fav) => {
                 const Icon = fav.icon;
-                const isActive = location.pathname.startsWith(fav.path);
+                const isActive = loc.pathname.startsWith(fav.path);
                 return (
                   <NavLink
                     key={fav.path}
@@ -892,12 +905,12 @@ export function AppShell({ children }: { children?: ReactNode }) {
       {/* ─────────── Main Content ─────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top Header Bar (Dual Mode: Crisp Light / Dark Obsidian) */}
-        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 border-b border-slate-200/90 bg-white/95 backdrop-blur-md px-3.5 sm:px-5 shadow-xs dark:border-slate-800/90 dark:bg-[#0b1120]/95">
+        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 overflow-x-auto border-b border-slate-200/90 bg-white/95 backdrop-blur-md px-3 sm:px-4 shadow-xs dark:border-slate-800/90 dark:bg-[#0b1120]/95 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {/* Mobile Menu Trigger */}
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}
-            className="flex lg:hidden size-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+            className="flex lg:hidden size-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
             aria-label="فتح القائمة الجانبية"
           >
             <Menu className="size-4" />
@@ -905,10 +918,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
           {/* Company Switcher (only shown if user has multiple companies; never sets empty companyId) */}
           {me?.companies && me.companies.length > 1 && (
-            <div className="hidden md:flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs dark:border-slate-800 dark:bg-[#0f172a]">
+            <div className="hidden md:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs dark:border-slate-800 dark:bg-[#0f172a]">
               <Building2 className="size-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
               <select
-                className="bg-transparent text-xs font-extrabold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[180px]"
+                className="bg-transparent text-xs font-extrabold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[160px]"
                 value={company?.id ?? me?.companies?.[0]?.id ?? ''}
                 onChange={(e) => {
                   if (e.target.value) {
@@ -926,18 +939,18 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </div>
           )}
 
-          {/* Active Branch Selector (Safe branch scope selector + full readable company/branch labels) */}
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50/90 px-2.5 py-1.5 text-xs dark:border-slate-800 dark:bg-[#0f172a]">
+          {/* Active Branch Selector */}
+          <div className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 px-2.5 text-xs dark:border-slate-800 dark:bg-[#0f172a]">
             <Globe className="size-3.5 text-amber-500 shrink-0" />
-            <span className="hidden sm:inline font-bold text-slate-500 dark:text-slate-400 text-[11px]">الفرع النشط:</span>
+            <span className="hidden 2xl:inline whitespace-nowrap font-bold text-slate-500 dark:text-slate-400 text-[11px]">الفرع:</span>
             <select
-              className="bg-transparent text-xs font-extrabold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[175px] sm:max-w-[240px]"
+              className="bg-transparent text-xs font-extrabold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[140px] sm:max-w-[185px] truncate"
               value={activeBranchId}
               onChange={(e) => handleBranchChange(e.target.value)}
               title={company?.nameAr || 'جميع الفروع'}
             >
               <option value="" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-white">
-                جميع الفروع (عرض مجمع){company?.nameAr ? ` — ${company.nameAr}` : ''}
+                جميع الفروع{company?.nameAr ? ` — ${company.nameAr}` : ''}
               </option>
               {branches.map((b) => (
                 <option key={b.id} value={b.id} className="bg-white text-slate-900 dark:bg-slate-900 dark:text-white">
@@ -951,32 +964,32 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <button
             type="button"
             onClick={() => setCloudModalOpen(true)}
-            className={`hidden xl:flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-extrabold transition-all cursor-pointer ${
+            className={`hidden xl:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2.5 text-[11px] font-extrabold transition-all cursor-pointer ${
               isCloudConfigured
                 ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20'
                 : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
             }`}
             title="حالة اتصال قاعدة البيانات والسيرفر السحابي (اضغط لضبط السحابة والمزامنة الفورية)"
           >
-            <span className={`size-2 rounded-full ${isCloudConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`} />
-            <span>{isCloudConfigured ? 'سحابي متزامن وقتياً' : 'قاعدة محلية (آمنة)'}</span>
-            <Database className="size-3 opacity-70" />
+            <span className={`size-2 shrink-0 rounded-full ${isCloudConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`} />
+            <span className="whitespace-nowrap">{isCloudConfigured ? 'سحابي متصل' : 'محلي آمن'}</span>
+            <Database className="size-3 shrink-0 opacity-70" />
           </button>
 
-          {/* Dual Live Clocks: Mecca 🕋 & Cairo 🇪🇬 */}
-          <div className="hidden 2xl:flex items-center gap-2.5 rounded-xl border border-slate-200/90 bg-slate-50/90 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-[#0f172a] dark:text-slate-300">
-            <div className="flex items-center gap-1.5 font-bold">
+          {/* Dual Live Clocks: Mecca & Cairo */}
+          <div className="hidden 2xl:flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 px-2.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-[#0f172a] dark:text-slate-300">
+            <div className="flex items-center gap-1 whitespace-nowrap font-bold">
               <span className="font-mono text-slate-900 dark:text-white font-extrabold">{meccaTime}</span>
-              <span className="text-[11px]">مكة 🕋</span>
+              <span className="text-[11px]">مكة</span>
             </div>
             <span className="text-slate-300 dark:text-slate-700">|</span>
-            <div className="flex items-center gap-1.5 font-bold">
+            <div className="flex items-center gap-1 whitespace-nowrap font-bold">
               <span className="font-mono text-slate-900 dark:text-white font-extrabold">{cairoTime}</span>
-              <span className="text-[11px]">القاهرة 🇪🇬</span>
+              <span className="text-[11px]">القاهرة</span>
             </div>
           </div>
 
-          <div className="flex-1" />
+          <div className="min-w-2 flex-1" />
 
           {/* Global Command Search Trigger (Ctrl + K) */}
           <button
@@ -986,63 +999,63 @@ export function AppShell({ children }: { children?: ReactNode }) {
               setCmdQuery('');
               setCmdIndex(0);
             }}
-            className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50/90 hover:bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:border-slate-800 dark:bg-[#0f172a] dark:text-slate-300 dark:hover:bg-slate-800/80 transition-colors cursor-pointer"
+            className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 hover:bg-slate-100 px-2.5 text-xs font-bold text-slate-600 dark:border-slate-800 dark:bg-[#0f172a] dark:text-slate-300 dark:hover:bg-slate-800/80 transition-colors cursor-pointer"
             title="البحث السريع في شاشات النظام (Ctrl+K)"
           >
-            <Search className="size-3.5 text-cyan-600 dark:text-cyan-400" />
-            <span className="hidden md:inline">بحث سريع...</span>
-            <kbd className="hidden lg:inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-              Ctrl K
+            <Search className="size-3.5 shrink-0 text-cyan-600 dark:text-cyan-400" />
+            <span className="hidden xl:inline whitespace-nowrap">بحث سريع</span>
+            <kbd className="hidden 2xl:inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              Ctrl+K
             </kbd>
           </button>
 
           {/* Fast Command & Action Buttons */}
-          <div className="flex items-center gap-1.5">
-            {/* Amber Pill: + فاتورة تأجير */}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {/* Amber Pill: + فاتورة */}
             <NavLink
               to="/sal/invoices"
-              className="flex items-center gap-1 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black px-2.5 py-1.5 text-xs shadow-xs transition-all active:scale-95"
+              className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black px-2.5 text-xs shadow-xs transition-all active:scale-95"
               title="إنشاء فاتورة مبيعات / تأجير جديدة"
             >
-              <Plus className="size-3.5 stroke-[3]" />
-              <span className="hidden sm:inline">فاتورة تأجير</span>
+              <Plus className="size-3.5 shrink-0 stroke-[3]" />
+              <span className="hidden sm:inline whitespace-nowrap">فاتورة</span>
             </NavLink>
 
-            {/* Emerald Pill: الخزينة والسندات */}
+            {/* Emerald Pill: الخزينة */}
             <NavLink
               to="/fin/custodies"
-              className="hidden md:flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1.5 text-xs shadow-xs transition-all active:scale-95"
+              className="hidden md:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 text-xs shadow-xs transition-all active:scale-95"
               title="الخزينة والعهد النقدية"
             >
-              <Coins className="size-3.5" />
-              <span>الخزينة والسندات</span>
+              <Coins className="size-3.5 shrink-0" />
+              <span className="whitespace-nowrap">الخزينة</span>
             </NavLink>
 
-            {/* Teal Pill: دفتر القيود واليومية */}
+            {/* Teal Pill: القيود */}
             <NavLink
               to="/acc/journals"
-              className="hidden lg:flex items-center gap-1.5 rounded-xl bg-teal-700 hover:bg-teal-600 text-white font-bold px-2.5 py-1.5 text-xs shadow-xs transition-all active:scale-95"
+              className="hidden lg:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-teal-700 hover:bg-teal-600 text-white font-bold px-2.5 text-xs shadow-xs transition-all active:scale-95"
               title="دفتر قيود اليومية"
             >
-              <FileText className="size-3.5" />
-              <span>دفتر القيود واليومية</span>
+              <FileText className="size-3.5 shrink-0" />
+              <span className="whitespace-nowrap">القيود</span>
             </NavLink>
 
-            {/* Dark Emerald Pill: شجرة الحسابات */}
+            {/* Dark Emerald Pill: الحسابات */}
             <NavLink
               to="/acc/accounts"
-              className="hidden xl:flex items-center gap-1.5 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white font-bold px-2.5 py-1.5 text-xs shadow-xs transition-all active:scale-95"
-              title="دليل الحسابات المحاسبية"
+              className="hidden xl:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white font-bold px-2.5 text-xs shadow-xs transition-all active:scale-95"
+              title="دليل وشجرة الحسابات المحاسبية"
             >
-              <BookOpen className="size-3.5" />
-              <span>شجرة الحسابات</span>
+              <BookOpen className="size-3.5 shrink-0" />
+              <span className="whitespace-nowrap">الحسابات</span>
             </NavLink>
 
             {/* Theme Toggle Pill Button */}
             <button
               type="button"
               onClick={toggle}
-              className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-extrabold transition-all shadow-xs border cursor-pointer ${
+              className={`flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-xs font-extrabold transition-all shadow-xs border cursor-pointer ${
                 dark
                   ? 'bg-slate-800/90 text-amber-400 border-slate-700 hover:bg-slate-700'
                   : 'bg-amber-50 text-slate-800 border-amber-200 hover:bg-amber-100'
@@ -1051,13 +1064,13 @@ export function AppShell({ children }: { children?: ReactNode }) {
             >
               {dark ? (
                 <>
-                  <Sun className="size-3.5 text-amber-400" />
-                  <span className="hidden sm:inline">الوضع النهاري</span>
+                  <Sun className="size-3.5 shrink-0 text-amber-400" />
+                  <span className="hidden sm:inline whitespace-nowrap">نهاري</span>
                 </>
               ) : (
                 <>
-                  <Moon className="size-3.5 text-amber-600" />
-                  <span className="hidden sm:inline">الوضع الليلي</span>
+                  <Moon className="size-3.5 shrink-0 text-amber-600" />
+                  <span className="hidden sm:inline whitespace-nowrap">ليلي</span>
                 </>
               )}
             </button>

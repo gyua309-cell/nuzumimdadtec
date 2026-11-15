@@ -12,6 +12,7 @@ import { CsvImportModal, FieldDef } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
 import {
   Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader,
   ReasonDialog, Stat, useToast,
@@ -1100,6 +1101,7 @@ export function PurchaseInvoiceDetailPage() {
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [debitNoteOpen, setDebitNoteOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const [returnReason, setReturnReason] = useState('مردود مشتريات / تخفيض تكلفة خدمات');
 
   const invoice = useQuery({
@@ -1170,6 +1172,15 @@ export function PurchaseInvoiceDetailPage() {
           {inv.status === 'DRAFT' && (
             <button className="btn-primary bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 text-xs shadow-sm" onClick={doPost}>
               <Send className="size-3.5" /> ترحيل الفاتورة وتوليد القيد آلياً
+            </button>
+          )}
+
+          {inv.status === 'POSTED' && !isDebitNote && inv.paymentStatus !== 'PAID' && (
+            <button
+              className="btn-primary bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 text-xs shadow-sm"
+              onClick={() => setPaymentOpen(true)}
+            >
+              <Wallet className="size-3.5" /> تسجيل سداد للمورد (سند صرف)
             </button>
           )}
 
@@ -1306,6 +1317,62 @@ export function PurchaseInvoiceDetailPage() {
           </Field>
         </div>
       </Modal>
+
+      {/* Vendor Payments History */}
+      {Array.isArray(inv.payments) && inv.payments.length > 0 && (
+        <div className="print:hidden card p-4 border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-bold text-xs text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+              <Wallet className="size-3.5 text-indigo-600" /> سجل سندات الصرف والمدفوعات للمورد
+            </h4>
+            <Badge color={inv.paymentStatus === 'PAID' ? 'green' : 'amber'}>
+              {inv.paymentStatus === 'PAID' ? 'مسددة بالكامل' : 'مسددة جزئياً'} — المدفوع: {money(inv.paidAmount)}
+            </Badge>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table text-xs">
+              <thead><tr><th>التاريخ</th><th>المرجع</th><th>المبلغ</th><th>الحساب الدافع</th><th>القيد المحاسبي</th></tr></thead>
+              <tbody>
+                {inv.payments.map((p: any) => (
+                  <tr key={p.id}>
+                    <td className="num">{p.paymentDate}</td>
+                    <td className="font-mono">{p.reference}</td>
+                    <td className="num font-bold text-indigo-700 dark:text-indigo-400">{money(p.amount)}</td>
+                    <td className="font-mono">{p.bankGlCode}</td>
+                    <td>
+                      {p.journalEntryId && (
+                        <Link to={`/acc/journals/${p.journalEntryId}`} className="text-brand-600 hover:underline font-mono">
+                          {p.journalEntryNo || 'عرض القيد'}
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Treasury Vendor Payment Modal */}
+      <TreasuryPaymentModal
+        open={paymentOpen}
+        mode="PAYMENT"
+        invoiceId={inv.id}
+        invoiceNo={inv.invoiceNo}
+        partyName={inv.vendorName}
+        totalAmount={Number(inv.totalAmount || 0)}
+        paidAmount={Number(inv.paidAmount || 0)}
+        currencyCode={inv.currencyCode || 'SAR'}
+        onClose={() => setPaymentOpen(false)}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['/purchase-invoices', id] });
+          qc.invalidateQueries({ queryKey: ['/purchase-invoices'] });
+          qc.invalidateQueries({ queryKey: ['/bank-accounts'] });
+          qc.invalidateQueries({ queryKey: ['bank-accounts-hub'] });
+          qc.invalidateQueries({ queryKey: ['accounts'] });
+        }}
+      />
 
       {/* Cancel Dialog */}
       <ReasonDialog

@@ -64,7 +64,15 @@ export function getApiBaseUrl(): string {
   return '/api/v1';
 }
 
+const OFFLINE_COOLDOWN_MS = 60_000;
+const offlineBaseUntil = new Map<string, number>();
+
+export function resetApiOfflineCache(): void {
+  offlineBaseUntil.clear();
+}
+
 export function setCustomApiUrl(url: string | null): void {
+  offlineBaseUntil.clear();
   if (typeof window === 'undefined') return;
   if (!url || !url.trim()) {
     localStorage.removeItem('idham.api_url');
@@ -82,19 +90,28 @@ let refreshing: Promise<boolean> | null = null;
 
 export async function refreshToken(): Promise<boolean> {
   const base = getApiBaseUrl();
+  if ((offlineBaseUntil.get(base) || 0) > Date.now()) return false;
   if (!refreshing) {
     refreshing = (async () => {
       try {
-        const r = await fetch(`${base}/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        });
-        if (!r.ok) return false;
-        const body = await r.json();
-        accessToken = body.accessToken;
-        return true;
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 3000);
+        try {
+          const r = await fetch(`${base}/auth/refresh`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            signal: ctrl.signal,
+          });
+          if (!r.ok) return false;
+          const body = await r.json();
+          accessToken = body.accessToken;
+          return true;
+        } finally {
+          clearTimeout(t);
+        }
       } catch {
+        offlineBaseUntil.set(base, Date.now() + OFFLINE_COOLDOWN_MS);
         return false;
       } finally {
         setTimeout(() => (refreshing = null), 0);
@@ -115,6 +132,12 @@ export function qs(q?: Query): string {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, opts: { query?: Query; headers?: Record<string, string>; retry?: boolean; raw?: boolean } = {}): Promise<T> {
+  const fullPath = `${path}${qs(opts.query)}`;
+  const base = getApiBaseUrl();
+  if ((offlineBaseUntil.get(base) || 0) > Date.now()) {
+    const cachedFallback = getDemoFallback(fullPath, method, body);
+    if (cachedFallback !== undefined) return cachedFallback as T;
+  }
   const headers: Record<string, string> = { Accept: 'application/json', ...(opts.headers ?? {}) };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   if (companyId) headers['X-Company-Id'] = companyId;
@@ -126,17 +149,27 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
   }
   if (path.startsWith('/auth/')) headers['X-Requested-With'] = 'XMLHttpRequest';
   let res: Response;
-  const base = getApiBaseUrl();
+  const ctrl = new AbortController();
+  const timeoutMs = base.startsWith('http') ? 4500 : 2500;
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    res = await fetch(`${base}${path}${qs(opts.query)}`, { method, headers, body: payload, credentials: 'include' });
+    res = await fetch(`${base}${fullPath}`, { method, headers, body: payload, credentials: 'include', signal: ctrl.signal });
   } catch (err: any) {
-    const fallback = getDemoFallback(`${path}${qs(opts.query)}`, method, body);
+    offlineBaseUntil.set(base, Date.now() + OFFLINE_COOLDOWN_MS);
+    const fallback = getDemoFallback(fullPath, method, body);
     if (fallback !== undefined) return fallback as T;
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  // Catch 404, 405, 500 on static preview hosts and provide rich demo data
+  // Catch offline gateway or static-host 404/405/500 responses and serve responsive local engine fallback
   if (!res.ok && (res.status === 404 || res.status === 405 || res.status >= 500)) {
-    const fallback = getDemoFallback(`${path}${qs(opts.query)}`, method, body);
+    const contentType = res.headers.get('content-type') || '';
+    const isStaticHost = res.status === 404 && !contentType.includes('application/json');
+    if (isStaticHost || res.status === 405 || res.status === 502 || res.status === 503 || res.status === 504 || res.status === 530) {
+      offlineBaseUntil.set(base, Date.now() + OFFLINE_COOLDOWN_MS);
+    }
+    const fallback = getDemoFallback(fullPath, method, body);
     if (fallback !== undefined) return fallback as T;
   }
   if (res.status === 401 && opts.retry !== false && !path.startsWith('/auth/login')) {

@@ -41,16 +41,18 @@ export function CashFlowReportPage() {
     if (Array.isArray(accounts)) {
       for (const acc of accounts) {
         const code = String(acc.code || '');
-        const bal = Math.abs(Number(acc.currentBalance ?? acc.balance ?? 0));
+        const bal = Number(acc.currentBalance ?? acc.balance ?? 0);
+        const cur = acc.currencyCode || acc.currency || 'SAR';
+        const isCashOrBank = code.startsWith('101') || code.startsWith('102') || code.startsWith('111') || code.startsWith('112');
 
-        if (code.startsWith('111') || acc.currencyCode === 'SAR') {
+        if (isCashOrBank && (code.startsWith('111') || code === '10201' || cur === 'SAR')) {
           sarBankBalance += bal;
-        } else if (code.startsWith('112') || (acc.currencyCode === 'EGP' && (code.startsWith('11') || acc.accountType === 'ASSET'))) {
+        } else if (isCashOrBank && (code.startsWith('112') || code === '10202' || cur === 'EGP')) {
           egpBankBalance += bal;
         } else if (code.startsWith('4300') || acc.nameAr?.includes('أرباح فروق')) {
-          realizedFxGains += bal;
+          realizedFxGains += Math.abs(bal);
         } else if (code.startsWith('5700') || acc.nameAr?.includes('خسائر فروق')) {
-          realizedFxLosses += bal;
+          realizedFxLosses += Math.abs(bal);
         }
       }
     }

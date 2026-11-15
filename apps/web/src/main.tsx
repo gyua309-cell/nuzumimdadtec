@@ -1,4 +1,4 @@
-import { ComponentType, lazy, StrictMode, Suspense } from 'react';
+import { StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -9,8 +9,12 @@ import { AppShell } from './components/AppShell';
 import { ErrorBoundary, Loading, ToastProvider } from './components/ui';
 import { ChangePasswordPage, LoginPage, SetupWizard } from './pages/auth';
 
+import { installChunkErrorRecovery, lazyWithRetry } from './lib/chunk-recovery';
+
+installChunkErrorRecovery();
+
 const lazyNamed = <T extends Record<string, any>>(loader: () => Promise<T>, name: keyof T) =>
-  lazy(async () => ({ default: (await loader())[name] as ComponentType<any> }));
+  lazyWithRetry(loader, name);
 
 const loadOrg = () => import('./pages/org');
 const BranchesPage = lazyNamed(loadOrg, 'BranchesPage');

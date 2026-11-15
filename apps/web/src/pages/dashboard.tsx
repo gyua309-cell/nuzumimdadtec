@@ -5,7 +5,7 @@ import ReactECharts from 'echarts-for-react';
 import {
   Activity, ArrowUpRight, Briefcase, Calendar, CheckCircle2, Clock,
   ExternalLink, FileText, Landmark, Plus, Printer, Receipt,
-  ShieldCheck, TrendingUp, Users, Wallet,
+  ShieldCheck, ShoppingCart, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { money, today, yearStart, monthStart } from '../lib/format';
@@ -86,6 +86,11 @@ export function DashboardPage() {
   const recentJournals = useQuery({ queryKey: ['journals', 'recent'], queryFn: () => api.get<any>('/journal-entries', { pageSize: 5 }) });
   const custReport = useQuery({ queryKey: ['dashboard-custodies-report'], queryFn: () => api.get<any>('/custodies/report') });
   const invs = useQuery({ queryKey: ['/invoices', 'dashboard-summary'], queryFn: () => api.get<any>('/invoices') });
+  const purInvs = useQuery({ queryKey: ['/purchase-invoices', 'dashboard-summary'], queryFn: () => api.get<any>('/purchase-invoices') });
+  const assetsQ = useQuery({ queryKey: ['/assets', 'dashboard-summary'], queryFn: () => api.get<any>('/assets') });
+  const zatcaStatusQ = useQuery({ queryKey: ['/zatca/status', 'dashboard-summary'], queryFn: () => api.get<any>('/zatca/status') });
+  const payRunsQ = useQuery({ queryKey: ['/payroll/runs', 'dashboard-summary'], queryFn: () => api.get<any>('/payroll/runs') });
+  const custodiesListQ = useQuery({ queryKey: ['/custodies', 'dashboard-summary'], queryFn: () => api.get<any>('/custodies') });
 
   // Current Period
   const current = periods.data?.find((p) => !p.isAdjustmentPeriod && p.startDate <= today() && p.endDate >= today());
@@ -105,6 +110,12 @@ export function DashboardPage() {
   const validInvoices = invList.filter((x: any) => x?.status !== 'CANCELLED');
   const invoicesRevenue = validInvoices.reduce((acc: number, x: any) => acc + (x.invoiceType === 'CREDIT_NOTE' ? -Number(x.totalAmount || 0) : Number(x.totalAmount || 0)), 0);
   const postedInvoicesCount = validInvoices.filter((x: any) => x?.status === 'POSTED').length;
+  const purList: any[] = Array.isArray(purInvs.data) ? purInvs.data : (purInvs.data?.data ?? []);
+  const assetsList: any[] = Array.isArray(assetsQ.data) ? assetsQ.data : (assetsQ.data?.data ?? []);
+  const payRunsList: any[] = Array.isArray(payRunsQ.data) ? payRunsQ.data : (payRunsQ.data?.data ?? []);
+  const custodiesList: any[] = Array.isArray(custodiesListQ.data) ? custodiesListQ.data : (custodiesListQ.data?.data ?? []);
+  const zatcaClearedCount = Number(zatcaStatusQ.data?.clearedCount ?? validInvoices.filter((x: any) => x?.zatcaStatus === 'CLEARED' || x?.zatcaStatus === 'REPORTED').length ?? 0);
+  const postedJournalsCount = Number(posted.data?.meta?.total ?? posted.data?.data?.length ?? 0);
 
   // Financial figures with honest zero-baseline (no mock numbers)
   const totalAssets = Number(bs.data?.assets?.total ?? 0);
@@ -631,6 +642,140 @@ export function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* ── 1.5) ERP End-to-End Operating Cycle Tracker ─────────────────────── */}
+      {(() => {
+        const cycleSteps = [
+          {
+            step: '01',
+            title: 'الموارد والتكلفة',
+            sub: `${totalEmployees} موظف مسجل`,
+            done: totalEmployees > 0,
+            to: '/hr/employees',
+            icon: Users,
+          },
+          {
+            step: '02',
+            title: 'المشاريع والتخصيص',
+            sub: `${totalProjects} مشروع • ${allocRows.length} تخصيص`,
+            done: totalProjects > 0 && allocRows.length > 0,
+            partial: totalProjects > 0 && allocRows.length === 0,
+            to: '/prj/projects',
+            icon: Briefcase,
+          },
+          {
+            step: '03',
+            title: 'المبيعات والتحصيل',
+            sub: `${validInvoices.length} فاتورة (${postedInvoicesCount} مرحّلة)`,
+            done: postedInvoicesCount > 0,
+            partial: validInvoices.length > 0 && postedInvoicesCount === 0,
+            to: '/sal/invoices',
+            icon: Receipt,
+          },
+          {
+            step: '04',
+            title: 'الربط مع ZATCA',
+            sub: `${zatcaClearedCount} فاتورة معتمدة`,
+            done: zatcaClearedCount > 0,
+            partial: Boolean(zatcaStatusQ.data?.onboarded && zatcaClearedCount === 0),
+            to: '/zatca/hub',
+            icon: ShieldCheck,
+          },
+          {
+            step: '05',
+            title: 'المشتريات والأصول والعهد',
+            sub: `${purList.length} مشتريات • ${assetsList.length} أصول • ${custodiesList.length} عهد`,
+            done: purList.length > 0 || assetsList.length > 0 || custodiesList.length > 0,
+            to: '/pur/invoices',
+            icon: ShoppingCart,
+          },
+          {
+            step: '06',
+            title: 'مسيّر الرواتب',
+            sub: `${payRunsList.length} مسيّر رواتب`,
+            done: payRunsList.length > 0,
+            to: '/pay/runs',
+            icon: Wallet,
+          },
+          {
+            step: '07',
+            title: 'القيود والإقفال المالي',
+            sub: `${postedJournalsCount} قيد يومي مرحّل`,
+            done: postedJournalsCount > 0,
+            to: '/acc/journals',
+            icon: Landmark,
+          },
+        ];
+        const completedSteps = cycleSteps.filter((s) => s.done).length;
+        const progressPct = Math.round((completedSteps / cycleSteps.length) * 100);
+        return (
+          <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/90 bg-white dark:bg-[#0f172a] p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                  <Activity className="size-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black text-slate-900 dark:text-white">
+                    مؤشر إتمام دورة التشغيل المتكاملة (ERP Operating Cycle)
+                  </h2>
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    متابعة حية لترابط الوحدات التشغيلية وتوليد القيود التلقائية حتى القوائم المالية
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-black text-emerald-700 dark:text-emerald-300">
+                  {completedSteps} / {cycleSteps.length} مراحل نشطة ({progressPct}%)
+                </span>
+              </div>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden mb-3">
+              <div
+                className="h-full rounded-full bg-gradient-to-l from-emerald-500 via-cyan-500 to-amber-500 transition-all duration-500"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2">
+              {cycleSteps.map((s) => {
+                const StepIcon = s.icon;
+                return (
+                  <Link
+                    key={s.step}
+                    to={s.to}
+                    className={`group rounded-xl border p-2.5 transition-all hover:-translate-y-0.5 ${
+                      s.done
+                        ? 'border-emerald-500/35 bg-emerald-500/5 hover:bg-emerald-500/10'
+                        : s.partial
+                          ? 'border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 hover:border-cyan-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="font-mono text-[10px] font-black text-slate-400 dark:text-slate-500">
+                        {s.step}
+                      </span>
+                      {s.done ? (
+                        <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
+                      ) : s.partial ? (
+                        <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
+                      ) : (
+                        <StepIcon className="size-3.5 text-slate-400 group-hover:text-cyan-500 shrink-0" />
+                      )}
+                    </div>
+                    <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+                      {s.title}
+                    </div>
+                    <div className="text-[10.5px] font-semibold text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      {s.sub}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── 2) Top 3 Glowing Cyber Neon KPI Cards ─────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

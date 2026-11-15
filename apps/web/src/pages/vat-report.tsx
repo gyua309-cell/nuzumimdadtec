@@ -15,7 +15,13 @@ export function VatReportPage() {
   const periodsQuery = usePeriods();
   const periods = periodsQuery.data || [];
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
-  const activePeriodId = selectedPeriodId || periods[0]?.id || '';
+  const currentIsoDate = new Date().toISOString().slice(0, 10);
+  const defaultPeriod =
+    periods.find((p: any) => !p.isAdjustmentPeriod && p.status === 'OPEN' && String(p.startDate || '').slice(0, 10) <= currentIsoDate && String(p.endDate || '').slice(0, 10) >= currentIsoDate) ||
+    periods.find((p: any) => !p.isAdjustmentPeriod && String(p.startDate || '').slice(0, 10) <= currentIsoDate && String(p.endDate || '').slice(0, 10) >= currentIsoDate) ||
+    periods.find((p: any) => p.status === 'OPEN') ||
+    periods[0];
+  const activePeriodId = selectedPeriodId || defaultPeriod?.id || '';
 
   // Fetch sales invoices
   const salesQuery = useQuery({
@@ -31,15 +37,18 @@ export function VatReportPage() {
     enabled: Boolean(activePeriodId),
   });
 
-  const sales = Array.isArray(salesQuery.data) ? salesQuery.data : (salesQuery.data?.data || []);
-  const purchases = Array.isArray(purchasesQuery.data) ? purchasesQuery.data : (purchasesQuery.data?.data || []);
+  const rawSales = Array.isArray(salesQuery.data) ? salesQuery.data : (salesQuery.data?.data || []);
+  const rawPurchases = Array.isArray(purchasesQuery.data) ? purchasesQuery.data : (purchasesQuery.data?.data || []);
+  const sales = rawSales.filter((inv: any) => inv.status === 'POSTED');
+  const purchases = rawPurchases.filter((bill: any) => bill.status === 'POSTED');
 
-  // Calculations
-  const salesSubtotal = sales.reduce((acc: number, inv: any) => acc + Number(inv.subtotal || 0), 0);
-  const salesVat = sales.reduce((acc: number, inv: any) => acc + Number(inv.vatAmount || 0), 0);
+  // Calculations (posted documents only; credit/debit notes reduce the respective VAT ledger)
+  const getDocSign = (doc: any) => (doc.invoiceType === 'CREDIT_NOTE' || doc.invoiceType === 'DEBIT_NOTE' ? -1 : 1);
+  const salesSubtotal = sales.reduce((acc: number, inv: any) => acc + Number(inv.subtotalBase || inv.subtotal || 0) * getDocSign(inv), 0);
+  const salesVat = sales.reduce((acc: number, inv: any) => acc + Number(inv.vatAmountBase || inv.vatAmount || 0) * getDocSign(inv), 0);
 
-  const purchasesSubtotal = purchases.reduce((acc: number, bill: any) => acc + Number(bill.subtotal || 0), 0);
-  const purchasesVat = purchases.reduce((acc: number, bill: any) => acc + Number(bill.vatAmount || 0), 0);
+  const purchasesSubtotal = purchases.reduce((acc: number, bill: any) => acc + Number(bill.subtotalBase || bill.subtotal || 0) * getDocSign(bill), 0);
+  const purchasesVat = purchases.reduce((acc: number, bill: any) => acc + Number(bill.vatAmountBase || bill.vatAmount || 0) * getDocSign(bill), 0);
 
   const netVatPayable = salesVat - purchasesVat;
   const isPayable = netVatPayable >= 0;

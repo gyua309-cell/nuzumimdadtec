@@ -204,12 +204,16 @@ export const defaultAccountsList = [
   { id: 'acc-104', code: '10301', nameAr: 'العملاء وحسابات القبض التجارية (A/R)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-105', code: '110301', nameAr: 'إيرادات مستحقة غير مفوترة (Unbilled Revenue)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-106', code: '10401', nameAr: 'العهد النقدية وسلف الموظفين (Loans)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
+  { id: 'acc-125', code: '1250', nameAr: 'ضريبة القيمة المضافة للمدخلات (Input VAT)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
+  { id: 'acc-131', code: '1310', nameAr: 'عهد نقدية ومصروفات تشغيلية — فرع مصر', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'EGP', isActive: true },
+  { id: 'acc-132', code: '1320', nameAr: 'عهد نقدية ومصروفات تشغيلية — الإدارة', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-107', code: '10501', nameAr: 'الأصول الثابتة (أجهزة ومعدات تقنية)', accountClass: 'ASSET', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-108', code: '10502', nameAr: 'مجمع إهلاك الأصول الثابتة', accountClass: 'ASSET', normalBalance: 'CREDIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-201', code: '20101', nameAr: 'الموردون وحسابات الدفع (A/P)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-202', code: '20201', nameAr: 'ضريبة القيمة المضافة المستحقة (ZATCA VAT)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-203', code: '20301', nameAr: 'مستحقات التأمينات الاجتماعية (GOSI)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-204', code: '20401', nameAr: 'رواتب وأجور مستحقة الدفع (Payroll Payable)', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
+  { id: 'acc-205', code: '20501', nameAr: 'مخصص الزكاة وضريبة الدخل المستحقة', accountClass: 'LIABILITY', normalBalance: 'CREDIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-301', code: '30101', nameAr: 'رأس المال المدفوع', accountClass: 'EQUITY', normalBalance: 'CREDIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-302', code: '30201', nameAr: 'الأرباح المبقاة', accountClass: 'EQUITY', normalBalance: 'CREDIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-401', code: '40101', nameAr: 'إيرادات عقود ومشاريع الكوادر التقنية', accountClass: 'REVENUE', normalBalance: 'CREDIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
@@ -218,7 +222,70 @@ export const defaultAccountsList = [
   { id: 'acc-501', code: '50101', nameAr: 'تكلفة المطورين والرواتب المباشرة للمشاريع', accountClass: 'DIRECT_COST', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-502', code: '50201', nameAr: 'تكلفة التأمينات والبدلات والمزايا المباشرة', accountClass: 'DIRECT_COST', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-503', code: '50301', nameAr: 'مصروف إهلاك الأصول والمعدات التشغيلية', accountClass: 'OPERATING_EXPENSE', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
+  { id: 'acc-504', code: '50401', nameAr: 'مصروفات تشغيلية ومشتريات واستضافة سحابية', accountClass: 'OPERATING_EXPENSE', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
+  { id: 'acc-505', code: '50501', nameAr: 'مصروف الزكاة الشرعية وضريبة الدخل', accountClass: 'OPERATING_EXPENSE', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
   { id: 'acc-570', code: '5700', nameAr: 'خسائر فروق أسعار صرف العملات المحققة (FX Losses)', accountClass: 'OTHER_EXPENSE', normalBalance: 'DEBIT', isPosting: true, level: 2, currentBalance: '0.00', currency: 'SAR', isActive: true },
+];
+
+export const defaultBankAccountsList = [
+  {
+    id: 'bnk-sar-01',
+    code: 'BNK-KSA-01',
+    name: 'حساب البنك الرئيسي — الرياض (SAR)',
+    kind: 'BANK',
+    bankName: 'مصرف الراجحي / البنك الأهلي التجاري',
+    accountNumber: 'SA00-1020-1000-01',
+    iban: null,
+    currencyCode: 'SAR',
+    glAccountId: 'acc-102',
+    glAccountCode: '10201',
+    glAccountNameAr: 'النقدية بالبنوك (ريال سعودي)',
+    isActive: true,
+  },
+  {
+    id: 'bnk-egp-01',
+    code: 'BNK-EGY-01',
+    name: 'حساب البنك التشغيلي — القاهرة (EGP)',
+    kind: 'BANK',
+    bankName: 'بنك مصر / البنك التجاري الدولي (CIB)',
+    accountNumber: 'EG00-1020-2000-02',
+    iban: null,
+    currencyCode: 'EGP',
+    glAccountId: 'acc-103',
+    glAccountCode: '10202',
+    glAccountNameAr: 'النقدية بالبنوك (جنيه مصري)',
+    isActive: true,
+  },
+  {
+    id: 'bnk-cash-01',
+    code: 'CSH-HQ-01',
+    name: 'الصندوق النقدي المركزي (SAR)',
+    kind: 'CASH',
+    bankName: 'الخزينة النقدية المركزية',
+    accountNumber: 'CASH-10101',
+    iban: null,
+    currencyCode: 'SAR',
+    glAccountId: 'acc-101',
+    glAccountCode: '10101',
+    glAccountNameAr: 'الصندوق والعهد النقدية',
+    isActive: true,
+  },
+];
+
+export const defaultAssetCategoriesList = [
+  {
+    id: 'acat-it',
+    code: 'IT-EQUIP',
+    nameAr: 'أجهزة حاسب ومعدات تقنية',
+    nameEn: 'IT & Technical Equipment',
+    assetAccountId: 'acc-107',
+    accumAccountId: 'acc-108',
+    expenseAccountId: 'acc-503',
+    defaultUsefulLifeMonths: 36,
+    defaultMethod: 'STRAIGHT_LINE',
+    includeInEmployeeCost: true,
+    isActive: true,
+  },
 ];
 
 export const defaultFiscalPeriodsList = [
@@ -283,13 +350,54 @@ export function getNormalizedAccounts(): any[] {
   for (const d of defaultAccountsList) {
     if (!byCode.has(d.code)) merged.push(d);
   }
-  return merged.map((a) => {
-    if (a.accountClass === 'EXPENSE') {
-      if (a.code === '50101' || a.code === '50201') return { ...a, accountClass: 'DIRECT_COST' };
-      if (a.code === '5700') return { ...a, accountClass: 'OTHER_EXPENSE' };
-      return { ...a, accountClass: 'OPERATING_EXPENSE' };
+
+  // Compute live GL balances directly from POSTED journal entries (zero hardcoded balances)
+  const jes = getEntityList<any>('journal_entries', []).filter((j) => j.status === 'POSTED');
+  const baseSums = new Map<string, { dr: number; cr: number }>();
+  const txSums = new Map<string, { dr: number; cr: number }>();
+
+  for (const je of jes) {
+    const lines = Array.isArray(je.lines) ? je.lines : [];
+    for (const l of lines) {
+      const code = l.accountCode || '';
+      const id = l.accountId || '';
+      const dB = Number(l.debitBase ?? l.debit ?? 0);
+      const cB = Number(l.creditBase ?? l.credit ?? 0);
+      const dT = Number(l.debitTx ?? l.debit ?? dB);
+      const cT = Number(l.creditTx ?? l.credit ?? cB);
+      for (const k of [id, code]) {
+        if (!k) continue;
+        const prevB = baseSums.get(k) || { dr: 0, cr: 0 };
+        baseSums.set(k, { dr: prevB.dr + dB, cr: prevB.cr + cB });
+        const prevT = txSums.get(k) || { dr: 0, cr: 0 };
+        txSums.set(k, { dr: prevT.dr + dT, cr: prevT.cr + cT });
+      }
     }
-    return a;
+  }
+
+  return merged.map((a) => {
+    let accountClass = a.accountClass;
+    if (accountClass === 'EXPENSE') {
+      if (a.code === '50101' || a.code === '50201') accountClass = 'DIRECT_COST';
+      else if (a.code === '5700') accountClass = 'OTHER_EXPENSE';
+      else accountClass = 'OPERATING_EXPENSE';
+    }
+    const cur = a.currencyCode || a.currency || 'SAR';
+    const bSum = baseSums.get(a.id) || baseSums.get(a.code) || { dr: 0, cr: 0 };
+    const tSum = txSums.get(a.id) || txSums.get(a.code) || { dr: 0, cr: 0 };
+    const isDebitNormal = a.normalBalance !== 'CREDIT';
+    const netBase = isDebitNormal ? (bSum.dr - bSum.cr) : (bSum.cr - bSum.dr);
+    const netTx = isDebitNormal ? (tSum.dr - tSum.cr) : (tSum.cr - tSum.dr);
+    const liveBalance = cur !== getBaseCurrencyCode() && (tSum.dr > 0 || tSum.cr > 0) ? netTx : netBase;
+
+    return {
+      ...a,
+      accountClass,
+      currency: cur,
+      currencyCode: cur,
+      currentBalance: liveBalance.toFixed(2),
+      currentBalanceBase: netBase.toFixed(2),
+    };
   });
 }
 

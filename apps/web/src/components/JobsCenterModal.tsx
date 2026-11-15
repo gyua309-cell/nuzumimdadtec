@@ -27,16 +27,16 @@ export const JobsCenterButton: React.FC = () => {
     <>
       <button
         type="button"
-        className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+        className={`relative flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-xs font-semibold transition-all cursor-pointer ${
           runningCount > 0
             ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse'
-            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            : 'text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 bg-slate-50/90 dark:bg-[#0f172a] hover:bg-slate-100 dark:hover:bg-slate-800'
         }`}
         onClick={() => setOpen(true)}
         title="مركز المهام والتصدير الخلفي"
       >
-        <Activity className={`size-3.5 ${runningCount > 0 ? 'animate-spin' : ''}`} />
-        <span className="hidden sm:inline">مركز المهام</span>
+        <Activity className={`size-3.5 shrink-0 ${runningCount > 0 ? 'animate-spin' : ''}`} />
+        <span className="hidden 2xl:inline whitespace-nowrap">المهام</span>
         {runningCount > 0 ? (
           <span className="flex size-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
             {runningCount}

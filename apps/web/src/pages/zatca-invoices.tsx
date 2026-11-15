@@ -238,9 +238,9 @@ export function ZatcaInvoicesPage() {
                             <FileCode className="size-3.5 text-blue-600" /> XML
                           </button>
 
-                          {inv.hasQr && (
+                          {(inv.hasQr || inv.zatcaQrCode) && (
                             <button
-                              onClick={() => viewQr(inv.hash || 'mockQr', inv.invoiceNo)}
+                              onClick={() => viewQr(inv.zatcaQrCode || inv.hash || '', inv.invoiceNo)}
                               className="btn-secondary text-xs py-1.5 px-2.5 flex items-center gap-1 text-slate-700 dark:text-slate-200"
                               title="فحص رمز QR المشفر"
                             >

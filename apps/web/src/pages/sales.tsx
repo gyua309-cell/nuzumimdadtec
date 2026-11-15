@@ -12,6 +12,7 @@ import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { ZatcaTaxInvoiceTemplate, exportInvoiceToExcel } from '../components/ZatcaTaxInvoiceTemplate';
 import { ExportMenu } from '../components/ExportMenu';
+import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
 
 import { PrintEngine } from '../engine/print-engine';
 import {
@@ -1316,6 +1317,7 @@ export function InvoiceDetailPage() {
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [creditNoteOpen, setCreditNoteOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const [copiedIban, setCopiedIban] = useState(false);
   const [printMode, setPrintMode] = useState<'A4' | 'THERMAL_80MM'>('A4');
 
@@ -1426,6 +1428,15 @@ export function InvoiceDetailPage() {
             </button>
           )}
 
+          {inv.status === 'POSTED' && !isCreditNote && inv.paymentStatus !== 'PAID' && (
+            <button
+              className="btn-primary bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 text-xs shadow-sm"
+              onClick={() => setPaymentOpen(true)}
+            >
+              <Wallet className="size-3.5" /> تحصيل دفعة / سند قبض
+            </button>
+          )}
+
           {inv.status === 'POSTED' && !isCreditNote && (
             <button
               className="btn-secondary flex items-center gap-1.5 text-xs"
@@ -1488,12 +1499,68 @@ export function InvoiceDetailPage() {
         </div>
       </div>
 
+      {/* Payment Receipts History */}
+      {Array.isArray((inv as any).payments) && (inv as any).payments.length > 0 && (
+        <div className="print:hidden card p-4 border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-bold text-xs text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+              <Wallet className="size-3.5 text-emerald-600" /> سجل التحصيلات البنكية وسندات القبض
+            </h4>
+            <Badge color={inv.paymentStatus === 'PAID' ? 'green' : 'amber'}>
+              {inv.paymentStatus === 'PAID' ? 'مسددة بالكامل' : 'مسددة جزئياً'} — المحصّل: {money(inv.paidAmount)}
+            </Badge>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table text-xs">
+              <thead><tr><th>التاريخ</th><th>المرجع</th><th>المبلغ</th><th>الحساب</th><th>القيد المحاسبي</th></tr></thead>
+              <tbody>
+                {(inv as any).payments.map((p: any) => (
+                  <tr key={p.id}>
+                    <td className="num">{p.paymentDate}</td>
+                    <td className="font-mono">{p.reference}</td>
+                    <td className="num font-bold text-emerald-700 dark:text-emerald-400">{money(p.amount)}</td>
+                    <td className="font-mono">{p.bankGlCode}</td>
+                    <td>
+                      {p.journalEntryId && (
+                        <Link to={`/acc/journals/${p.journalEntryId}`} className="text-brand-600 hover:underline font-mono">
+                          {p.journalEntryNo || 'عرض القيد'}
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Official Executive ZATCA Tax Invoice Document (Print Ready) */}
       <ZatcaTaxInvoiceTemplate
         invoice={inv}
         mode={printMode}
         copiedIban={copiedIban}
         onCopyIban={copyIban}
+      />
+
+      {/* Treasury Customer Receipt Modal */}
+      <TreasuryPaymentModal
+        open={paymentOpen}
+        mode="RECEIPT"
+        invoiceId={inv.id}
+        invoiceNo={inv.invoiceNo}
+        partyName={inv.clientName}
+        totalAmount={Number(inv.totalAmount || 0)}
+        paidAmount={Number(inv.paidAmount || 0)}
+        currencyCode={inv.currencyCode || 'SAR'}
+        onClose={() => setPaymentOpen(false)}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['/invoices', id] });
+          qc.invalidateQueries({ queryKey: ['/invoices'] });
+          qc.invalidateQueries({ queryKey: ['/bank-accounts'] });
+          qc.invalidateQueries({ queryKey: ['bank-accounts-hub'] });
+          qc.invalidateQueries({ queryKey: ['accounts'] });
+        }}
       />
 
       {/* Credit Note Modal */}

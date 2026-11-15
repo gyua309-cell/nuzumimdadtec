@@ -8,6 +8,8 @@ import {
   defaultCostComponentsList,
   defaultCostProfilesList,
   defaultFiscalPeriodsList,
+  defaultBankAccountsList,
+  defaultAssetCategoriesList,
   getOverheadPolicy,
   saveOverheadPolicy,
   getNormalizedAccounts,
@@ -24,6 +26,84 @@ import {
   computeAccountStatement,
   evaluatePeriodClosingChecks,
 } from './fallback-engine';
+import {
+  activateAssetItem,
+  addCustodyExpenseLine,
+  assignAssetCustody,
+  autoGenerateSalesInvoicesFromAssignments,
+  batchTransmitZatcaInvoices,
+  buildZatcaUblXml,
+  cancelDepreciationRunItem,
+  cancelPurchaseInvoiceItem,
+  cancelSalesInvoice,
+  cancelZakatReturnItem,
+  closeCustodyItem,
+  computeCashFlowSummary,
+  computeCustodiesReport,
+  computeVatReturnSummary,
+  computeZakatSummary,
+  convertCustodyItem,
+  createAssetItem,
+  createCreditNoteAndPost,
+  createCustodyItem,
+  createDebitNoteAndPost,
+  createPurchaseInvoiceItem,
+  createSalesInvoice,
+  decodeZatcaTlv,
+  deleteCustodyExpenseLine,
+  disburseCustodyItem,
+  disposeAssetItem,
+  executeDepreciationRun,
+  getZatcaLiveStatus,
+  getZatcaSettings,
+  getZakatSettings,
+  onboardZatcaSettings,
+  payPurchaseInvoiceItem,
+  postPurchaseInvoiceItem,
+  postSalesInvoice,
+  postZakatReturnItem,
+  previewDepreciationRun,
+  recordSalesInvoicePayment,
+  repairSalesInvoiceJournal,
+  returnAssetCustody,
+  saveZakatReturnDraft,
+  saveZakatSettings,
+  settleCustodyExpenses,
+  transmitZatcaInvoice,
+} from './cycle-engine';
+
+/** Filters sales/purchase invoice collections by status, ZATCA state, and fiscal period (ID or date window). */
+function filterInvoicesByQuery(items: any[], path: string, opts?: { isZatca?: boolean }): any[] {
+  const qStr = path.includes('?') ? path.split('?')[1] : '';
+  const params = new URLSearchParams(qStr);
+  const statusFilter = params.get('status');
+  const fiscalPeriodId = params.get('fiscalPeriodId') || params.get('periodId');
+
+  let result = items;
+  if (opts?.isZatca) {
+    result = result.filter((i: any) => i.status === 'POSTED');
+    if (statusFilter && statusFilter !== 'ALL') {
+      result = result.filter((i: any) => (i.zatcaStatus || 'NOT_SUBMITTED') === statusFilter);
+    }
+  } else if (statusFilter) {
+    result = result.filter((i: any) => i.status === statusFilter);
+  }
+
+  if (fiscalPeriodId) {
+    const resolved = resolvePeriodByIdOrDate(fiscalPeriodId, null);
+    const targetStart = resolved?.startDate ? String(resolved.startDate).slice(0, 10) : '';
+    const targetEnd = resolved?.endDate ? String(resolved.endDate).slice(0, 10) : '';
+    result = result.filter((item: any) => {
+      if (item.fiscalPeriodId) {
+        return item.fiscalPeriodId === fiscalPeriodId || (resolved && item.fiscalPeriodId === resolved.id);
+      }
+      const docDate = String(item.issueDate || item.invoiceDate || item.date || item.createdAt || '').slice(0, 10);
+      return Boolean(targetStart && targetEnd && docDate && docDate >= targetStart && docDate <= targetEnd);
+    });
+  }
+
+  return result;
+}
 
 /**
  * Clean Production In-Browser Engine (GitHub Pages)
@@ -1059,155 +1139,190 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
     }
 
-    // Specific Action Endpoints for ZATCA & Invoices
-    if (path.includes('/zatca/invoices/') && path.endsWith('/transmit')) {
-      const parts = path.split('/');
+    const cleanActionPath = path.split('?')[0].replace(/\/$/, '');
+
+    // --- ZATCA Operations ---
+    if (cleanActionPath.includes('/zatca/onboard')) {
+      return onboardZatcaSettings(body);
+    }
+    if (cleanActionPath.includes('/zatca/decode-qr')) {
+      return decodeZatcaTlv(body?.qrBase64 || '');
+    }
+    if (cleanActionPath.includes('/zatca/invoices/batch-transmit')) {
+      return batchTransmitZatcaInvoices();
+    }
+    if (cleanActionPath.includes('/zatca/invoices/') && cleanActionPath.endsWith('/transmit')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
       const tIdx = parts.findIndex((p) => p === 'transmit');
-      const invId = tIdx > 0 ? parts[tIdx - 1] : parts.pop();
-      const invList = getEntityList('invoices', []);
-      const inv = invList.find((i) => i.id === invId || i.invoiceNo === invId);
-      if (inv) {
-        inv.zatcaStatus = inv.invoiceType === 'SIMPLIFIED' ? 'REPORTED' : 'CLEARED';
-        inv.status = 'POSTED';
-        inv.submittedAt = new Date().toISOString();
-        inv.zatcaHash = '4a7f9b8c2e1d5a3f6b9c8d7e4a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b';
-        saveEntityItem('invoices', inv);
-
-        saveEntityItem('zatca_submissions', {
-          id: `sub-${Date.now()}`,
-          invoiceId: inv.id,
-          invoiceNo: inv.invoiceNo,
-          submissionType: inv.invoiceType === 'SIMPLIFIED' ? 'REPORTING' : 'CLEARANCE',
-          status: inv.zatcaStatus,
-          submittedAt: inv.submittedAt,
-        });
-      }
-      return {
-        success: true,
-        invoiceNo: inv?.invoiceNo || 'INV-2026-0001',
-        zatcaStatus: inv?.zatcaStatus || 'CLEARED',
-        submittedAt: inv?.submittedAt || new Date().toISOString(),
-      };
+      return transmitZatcaInvoice(tIdx > 0 ? parts[tIdx - 1] : parts.pop() || '');
     }
 
-    if (path.includes('/zatca/invoices/batch-transmit')) {
-      const invList = getEntityList('invoices', []);
-      let cleared = 0;
-      let reported = 0;
-      for (const inv of invList) {
-        if (inv.zatcaStatus !== 'CLEARED' && inv.zatcaStatus !== 'REPORTED') {
-          if (inv.invoiceType === 'SIMPLIFIED') {
-            inv.zatcaStatus = 'REPORTED';
-            reported++;
-          } else {
-            inv.zatcaStatus = 'CLEARED';
-            cleared++;
-          }
-          inv.status = 'POSTED';
-          inv.submittedAt = new Date().toISOString();
-          inv.zatcaHash = '4a7f9b8c2e1d5a3f6b9c8d7e4a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b';
-          saveEntityItem('invoices', inv);
-        }
-      }
-      return { success: true, processed: cleared + reported, cleared, reported };
+    // --- Sales Invoices, Customer Receipts & Credit Notes ---
+    if (cleanActionPath.includes('/invoices/auto-generate')) {
+      return autoGenerateSalesInvoicesFromAssignments(body);
     }
-
-    // Specific Action Endpoints for Invoices
-    if (path.includes('/invoices/') && (path.endsWith('/post') || path.includes('/post'))) {
-      const parts = path.split('/');
+    if (cleanActionPath.includes('/invoices/') && cleanActionPath.endsWith('/payments')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const pIdx = parts.findIndex((p) => p === 'payments');
+      return recordSalesInvoicePayment(parts[pIdx - 1], body);
+    }
+    if (cleanActionPath.includes('/invoices/') && cleanActionPath.endsWith('/post')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
       const postIdx = parts.findIndex((p) => p === 'post');
-      const targetId = postIdx > 0 ? parts[postIdx - 1] : parts.pop();
-      const invList = getEntityList('invoices', []);
-      const inv = invList.find((i) => i.id === targetId || i.invoiceNo === targetId);
-      if (inv) {
-        inv.status = 'POSTED';
-        inv.journalEntryId = inv.journalEntryId || `je-inv-${Date.now()}`;
-        saveEntityItem('invoices', inv);
-      }
-      return { success: true, status: 'POSTED', journalEntryId: inv?.journalEntryId || `je-inv-${Date.now()}` };
+      return postSalesInvoice(parts[postIdx - 1]);
     }
-
-    if (path.includes('/invoices/') && (path.endsWith('/cancel') || path.includes('/cancel'))) {
-      const parts = path.split('/');
+    if (cleanActionPath.includes('/invoices/') && cleanActionPath.endsWith('/cancel')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
       const cancelIdx = parts.findIndex((p) => p === 'cancel');
-      const targetId = cancelIdx > 0 ? parts[cancelIdx - 1] : parts.pop();
-      const invList = getEntityList('invoices', []);
-      const inv = invList.find((i) => i.id === targetId || i.invoiceNo === targetId);
-      if (inv) {
-        inv.status = 'CANCELLED';
-        saveEntityItem('invoices', inv);
-      }
-      return { success: true, status: 'CANCELLED' };
+      return cancelSalesInvoice(parts[cancelIdx - 1], body?.reason);
     }
-
-    if (path.includes('/invoices/') && (path.endsWith('/repair-journal') || path.includes('/repair-journal'))) {
-      const parts = path.split('/');
+    if (cleanActionPath.includes('/invoices/') && cleanActionPath.endsWith('/repair-journal')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
       const repairIdx = parts.findIndex((p) => p === 'repair-journal');
-      const targetId = repairIdx > 0 ? parts[repairIdx - 1] : parts.pop();
-      const invList = getEntityList('invoices', []);
-      const inv = invList.find((i) => i.id === targetId || i.invoiceNo === targetId);
-      if (inv) {
-        inv.journalEntryId = `je-inv-${Date.now()}`;
-        saveEntityItem('invoices', inv);
-      }
-      return { success: true, journalEntryId: inv?.journalEntryId || `je-inv-${Date.now()}` };
+      return repairSalesInvoiceJournal(parts[repairIdx - 1]);
+    }
+    if ((cleanActionPath === '/invoices' || cleanActionPath === '/sal/invoices') && method === 'POST') {
+      return createSalesInvoice(body);
+    }
+    if (cleanActionPath === '/credit-notes' && method === 'POST') {
+      return createCreditNoteAndPost(body);
     }
 
-    if (path.includes('/invoices/auto-generate')) {
-      const projects = getEntityList('projects', []);
-      const clients = getEntityList('clients', defaultClients);
-      let count = 0;
-      let totalAmount = 0;
-      for (const prj of projects) {
-        const cli = clients.find((c) => c.id === prj.clientId) || { nameAr: prj.clientName || 'عميل' };
-        const invCount = getEntityList('invoices', []).length + 1;
-        saveEntityItem('invoices', {
-          id: `inv-${Date.now()}-${count}`,
-          invoiceNo: `INV-2026-${String(invCount).padStart(4, '0')}`,
-          invoiceType: 'TAX_INVOICE',
-          invoiceSubType: 'STANDARD',
-          clientId: prj.clientId || 'cli-001',
-          clientName: cli.nameAr,
-          clientVatNumber: '310123456700003',
-          projectId: prj.id,
-          projectName: prj.nameAr,
-          fiscalPeriodId: body?.fiscalPeriodId || 'fp-2026-10',
-          issueDate: body?.issueDate || new Date().toISOString().slice(0, 10),
-          currencyCode: prj.currencyCode || 'SAR',
-          subtotal: '25000.00',
-          taxableAmount: '25000.00',
-          vatRate: '15.00',
-          vatAmount: '3750.00',
-          totalAmount: '28750.00',
-          status: body?.autoPost ? 'POSTED' : 'DRAFT',
-          paymentStatus: 'UNPAID',
-          paidAmount: '0.00',
-          journalEntryId: body?.autoPost ? `je-${Date.now()}` : undefined,
-          lines: [
-            {
-              id: `line-${Date.now()}-1`,
-              lineNo: 1,
-              description: `خدمات تطوير برمجيات وإسناد كوادر - مشروع ${prj.nameAr}`,
-              quantity: 1,
-              unitPrice: 25000,
-              discountPct: 0,
-              subtotal: '25000.00',
-              vatRate: 15,
-              vatAmount: '3750.00',
-              total: '28750.00',
-            },
-          ],
-        });
-        count++;
-        totalAmount += 28750;
-      }
-      return { success: true, count, totalAmount };
+    // --- Purchase Invoices, Vendor Payments & Debit Notes ---
+    if (cleanActionPath.includes('/purchase-invoices/') && cleanActionPath.endsWith('/post')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const postIdx = parts.findIndex((p) => p === 'post');
+      return postPurchaseInvoiceItem(parts[postIdx - 1]);
+    }
+    if (cleanActionPath.includes('/purchase-invoices/') && (cleanActionPath.endsWith('/pay') || cleanActionPath.endsWith('/payments'))) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const pIdx = parts.findIndex((p) => p === 'pay' || p === 'payments');
+      return payPurchaseInvoiceItem(parts[pIdx - 1], body);
+    }
+    if ((cleanActionPath.includes('/purchase-invoices/') || cleanActionPath.includes('/pur/invoices/')) && cleanActionPath.endsWith('/cancel')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const cIdx = parts.findIndex((p) => p === 'cancel');
+      return cancelPurchaseInvoiceItem(parts[cIdx - 1], body?.reason);
+    }
+    if ((cleanActionPath === '/purchase-invoices' || cleanActionPath === '/pur/invoices') && method === 'POST') {
+      return createPurchaseInvoiceItem(body);
+    }
+    if (cleanActionPath === '/debit-notes' && method === 'POST') {
+      return createDebitNoteAndPost(body);
+    }
+
+    // --- Fixed Assets & Depreciation Runs ---
+    if (cleanActionPath.includes('/assets/') && cleanActionPath.endsWith('/activate')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const idx = parts.findIndex((p) => p === 'activate');
+      return activateAssetItem(parts[idx - 1], body);
+    }
+    if (cleanActionPath.includes('/assets/') && cleanActionPath.endsWith('/custody/return')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const idx = parts.findIndex((p) => p === 'custody');
+      return returnAssetCustody(parts[idx - 1], body);
+    }
+    if (cleanActionPath.includes('/assets/') && cleanActionPath.endsWith('/custody')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const idx = parts.findIndex((p) => p === 'custody');
+      return assignAssetCustody(parts[idx - 1], body);
+    }
+    if (cleanActionPath.includes('/assets/') && cleanActionPath.endsWith('/dispose')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const idx = parts.findIndex((p) => p === 'dispose');
+      return disposeAssetItem(parts[idx - 1], body);
+    }
+    if (cleanActionPath === '/assets' && method === 'POST') {
+      return createAssetItem(body);
+    }
+    if (cleanActionPath.includes('/depreciation-runs/') && cleanActionPath.endsWith('/cancel')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const idx = parts.findIndex((p) => p === 'cancel');
+      return cancelDepreciationRunItem(parts[idx - 1], body?.reason);
+    }
+    if (cleanActionPath === '/depreciation-runs' && method === 'POST') {
+      return executeDepreciationRun(body);
+    }
+
+    // --- Custodies Lifecycle ---
+    if (cleanActionPath.includes('/custodies/') && cleanActionPath.endsWith('/disburse')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return disburseCustodyItem(parts[1], body);
+    }
+    if (cleanActionPath.includes('/custodies/') && (cleanActionPath.endsWith('/conversion') || cleanActionPath.endsWith('/transfers'))) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return convertCustodyItem(parts[1], body);
+    }
+    if (cleanActionPath.includes('/custodies/') && cleanActionPath.includes('/lines/') && method === 'DELETE') {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const lIdx = parts.findIndex((p) => p === 'lines');
+      return deleteCustodyExpenseLine(parts[1], parts[lIdx + 1]);
+    }
+    if (cleanActionPath.includes('/custodies/') && cleanActionPath.endsWith('/lines') && method === 'POST') {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return addCustodyExpenseLine(parts[1], body);
+    }
+    if (cleanActionPath.includes('/custodies/') && (cleanActionPath.endsWith('/settle') || cleanActionPath.endsWith('/settlements'))) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return settleCustodyExpenses(parts[1], body);
+    }
+    if (cleanActionPath.includes('/custodies/') && cleanActionPath.endsWith('/close')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return closeCustodyItem(parts[1], body);
+    }
+    if (cleanActionPath === '/custodies' && method === 'POST') {
+      return createCustodyItem(body);
+    }
+
+    // --- Zakat Settings, Calculations & Returns ---
+    if (cleanActionPath.includes('/zakat/settings')) {
+      return saveZakatSettings(body);
+    }
+    if (cleanActionPath.includes('/zakat/calculate')) {
+      return computeZakatSummary(body);
+    }
+    if (cleanActionPath.includes('/zakat/returns/') && cleanActionPath.endsWith('/post')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const idx = parts.findIndex((p) => p === 'post');
+      return postZakatReturnItem(parts[idx - 1]);
+    }
+    if (cleanActionPath.includes('/zakat/returns/') && cleanActionPath.endsWith('/cancel')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      const idx = parts.findIndex((p) => p === 'cancel');
+      return cancelZakatReturnItem(parts[idx - 1], body?.reason);
+    }
+    if (cleanActionPath === '/zakat/returns' && method === 'POST') {
+      return saveZakatReturnDraft(body);
+    }
+
+    // --- Bank Accounts & Inter-Bank Transfers ---
+    if ((cleanActionPath === '/bank-accounts' || cleanActionPath === '/banks') && method === 'POST') {
+      getEntityList('bank_accounts', defaultBankAccountsList);
+      const gl = getNormalizedAccounts().find((a) => a.id === body?.glAccountId || a.code === body?.glAccountId);
+      return saveEntityItem('bank_accounts', {
+        id: body?.id || `bnk-${Date.now()}`,
+        isActive: true,
+        ...body,
+        glAccountCode: gl?.code || body?.glAccountCode || '10201',
+        glAccountNameAr: gl?.nameAr || body?.glAccountNameAr || 'النقدية بالبنوك',
+      });
+    }
+    if (cleanActionPath === '/bank-transfers' && method === 'POST') {
+      const jes = getEntityList<any>('journal_entries', []);
+      const linkedJe = jes.find((j) => j.id === body?.journalEntryId);
+      return saveEntityItem('bank_transfers', {
+        id: `trf-${Date.now()}`,
+        ...body,
+        journalEntryNo: body?.journalEntryNo || linkedJe?.entryNo || 'JE-AUTO',
+        createdAt: new Date().toISOString(),
+      });
     }
 
     if (targetKey) {
       if (targetKey === 'exchange_rates') getEntityList('exchange_rates', defaultExchangeRatesList);
       if (targetKey === 'cost_components') getEntityList('cost_components', defaultCostComponentsList);
       if (targetKey === 'cost_profiles') getEntityList('cost_profiles', defaultCostProfilesList);
+      if (targetKey === 'asset_categories') getEntityList('asset_categories', defaultAssetCategoriesList);
       if (method === 'DELETE') {
         const id = path.split('?')[0].split('/').filter(Boolean).pop();
         if (id) {
@@ -2140,7 +2255,20 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/bank-accounts') || path.includes('/banks')) {
-    return makeList(getEntityList('bank_accounts', []));
+    const accounts = getNormalizedAccounts();
+    const accMap = new Map(accounts.map((a) => [a.id, a]));
+    const banks = getEntityList('bank_accounts', defaultBankAccountsList).map((b: any) => {
+      const gl = accMap.get(b.glAccountId) || accounts.find((a) => a.code === b.glAccountCode);
+      return {
+        ...b,
+        glAccountCode: gl?.code || b.glAccountCode || '10201',
+        glAccountNameAr: gl?.nameAr || b.glAccountNameAr || 'النقدية بالبنوك',
+      };
+    });
+    const cleanB = path.split('?')[0].replace(/\/$/, '');
+    const singleB = banks.find((b: any) => cleanB.endsWith(`/${b.id}`));
+    if (singleB) return singleB;
+    return makeList(banks);
   }
 
   if (path.includes('/bank-transfers')) {
@@ -2153,10 +2281,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const qStr = path.includes('?') ? path.split('?')[1] : '';
     const params = new URLSearchParams(qStr);
     const statusFilter = params.get('status');
+    const fromDate = params.get('fromDate');
+    const toDate = params.get('toDate');
     const jes = getEntityList<any>('journal_entries', []).map((j) => normalizeJournalEntry(j, accounts));
     const singleJe = jes.find((j) => cleanP.endsWith(`/${j.id}`) || (j.entryNo && cleanP.endsWith(`/${j.entryNo}`)));
     if (singleJe) return singleJe;
-    const filtered = statusFilter ? jes.filter((j) => j.status === statusFilter) : jes;
+    let filtered = statusFilter ? jes.filter((j) => j.status === statusFilter) : jes;
+    if (fromDate) filtered = filtered.filter((j) => String(j.entryDate) >= fromDate);
+    if (toDate) filtered = filtered.filter((j) => String(j.entryDate) <= toDate);
     filtered.sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)) || String(b.createdAt).localeCompare(String(a.createdAt)));
     return makeList(filtered);
   }
@@ -2214,11 +2346,17 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/invoices') || path.includes('/sal/invoices') || path.includes('/zatca/invoices')) {
-    const invs = getEntityList('invoices', []);
+    const cleanI = path.split('?')[0].replace(/\/$/, '');
+    const invs = getEntityList<any>('invoices', []);
     if (path.includes('/ubl-xml')) {
-      return { ublXml: '<?xml version="1.0" encoding="UTF-8"?><Invoice></Invoice>' };
+      const parts = cleanI.split('/').filter(Boolean);
+      const xmlIdx = parts.findIndex((p) => p === 'ubl-xml');
+      const targetId = xmlIdx > 0 ? parts[xmlIdx - 1] : '';
+      const inv = invs.find((i: any) => i.id === targetId || i.invoiceNo === targetId) || invs[0];
+      const ublXml = inv ? buildZatcaUblXml(inv) : '<?xml version="1.0" encoding="UTF-8"?><Invoice></Invoice>';
+      return { ublXml, hash: inv?.zatcaHash || sha256Hex(ublXml) };
     }
-    const single = invs.find((i: any) => path.endsWith(`/${i.id}`));
+    const single = invs.find((i: any) => cleanI.endsWith(`/${i.id}`) || cleanI.endsWith(`/${i.invoiceNo}`));
     if (single) {
       return {
         ...single,
@@ -2226,50 +2364,16 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         payments: Array.isArray(single.payments) ? single.payments : [],
       };
     }
-    return makeList(invs);
+    return makeList(filterInvoicesByQuery(invs, path, { isZatca: path.includes('/zatca/invoices') }));
   }
 
   // 13. ZATCA
   if (path.includes('/zatca/status')) {
-    const comp = getStoredCompany();
-    return {
-      connected: true,
-      environment: 'PRODUCTION',
-      csidStatus: 'PRODUCTION',
-      csidExpiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
-      deviceStatus: 'ACTIVE',
-      phase: 2,
-      lastSyncAt: new Date().toISOString(),
-      onboardedDevicesCount: 1,
-      totalInvoicesReported: 12,
-      totalInvoicesCleared: 8,
-      submittedCount: 20,
-      pendingCount: 0,
-      complianceRate: '100.00',
-      transmissionNoteAr: 'جميع معاملات الفوترة الإلكترونية مطابقة لمواصفات ومعايير هيئة الزكاة والضريبة والجمارك (ZATCA Phase 2).',
-      checklist: [
-        { key: 'vat', ok: true, labelAr: 'الرقم الضريبي للمنشأة', hintAr: comp.taxNumber || '310123456700003' },
-        { key: 'cr', ok: true, labelAr: 'السجل التجاري للمنشأة', hintAr: comp.commercialReg || '1010123456' },
-        { key: 'csid', ok: true, labelAr: 'شهادة إنتاج CSID مفعلة ومعتمدة', hintAr: 'تم إصدار الشهادة واعتمادها في بيئة الإنتاج' },
-        { key: 'egs', ok: true, labelAr: 'معرّف وحدة الحل التقني EGS', hintAr: 'الوحدة مسجلة برقم تسلسلي معتمد' },
-        { key: 'xml', ok: true, labelAr: 'توليد فواتير UBL 2.1 القياسية', hintAr: 'ترميز XML متوافق مع مواصفات الهيئة' },
-        { key: 'qr', ok: true, labelAr: 'رمز الاستجابة السريع المشفر (TLV)', hintAr: 'جاهز ومشفر مع كل فاتورة مبيعات' },
-      ],
-    };
+    return getZatcaLiveStatus();
   }
 
   if (path.includes('/zatca/settings')) {
-    const comp = getStoredCompany();
-    return {
-      environment: 'PRODUCTION',
-      vatNumber: comp.taxNumber || '310123456700003',
-      crNumber: comp.commercialReg || '1010123456',
-      egsUnitName: 'EGS-AZM-01',
-      egsSerialNo: 'AZM-KSA-2026-EGS-001',
-      csidStatus: 'PRODUCTION',
-      csidExpiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
-      hasCryptoKeys: true,
-    };
+    return getZatcaSettings();
   }
 
   if (path.includes('/zatca/submissions')) {
@@ -2277,23 +2381,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/zatca/decode-qr')) {
-    const comp = getStoredCompany();
-    return {
-      sellerName: comp.nameAr,
-      vatNumber: comp.taxNumber || '310123456700003',
-      timestamp: new Date().toISOString(),
-      totalAmount: '0.00',
-      vatAmount: '0.00',
-      hashValid: true,
-      signatureValid: true,
-      tags: {
-        sellerName: comp.nameAr,
-        vatNumber: comp.taxNumber || '310123456700003',
-        timestamp: new Date().toISOString(),
-        totalAmount: '0.00',
-        vatAmount: '0.00',
-      },
-    };
+    return decodeZatcaTlv('');
   }
 
   // 14. Purchases & Vendors
@@ -2306,7 +2394,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/purchase-invoices') || path.includes('/pur/invoices')) {
     const pinvs = getEntityList('purchase_invoices', []);
-    const singlePinv: any = pinvs.find((p: any) => path.endsWith(`/${p.id}`));
+    const cleanPinvPath = path.split('?')[0];
+    const singlePinv: any = pinvs.find((p: any) => cleanPinvPath.endsWith(`/${p.id}`));
     if (singlePinv) {
       return {
         ...singlePinv,
@@ -2314,7 +2403,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         payments: Array.isArray(singlePinv.payments) ? singlePinv.payments : [],
       };
     }
-    return makeList(pinvs);
+    return makeList(filterInvoicesByQuery(pinvs, path));
   }
 
   if (path.includes('/debit-notes')) {
@@ -2484,12 +2573,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 16. Fixed Assets & Custodies
   if (path.includes('/asset-categories')) {
-    return makeList(getEntityList('asset_categories', []));
+    return makeList(getEntityList('asset_categories', defaultAssetCategoriesList));
   }
 
   if (path.includes('/assets')) {
+    const cleanA = path.split('?')[0].replace(/\/$/, '');
     const assets = getEntityList('assets', []);
-    const singleAst: any = assets.find((a: any) => path.endsWith(`/${a.id}`));
+    const singleAst: any = assets.find((a: any) => cleanA.endsWith(`/${a.id}`));
     if (singleAst) {
       return {
         ...singleAst,
@@ -2501,37 +2591,30 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/depreciation-runs')) {
-    if (path.includes('/preview')) {
-      return {
-        runCode: `DEP-${new Date().toISOString().slice(0, 7)}-PREV`,
-        periodName: 'الفترة الحالية',
-        assetCount: 0,
-        totalDepreciation: '0.00',
-        currency: 'SAR',
-      };
+    const cleanD = path.split('?')[0].replace(/\/$/, '');
+    if (cleanD.includes('/preview')) {
+      const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+      return previewDepreciationRun(p.get('periodId'));
     }
-    return makeList(getEntityList('depreciation_runs', []));
+    const runs = getEntityList<any>('depreciation_runs', []);
+    const singleRun = runs.find((r) => cleanD.endsWith(`/${r.id}`));
+    if (singleRun) return singleRun;
+    return makeList(runs);
   }
 
   if (path.includes('/custodies/report') || (path.includes('/custodies') && path.includes('/report'))) {
-    const custodies = getEntityList('custodies', []);
-    return {
-      kpis: {
-        totalCustodiesCount: custodies.length,
-        totalDisbursedSar: '0.00',
-        totalConvertedToEgp: '0.00',
-        totalSettledEgp: '0.00',
-        totalRemainingBalanceEgp: '0.00',
-      },
-      expenseBreakdown: [],
-      custodians: [],
-      rows: custodies,
-    };
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeCustodiesReport({
+      employeeId: p.get('employeeId') || undefined,
+      fromDate: p.get('fromDate') || undefined,
+      toDate: p.get('toDate') || undefined,
+    });
   }
 
   if (path.includes('/custodies')) {
+    const cleanC = path.split('?')[0].replace(/\/$/, '');
     const custodies = getEntityList('custodies', []);
-    const singleCst = custodies.find((c: any) => path.endsWith(`/${c.id}`));
+    const singleCst = custodies.find((c: any) => cleanC.endsWith(`/${c.id}`));
     if (singleCst) return singleCst;
     return makeList(custodies);
   }
@@ -2702,32 +2785,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/reports/cash-flow')) {
-    return {
-      operatingInflow: '0.00',
-      operatingOutflow: '0.00',
-      netOperating: '0.00',
-      investingInflow: '0.00',
-      investingOutflow: '0.00',
-      netInvesting: '0.00',
-      financingInflow: '0.00',
-      financingOutflow: '0.00',
-      netFinancing: '0.00',
-      netChangeInCash: '0.00',
-      beginningCash: '0.00',
-      endingCash: '0.00',
-    };
+    return computeCashFlowSummary();
   }
 
   if (path.includes('/reports/vat-return') || path.includes('/vat-report')) {
-    return {
-      period: 'الفترة الضريبية الحالية',
-      standardRatedSales: '0.00',
-      outputVat: '0.00',
-      standardRatedPurchases: '0.00',
-      inputVat: '0.00',
-      netVatDue: '0.00',
-      status: 'OPEN',
-    };
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeVatReturnSummary(p.get('fiscalPeriodId') || p.get('periodId'));
   }
 
   // 21. Zakat Declarations & Settings
@@ -2736,67 +2799,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/zakat/settings')) {
-    const comp = getStoredCompany();
-    return {
-      saudiGulfPct: '100.00',
-      foreignPct: '0.00',
-      zakatRatePct: '2.50',
-      incomeTaxRatePct: '20.00',
-      hijriYearDays: 354,
-      zakatTin: comp.taxNumber || '310123456700003',
-      calculationMethod: 'CAPITAL_BASE',
-      foreignOwnershipPct: '0.00',
-      hijriYearRatio: '2.577',
-    };
+    return getZakatSettings();
   }
 
   if (path.includes('/zakat/calculate') || path.includes('/zakat')) {
-    const year = new Date().getFullYear();
-    return {
-      periodFrom: `${year}-01-01`,
-      periodTo: `${year}-12-31`,
-      days: 365,
-      saudiGulfPct: '100.00',
-      foreignPct: '0.00',
-      effectiveZakatRatePct: '2.577',
-      adjustedNetProfit: '0.00',
-      baseBeforeDeductions: '0.00',
-      totalDeductions: '0.00',
-      zakatBaseRaw: '0.00',
-      zakatBase: '0.00',
-      baseFlooredToProfit: false,
-      zakatableBase: '0.00',
-      zakatDue: '0.00',
-      incomeTaxableProfit: '0.00',
-      incomeTaxDue: '0.00',
-      totalDue: '0.00',
-      ratePct: '2.577',
-      calculatedZakat: '0.00',
-      year,
-      status: 'CALCULATED',
-      lines: [
-        { key: 'openingEquity', labelAr: 'حقوق الملكية في بداية الفترة (رأس المال والأرباح المبقاة)', amount: '0.00', kind: 'ledger' },
-        { key: 'netProfitBeforeZakat', labelAr: 'صافي الربح للفترة قبل الزكاة (من دفتر الأستاذ)', amount: '0.00', kind: 'ledger' },
-        { key: 'provisionsAddBack', labelAr: 'يضاف: المخصصات المكوّنة خلال الفترة', amount: '0.00', kind: 'manual' },
-        { key: 'nonDeductibleExpenses', labelAr: 'يضاف: مصروفات غير قابلة للحسم', amount: '0.00', kind: 'manual' },
-        { key: 'otherDeductionsFromProfit', labelAr: 'يخصم: إيرادات/بنود معفاة من الربح', amount: '0.00', kind: 'manual' },
-        { key: 'adjustedNetProfit', labelAr: 'صافي الربح المعدّل', amount: '0.00', kind: 'subtotal' },
-        { key: 'longTermLiabilities', labelAr: 'يضاف: قروض والتزامات طويلة الأجل', amount: '0.00', kind: 'manual' },
-        { key: 'otherAdditionsToBase', labelAr: 'يضاف: بنود أخرى إلى الوعاء', amount: '0.00', kind: 'manual' },
-        { key: 'baseBeforeDeductions', labelAr: 'الوعاء قبل الحسميات', amount: '0.00', kind: 'subtotal' },
-        { key: 'netFixedAssets', labelAr: 'يخصم: صافي الأصول الثابتة (من دفتر الأستاذ)', amount: '0.00', kind: 'ledger' },
-        { key: 'investmentsDeduction', labelAr: 'يخصم: استثمارات', amount: '0.00', kind: 'manual' },
-        { key: 'otherNonCurrentAssetsDeduction', labelAr: 'يخصم: أصول غير متداولة أخرى', amount: '0.00', kind: 'manual' },
-        { key: 'carriedForwardLossesDeduction', labelAr: 'يخصم: خسائر مدورة', amount: '0.00', kind: 'manual' },
-        { key: 'dividendsDeduction', labelAr: 'يخصم: توزيعات أرباح', amount: '0.00', kind: 'manual' },
-        { key: 'zakatBase', labelAr: 'الوعاء الزكوي (لا يقل عن صافي الربح المعدّل)', amount: '0.00', kind: 'subtotal' },
-        { key: 'zakatableBase', labelAr: 'حصة الشركاء السعوديين/الخليجيين من الوعاء', amount: '0.00', kind: 'subtotal' },
-        { key: 'zakatDue', labelAr: 'الزكاة المستحقة', amount: '0.00', kind: 'result' },
-        { key: 'incomeTaxableProfit', labelAr: 'حصة الشريك الأجنبي من الربح الخاضع للضريبة', amount: '0.00', kind: 'subtotal' },
-        { key: 'incomeTaxDue', labelAr: 'ضريبة الدخل المستحقة', amount: '0.00', kind: 'result' },
-        { key: 'totalDue', labelAr: 'إجمالي المستحق (زكاة + ضريبة دخل)', amount: '0.00', kind: 'result' },
-      ],
-    };
+    return computeZakatSummary({});
   }
 
   if (path.includes('/snapshots')) {

@@ -189,13 +189,16 @@ export function CustodiesPage() {
     queryFn: () => api.get<any[]>('/employees', { pageSize: '100' }).then((r: any) => r.data || []),
   });
 
-  // Query: Bank accounts (class ASSET, parent of 1100/1110/1120)
+  // Query: Bank & Cash accounts (101xx / 102xx / 1100 / 1110 / 1120)
   const { data: bankAccounts = [] } = useQuery({
     queryKey: ['bank-accounts-picker'],
     enabled: needsPickers,
     staleTime: 5 * 60 * 1000,
     queryFn: () => api.get<any[]>('/accounts', { postingOnly: 'true' }).then((r: any) =>
-      (r || []).filter((a: any) => ['1100', '1110', '1120'].includes(a.code) || a.accountClass === 'ASSET' && a.code.startsWith('11'))
+      (r || []).filter((a: any) =>
+        ['1100', '1110', '1120', '10101', '10201', '10202'].includes(a.code) ||
+        (a.accountClass === 'ASSET' && (a.code.startsWith('101') || a.code.startsWith('102') || a.code.startsWith('111') || a.code.startsWith('112')))
+      )
     ),
   });
 
