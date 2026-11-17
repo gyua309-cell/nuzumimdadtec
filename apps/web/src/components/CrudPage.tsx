@@ -1,8 +1,8 @@
 import React, { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, AlignJustify, Download, Eye, FileSpreadsheet, List, Pencil, Plus,
-  Printer, RefreshCw, Save, Search, Trash2, Upload, X,
+  AlertTriangle, AlignJustify, Download, FileSpreadsheet, List, Pencil,
+  Printer, RefreshCw, Save, Search, Upload, X,
 } from 'lucide-react';
 import { api, ApiError, Page } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -18,7 +18,7 @@ import {
   validateFieldValue,
 } from './FormPrimitives';
 import {
-  Badge, ConfirmDialog, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Spinner, useToast,
+  ActionButton, ActionGroup, AddButton, Badge, ConfirmDialog, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Spinner, useToast,
 } from './ui';
 
 export type Option = { value: string; label: string };
@@ -1054,13 +1054,10 @@ export function CrudPage({
             >
               <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
             </button>
-            <button
-              type="button"
-              className="btn-primary text-xs flex items-center gap-1.5"
+            <AddButton
+              label={`إضافة ${entityLabel}`}
               onClick={() => open(null)}
-            >
-              <Plus className="size-4 stroke-[2.5]" /> إضافة {entityLabel}
-            </button>
+            />
           </div>
         }
       />
@@ -1148,9 +1145,10 @@ export function CrudPage({
                   مسح فلتر البحث
                 </button>
               ) : (
-                <button type="button" className="btn-primary text-xs" onClick={() => open(null)}>
-                  <Plus className="size-4 stroke-[2.5]" /> إضافة {entityLabel}
-                </button>
+                <AddButton
+                  label={`إضافة ${entityLabel}`}
+                  onClick={() => open(null)}
+                />
               )
             }
           />
@@ -1179,46 +1177,34 @@ export function CrudPage({
                         </td>
                       ))}
                       <td onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-end items-center gap-1">
+                        <ActionGroup>
                           {extraActions?.(row)}
-                          <button
-                            type="button"
-                            className="flex size-7.5 items-center justify-center rounded-lg text-slate-500 hover:text-cyan-600 hover:bg-cyan-500/12 dark:text-slate-400 dark:hover:text-cyan-400 transition-colors"
-                            title="معاينة التفاصيل"
+                          <ActionButton
+                            variant="view"
+                            title="معاينة وتفاصيل"
                             onClick={() => (onRowClick ? onRowClick(row) : setViewing(row))}
-                          >
-                            <Eye className="size-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            className="flex size-7.5 items-center justify-center rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-500/12 dark:text-slate-400 dark:hover:text-amber-400 transition-colors"
-                            title="تعديل"
+                          />
+                          <ActionButton
+                            variant="edit"
+                            title="تعديل السجل"
                             onClick={() => open(row)}
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            className="flex size-7.5 items-center justify-center rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-500/12 dark:text-slate-400 dark:hover:text-emerald-400 transition-colors"
+                          />
+                          <ActionButton
+                            variant="print"
                             title="طباعة بطاقة السجل"
                             onClick={() => {
                               setViewing(row);
                               setTimeout(() => window.print(), 300);
                             }}
-                          >
-                            <Printer className="size-3.5" />
-                          </button>
+                          />
                           {deletable && (
-                            <button
-                              type="button"
-                              className="flex size-7.5 items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-500/12 dark:hover:text-rose-400 transition-colors"
-                              title="حذف"
+                            <ActionButton
+                              variant="delete"
+                              title="حذف السجل"
                               onClick={() => setDeletingRow(row)}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
+                            />
                           )}
-                        </div>
+                        </ActionGroup>
                       </td>
                     </tr>
                   ))}

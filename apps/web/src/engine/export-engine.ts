@@ -318,6 +318,195 @@ export class ExportEngine {
   }
 
   /**
+   * Generates and triggers an official printable PDF document with corporate headers,
+   * RTL data table, live totals, and executive signatures.
+   */
+  static async exportPdf(options: ExportReportOptions): Promise<boolean> {
+    const job = createJob({
+      type: 'EXPORT_PDF',
+      title: `تصدير PDF: ${options.title}`,
+      meta: { rowCount: options.data.length },
+    });
+
+    try {
+      updateJob(job.id, { status: 'running', progress: 30 });
+      const company = getStoredCompany();
+      const nowFormatted = new Date().toLocaleString('ar-SA');
+      const currency = options.currency || company.baseCurrency || 'SAR';
+
+      // 1. Calculate totals for numeric/currency columns
+      const totals: Record<string, number> = {};
+      options.columns.forEach((col) => {
+        if (col.isTotal || col.type === 'currency' || col.type === 'number') {
+          let sum = 0;
+          options.data.forEach((row) => {
+            const rawVal = row[col.key];
+            const num = typeof rawVal === 'number' ? rawVal : Number(rawVal);
+            if (!isNaN(num)) sum += num;
+          });
+          totals[col.key] = sum;
+        }
+      });
+
+      // 2. Build Table Headers
+      const tableHeadersHtml = options.columns
+        .map((col) => {
+          const isNum = col.type === 'currency' || col.type === 'number' || col.type === 'percent';
+          return `<th style="background:#0f172a;color:#ffffff;padding:8px 10px;text-align:${
+            isNum ? 'left' : 'right'
+          };font-size:11px;font-weight:700;border:1px solid #1e293b;white-space:nowrap;">${col.header}</th>`;
+        })
+        .join('');
+
+      // 3. Build Table Rows
+      const tableRowsHtml = options.data
+        .map((row, idx) => {
+          const bg = idx % 2 === 1 ? '#f8fafc' : '#ffffff';
+          const cells = options.columns
+            .map((col) => {
+              let val = row[col.key];
+              if (val === true) val = 'نعم';
+              else if (val === false) val = 'لا';
+              else if (val === null || val === undefined) val = '—';
+
+              let formatted = String(val);
+              let align = 'right';
+
+              if (col.type === 'currency' || col.type === 'number') {
+                align = 'left';
+                const num = typeof val === 'number' ? val : Number(val);
+                if (!isNaN(num)) {
+                  formatted = num.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  });
+                }
+              } else if (col.type === 'percent') {
+                align = 'left';
+                const num = typeof val === 'number' ? val : Number(val);
+                if (!isNaN(num)) formatted = `${num.toFixed(2)}%`;
+              } else if (col.type === 'date') {
+                align = 'center';
+              }
+
+              return `<td style="padding:6px 10px;font-size:10.5px;color:#1e293b;border-bottom:1px solid #e2e8f0;border-inline:1px solid #f1f5f9;text-align:${align};">${formatted}</td>`;
+            })
+            .join('');
+          return `<tr style="background:${bg};page-break-inside:avoid;">${cells}</tr>`;
+        })
+        .join('');
+
+      // 4. Build Totals Row
+      const hasTotals = Object.keys(totals).length > 0;
+      let tableFooterHtml = '';
+      if (hasTotals) {
+        const footCells = options.columns
+          .map((col, idx) => {
+            if (idx === 0) {
+              return `<td style="padding:8px 10px;font-size:11px;font-weight:bold;color:#0f172a;background:#f1f5f9;border-top:2px solid #0f172a;border-bottom:3px double #0f172a;text-align:right;">الإجمالي الكلي:</td>`;
+            }
+            if (totals[col.key] !== undefined) {
+              const formatted = totals[col.key].toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              });
+              return `<td style="padding:8px 10px;font-size:11px;font-weight:bold;color:#0f172a;background:#f1f5f9;border-top:2px solid #0f172a;border-bottom:3px double #0f172a;text-align:left;font-family:monospace;">${formatted} ${col.type === 'currency' ? currency : ''}</td>`;
+            }
+            return `<td style="padding:8px 10px;background:#f1f5f9;border-top:2px solid #0f172a;border-bottom:3px double #0f172a;"></td>`;
+          })
+          .join('');
+        tableFooterHtml = `<tfoot><tr style="page-break-inside:avoid;">${footCells}</tr></tfoot>`;
+      }
+
+      // 5. Complete Corporate A4 Report HTML
+      const reportHtml = `
+        <div style="direction:rtl;font-family:'IBM Plex Sans Arabic',system-ui,Arial,sans-serif;padding:12px;color:#0f172a;background:#ffffff;">
+          <!-- Top Executive Header -->
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:14px;">
+            <div style="max-width:380px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                <div style="width:28px;height:28px;border-radius:6px;background:#0f172a;color:#ffffff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;">ع</div>
+                <div>
+                  <div style="font-size:15px;font-weight:800;color:#0f172a;line-height:1.2;">${company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية'}</div>
+                  <div style="font-size:10px;color:#64748b;font-weight:600;">${company.nameEn || 'AZM TECH & DIGITAL SOLUTIONS'}</div>
+                </div>
+              </div>
+              <div style="font-size:10px;color:#475569;margin-top:4px;line-height:1.4;">
+                الرقم الضريبي (VAT): <span style="font-family:monospace;font-weight:bold;">${company.taxNumber || '310123456700003'}</span>
+                ${company.commercialReg ? ` | س.ت: <span style="font-family:monospace;">${company.commercialReg}</span>` : ''}
+              </div>
+            </div>
+
+            <div style="text-align:center;align-self:center;">
+              <div style="background:#0f172a;color:#ffffff;padding:5px 16px;border-radius:8px;font-size:13px;font-weight:800;display:inline-block;letter-spacing:0.5px;">
+                ${options.title}
+              </div>
+              <div style="font-size:10.5px;color:#475569;margin-top:4px;font-weight:600;">
+                ${options.periodLabel ? `الفترة: ${options.periodLabel} • ` : ''}الفرع: ${options.branchName || 'المقر الرئيسي'}
+              </div>
+            </div>
+
+            <div style="text-align:left;font-size:10px;color:#64748b;line-height:1.5;">
+              <div>التاريخ: <span style="font-weight:bold;color:#0f172a;">${nowFormatted}</span></div>
+              <div>إجمالي السجلات: <span style="font-weight:bold;color:#0f172a;">${options.data.length}</span></div>
+              <div>العملة: <span style="font-weight:bold;color:#0f172a;">${currency}</span></div>
+            </div>
+          </div>
+
+          <!-- Data Table -->
+          <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+            <thead>
+              <tr style="page-break-inside:avoid;">${tableHeadersHtml}</tr>
+            </thead>
+            <tbody>
+              ${tableRowsHtml}
+            </tbody>
+            ${tableFooterHtml}
+          </table>
+
+          <!-- Official Signatures & Stamp Footer -->
+          <div style="margin-top:24px;padding-top:12px;border-top:1px solid #cbd5e1;page-break-inside:avoid;">
+            <div style="display:flex;justify-content:space-between;text-align:center;font-size:11px;margin-bottom:20px;">
+              <div style="width:28%;">
+                <div style="font-weight:bold;color:#1e293b;">إعداد المحاسب المسؤول</div>
+                <div style="margin-top:25px;border-bottom:1px dashed #94a3b8;width:80%;margin-inline:auto;"></div>
+              </div>
+              <div style="width:28%;">
+                <div style="font-weight:bold;color:#1e293b;">المراجعة والتدقيق المالي</div>
+                <div style="margin-top:25px;border-bottom:1px dashed #94a3b8;width:80%;margin-inline:auto;"></div>
+              </div>
+              <div style="width:28%;">
+                <div style="font-weight:bold;color:#1e293b;">اعتماد الإدارة والختم الرسمي</div>
+                <div style="margin-top:25px;border-bottom:1px dashed #94a3b8;width:80%;margin-inline:auto;"></div>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:9.5px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:6px;">
+              <span>منظومة إدهام لإدارة الموارد والمحاسبة (IDHAM ERP) • مستند رقمي رسمي معتمد</span>
+              <span>صفحة 1 من 1</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      updateJob(job.id, { progress: 85 });
+      const adapter = getPlatformAdapter();
+      await adapter.printDocument({
+        contentHtml: reportHtml,
+        title: `${options.title} - IDHAM ERP`,
+        pageSize: 'A4',
+        orientation: options.columns.length > 6 ? 'landscape' : 'portrait',
+      });
+
+      updateJob(job.id, { status: 'completed', progress: 100 });
+      return true;
+    } catch (err: any) {
+      console.error('[ExportEngine] exportPdf error', err);
+      updateJob(job.id, { status: 'failed', error: err.message || 'فشل تصدير مستند PDF' });
+      return false;
+    }
+  }
+
+  /**
    * Generates and downloads a clean UTF-8 with BOM CSV file
    */
   static async exportCsv(options: ExportReportOptions): Promise<boolean> {

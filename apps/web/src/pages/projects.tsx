@@ -9,7 +9,7 @@ import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/C
 import { ExportMenu } from '../components/ExportMenu';
 
 import { FormModal, PeriodSelect, REF } from '../components/forms';
-import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Stat, useToast } from '../components/ui';
+import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Stat, useToast } from '../components/ui';
 
 const ProjStatus = ({ s }: { s: string }) => (
   <Badge color={PROJECT_STATUS[s]?.color}>{PROJECT_STATUS[s]?.label ?? s}</Badge>
@@ -117,9 +117,10 @@ export function ProjectsPage() {
             >
               <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
             </button>
-            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setCreating(true)}>
-              <Plus className="size-4" /> إضافة مشروع
-            </button>
+            <AddButton
+              label="إضافة مشروع"
+              onClick={() => setCreating(true)}
+            />
           </div>
         }
       />
@@ -188,31 +189,25 @@ export function ProjectsPage() {
                         </td>
                         <td><ProjStatus s={p.status} /></td>
                         <td onClick={(evt) => evt.stopPropagation()}>
-                          <div className="flex justify-end gap-1">
-                            <button
-                              className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                          <ActionGroup>
+                            <ActionButton
+                              variant="view"
                               title="معاينة المشروع"
                               onClick={() => nav(`/prj/projects/${p.id}`)}
-                            >
-                              <Eye className="size-3.5" />
-                            </button>
-                            <button
-                              className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
-                              title="تعديل"
+                            />
+                            <ActionButton
+                              variant="edit"
+                              title="تعديل المشروع"
                               onClick={() => nav(`/prj/projects/${p.id}`)}
-                            >
-                              <Pencil className="size-3.5" />
-                            </button>
-                            <button
-                              className="btn-ghost h-7 px-2 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                            />
+                            <ActionButton
+                              variant="print"
                               title="طباعة بطاقة المشروع"
                               onClick={() => window.open(`#/prj/projects/${p.id}?print=true`, '_blank')}
-                            >
-                              <Printer className="size-3.5" />
-                            </button>
-                            <button
-                              className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                              title="حذف"
+                            />
+                            <ActionButton
+                              variant="delete"
+                              title="حذف المشروع"
                               onClick={() => {
                                 if (confirm(`هل أنت متأكد من حذف المشروع ${p.nameAr}؟`)) {
                                   api.del(`/projects/${p.id}`)
@@ -223,10 +218,8 @@ export function ProjectsPage() {
                                     .catch((err) => toast.error(err));
                                 }
                               }}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
-                          </div>
+                            />
+                          </ActionGroup>
                         </td>
                       </tr>
                     ))}

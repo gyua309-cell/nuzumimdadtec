@@ -8,7 +8,6 @@ import {
   Building2,
   CheckCircle2,
   Download,
-  Eye,
   FileUp,
   FolderPlus,
   Landmark,
@@ -35,6 +34,9 @@ import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import {
+  ActionButton,
+  ActionGroup,
+  AddButton,
   Badge,
   Drawer,
   EmptyState,
@@ -295,8 +297,9 @@ export function EmployeesPage() {
             >
               <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
             </button>
-            <button
-              className="btn-primary"
+            <AddButton
+              label="تعيين موظف جديد"
+              icon={<UserPlus className="size-3.5" />}
               onClick={() => {
                 setForm({
                   employmentType: 'FULL_TIME',
@@ -311,9 +314,7 @@ export function EmployeesPage() {
                 setErrors({});
                 setCreating(true);
               }}
-            >
-              <UserPlus className="size-4" /> تعيين موظف جديد
-            </button>
+            />
           </div>
         }
       />
@@ -432,30 +433,26 @@ export function EmployeesPage() {
                       </td>
                       <td><StatusBadge s={e.status} /></td>
                       <td onClick={(evt) => evt.stopPropagation()}>
-                        <div className="flex justify-end gap-1">
-                          <button
-                            className="btn-ghost h-7 px-2 text-slate-600 hover:bg-brand-50 hover:text-brand-600 dark:hover:bg-brand-950/40"
+                        <ActionGroup>
+                          <ActionButton
+                            variant="view"
                             title="معاينة الملف والتخصيص"
                             onClick={() => nav(`/hr/employees/${e.id}`)}
-                          >
-                            <Eye className="size-3.5" />
-                          </button>
-                          <button
-                            className="btn-ghost h-7 px-2 text-slate-600 hover:bg-brand-50 hover:text-brand-600 dark:hover:bg-brand-950/40"
+                          />
+                          <ActionButton
+                            variant="edit"
                             title="تعديل بيانات الموظف"
                             onClick={() => nav(`/hr/employees/${e.id}`)}
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
-                          <button
-                            className="btn-ghost h-7 px-2 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40"
+                          />
+                          <ActionButton
+                            variant="custom"
+                            icon={<FolderPlus className="size-3.5 stroke-[2.2]" />}
                             title="إسناد الموظف إلى مشروع"
+                            className="text-emerald-700 bg-emerald-500/10 border-emerald-300/70 hover:bg-emerald-600 hover:text-white dark:text-emerald-300 dark:bg-emerald-500/15 dark:border-emerald-500/30 dark:hover:bg-emerald-500 dark:hover:text-white"
                             onClick={() => setAssignModalEmp(e)}
-                          >
-                            <FolderPlus className="size-3.5" />
-                          </button>
-                          <button
-                            className="btn-ghost h-7 px-2 text-rose-500 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40"
+                          />
+                          <ActionButton
+                            variant="delete"
                             title="حذف الموظف"
                             onClick={() => {
                               if (confirm(`هل أنت متأكد من حذف سجل الموظف ${empName}؟ سيتم حذف بياناته وسجلاته بالكامل.`)) {
@@ -467,10 +464,8 @@ export function EmployeesPage() {
                                   .catch((err) => toast.error(err));
                               }
                             }}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
+                          />
+                        </ActionGroup>
                       </td>
                     </tr>
                   );

@@ -1,9 +1,154 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Inbox, Info, Loader2, Trash2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Eye,
+  FileDown,
+  Inbox,
+  Info,
+  Loader2,
+  Pencil,
+  Plus,
+  Printer,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { ApiError } from '../lib/api';
 import { EnhancedField, ErpModalProps, ErpModalShell, FormSection, ModalSize } from './FormPrimitives';
 export { FormSection };
 export type { ModalSize, ErpModalProps };
+
+// ------------------------------------------------------------------ Executive Action Buttons
+export type ActionVariant = 'view' | 'edit' | 'print' | 'pdf' | 'delete' | 'preview' | 'custom';
+
+export interface ActionButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: ActionVariant;
+  icon?: ReactNode;
+  label?: string;
+  size?: 'sm' | 'md' | 'lg';
+  tooltip?: string;
+  busy?: boolean;
+}
+
+export function ActionButton({
+  variant = 'custom',
+  icon,
+  label,
+  size = 'md',
+  tooltip,
+  busy = false,
+  className = '',
+  disabled,
+  ...props
+}: ActionButtonProps) {
+  const sizeClasses = {
+    sm: 'size-7 text-xs rounded-lg',
+    md: 'size-8 text-xs rounded-xl',
+    lg: 'size-9 text-sm rounded-xl',
+  }[size];
+
+  const variantStyles: Record<ActionVariant, { base: string; icon: ReactNode; defaultTooltip: string }> = {
+    view: {
+      base: 'text-sky-600 bg-sky-500/10 border-sky-300/70 hover:bg-sky-600 hover:text-white hover:border-transparent dark:text-sky-400 dark:bg-sky-500/15 dark:border-sky-500/30 dark:hover:bg-sky-500 dark:hover:text-white hover:shadow-sm hover:shadow-sky-500/20',
+      icon: <Eye className="size-3.5 stroke-[2.2]" />,
+      defaultTooltip: 'معاينة وتفاصيل',
+    },
+    edit: {
+      base: 'text-amber-700 bg-amber-500/10 border-amber-300/70 hover:bg-amber-600 hover:text-white hover:border-transparent dark:text-amber-300 dark:bg-amber-500/15 dark:border-amber-500/30 dark:hover:bg-amber-500 dark:hover:text-white hover:shadow-sm hover:shadow-amber-500/20',
+      icon: <Pencil className="size-3.5 stroke-[2.2]" />,
+      defaultTooltip: 'تعديل البيانات',
+    },
+    print: {
+      base: 'text-emerald-700 bg-emerald-500/10 border-emerald-300/70 hover:bg-emerald-600 hover:text-white hover:border-transparent dark:text-emerald-300 dark:bg-emerald-500/15 dark:border-emerald-500/30 dark:hover:bg-emerald-500 dark:hover:text-white hover:shadow-sm hover:shadow-emerald-500/20',
+      icon: <Printer className="size-3.5 stroke-[2.2]" />,
+      defaultTooltip: 'طباعة بطاقة السجل',
+    },
+    pdf: {
+      base: 'text-rose-600 bg-rose-500/10 border-rose-300/70 hover:bg-rose-600 hover:text-white hover:border-transparent dark:text-rose-400 dark:bg-rose-500/15 dark:border-rose-500/30 dark:hover:bg-rose-500 dark:hover:text-white hover:shadow-sm hover:shadow-rose-500/20',
+      icon: <FileDown className="size-3.5 stroke-[2.2]" />,
+      defaultTooltip: 'تصدير مستند PDF',
+    },
+    delete: {
+      base: 'text-rose-600 bg-rose-500/10 border-rose-300/70 hover:bg-rose-600 hover:text-white hover:border-transparent dark:text-rose-400 dark:bg-rose-500/15 dark:border-rose-500/30 dark:hover:bg-rose-500 dark:hover:text-white hover:shadow-sm hover:shadow-rose-500/20',
+      icon: <Trash2 className="size-3.5 stroke-[2.2]" />,
+      defaultTooltip: 'حذف السجل',
+    },
+    preview: {
+      base: 'text-indigo-600 bg-indigo-500/10 border-indigo-300/70 hover:bg-indigo-600 hover:text-white hover:border-transparent dark:text-indigo-400 dark:bg-indigo-500/15 dark:border-indigo-500/30 dark:hover:bg-indigo-500 dark:hover:text-white hover:shadow-sm hover:shadow-indigo-500/20',
+      icon: <ExternalLink className="size-3.5 stroke-[2.2]" />,
+      defaultTooltip: 'معاينة سريعة',
+    },
+    custom: {
+      base: 'text-slate-600 bg-slate-100 border-slate-300/70 hover:bg-slate-200 dark:text-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-700',
+      icon: null,
+      defaultTooltip: '',
+    },
+  };
+
+  const current = variantStyles[variant];
+  const finalTitle = tooltip || current.defaultTooltip || label;
+
+  return (
+    <button
+      type="button"
+      className={`inline-flex items-center justify-center border font-bold transition-all duration-150 active:scale-95 focus:outline-hidden disabled:opacity-40 disabled:pointer-events-none cursor-pointer ${
+        label ? 'px-3 py-1.5 h-8 gap-1.5 rounded-xl' : sizeClasses
+      } ${current.base} ${className}`}
+      title={finalTitle}
+      aria-label={finalTitle}
+      disabled={disabled || busy}
+      {...props}
+    >
+      {busy ? <Loader2 className="size-3.5 animate-spin" /> : icon || current.icon}
+      {label && <span>{label}</span>}
+    </button>
+  );
+}
+
+export function ActionGroup({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={`flex items-center justify-end gap-1.5 ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+export interface AddButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  label: string;
+  icon?: ReactNode;
+  shortcut?: string;
+}
+
+export function AddButton({
+  label,
+  icon,
+  shortcut = 'Alt+N',
+  className = '',
+  disabled,
+  ...props
+}: AddButtonProps) {
+  return (
+    <button
+      type="button"
+      className={`group relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-amber-500 via-amber-500 to-amber-600 px-3.5 py-2 text-xs font-black text-slate-950 shadow-xs shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 hover:brightness-105 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none ${className}`}
+      disabled={disabled}
+      {...props}
+    >
+      <span className="flex size-5 items-center justify-center rounded-lg bg-slate-950/15 text-slate-950 transition-transform duration-200 group-hover:scale-110">
+        {icon || <Plus className="size-3.5 stroke-[3]" />}
+      </span>
+      <span>{label}</span>
+      {shortcut && (
+        <span className="hidden sm:inline-block rounded-md bg-slate-950/10 px-1.5 py-0.5 text-[9.5px] font-mono font-bold text-slate-900/80">
+          {shortcut}
+        </span>
+      )}
+    </button>
+  );
+}
 
 // ------------------------------------------------------------------ toast
 type Toast = { id: number; kind: 'success' | 'error' | 'info'; text: string; detail?: string };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Eye, Laptop, Pencil, Play, Plus, Printer, Search, Trash2, Upload } from 'lucide-react';
+import { ArrowRight, Download, Laptop, Play, Printer, Search, Trash2, Upload } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
@@ -9,7 +9,7 @@ import { ASSET_KIND, ASSET_STATUS, DEP_METHOD, opts, RUN_STATUS } from '../lib/l
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
-import { Badge, EmptyState, ErrorState, Field, Loading, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
+import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, Loading, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
 
 const AssetStatus = ({ s }: { s: string }) => <Badge color={ASSET_STATUS[s]?.color}>{ASSET_STATUS[s]?.label ?? s}</Badge>;
 
@@ -120,9 +120,10 @@ export function AssetsPage() {
             >
               <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
             </button>
-            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setCreating(true)}>
-              <Plus className="size-4" /> إضافة أصل
-            </button>
+            <AddButton
+              label="إضافة أصل"
+              onClick={() => setCreating(true)}
+            />
           </div>
         }
       />
@@ -172,25 +173,21 @@ export function AssetsPage() {
                       <td className="num">{money(a.costBase)}</td><td className="num">{money(a.accumulatedBase)}</td><td className="num">{money(a.netBookValueBase)}</td>
                       <td>{a.custodianName ?? '—'}</td><td><AssetStatus s={a.status} /></td>
                       <td onClick={(evt) => evt.stopPropagation()}>
-                        <div className="flex justify-end gap-1">
-                          <button
-                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                        <ActionGroup>
+                          <ActionButton
+                            variant="view"
                             title="معاينة الأصل"
                             onClick={() => nav(`/assets/list/${a.id}`)}
-                          >
-                            <Eye className="size-3.5" />
-                          </button>
-                          <button
-                            className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                          />
+                          <ActionButton
+                            variant="edit"
                             title="تعديل الأصل"
                             onClick={() => nav(`/assets/list/${a.id}`)}
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
+                          />
                           {a.status === 'DRAFT' && (
-                            <button
-                              className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                              title="حذف"
+                            <ActionButton
+                              variant="delete"
+                              title="حذف الأصل"
                               onClick={() => {
                                 if (confirm(`هل أنت متأكد من حذف الأصل ${a.name}؟`)) {
                                   api.del(`/assets/${a.id}`)
@@ -201,11 +198,9 @@ export function AssetsPage() {
                                     .catch((err) => toast.error(err));
                                 }
                               }}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
+                            />
                           )}
-                        </div>
+                        </ActionGroup>
                       </td>
                     </tr>
                   ))}

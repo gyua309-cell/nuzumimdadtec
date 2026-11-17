@@ -1,14 +1,14 @@
 import { useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, CheckCircle2, Eye, FileSpreadsheet, FileUp,
-  Pencil, Plus, Printer, Search, Tag, Trash2, Upload, X,
+  AlertTriangle, CheckCircle2, FileSpreadsheet, FileUp,
+  Pencil, Plus, Printer, Search, Tag, Upload, X,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { money, today } from '../lib/format';
 import {
-  Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast,
+  ActionButton, ActionGroup, AddButton, Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast,
 } from '../components/ui';
 import { ExportMenu } from '../components/ExportMenu';
 
@@ -420,12 +420,10 @@ export function ServiceCatalogPage() {
             >
               <Printer className="size-3.5" /> طباعة
             </button>
-            <button
-              className="btn-primary text-xs flex items-center gap-1.5 shadow-xs"
+            <AddButton
+              label="إضافة خدمة جديدة"
               onClick={openAdd}
-            >
-              <Plus className="size-4" /> إضافة خدمة جديدة
-            </button>
+            />
           </div>
         }
       />
@@ -567,43 +565,31 @@ export function ServiceCatalogPage() {
                         )}
                       </td>
                       <td className="text-end print:hidden" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
-                          {/* 1. View Button */}
-                          <button
-                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                        <ActionGroup>
+                          <ActionButton
+                            variant="view"
                             title="معاينة تفاصيل الخدمة"
                             onClick={() => setViewingService(item)}
-                          >
-                            <Eye className="size-3.5" />
-                          </button>
-                          {/* 2. Edit Button */}
-                          <button
-                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                          />
+                          <ActionButton
+                            variant="edit"
                             title="تعديل الخدمة"
                             onClick={() => openEdit(item)}
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
-                          {/* 3. Print Button */}
-                          <button
-                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                          />
+                          <ActionButton
+                            variant="print"
                             title="طباعة بطاقة الخدمة"
                             onClick={() => {
                               setViewingService(item);
                               setTimeout(() => window.print(), 300);
                             }}
-                          >
-                            <Printer className="size-3.5" />
-                          </button>
-                          {/* 4. Delete Button */}
-                          <button
-                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                          />
+                          <ActionButton
+                            variant="delete"
                             title="حذف الخدمة"
                             onClick={() => handleDelete(item)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
+                          />
+                        </ActionGroup>
                       </td>
                     </tr>
                   );

@@ -13,7 +13,7 @@ import { ACCOUNT_CLASS, ACCOUNT_SOURCE, ACCOUNT_SUBTYPE, CASH_FLOW, DIMENSION_PO
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef, fieldErrors, useRefOptions } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
-import { Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, useToast } from '../components/ui';
+import { ActionButton, ActionGroup, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, useToast } from '../components/ui';
 
 export interface Account {
   id: string; parentId: string | null; code: string; nameAr: string; nameEn: string | null; accountClass: string; subtype: string | null;
@@ -601,8 +601,11 @@ export function JournalsPage() {
                 statusLabel: JE_STATUS[e.status]?.label || e.status,
               }))}
             />
-            <Link className="btn-primary text-xs flex items-center gap-1.5" to="/acc/journals/new">
-              <Plus className="size-4" /> قيد يدوي جديد
+            <Link className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-3.5 py-2 text-xs font-black text-slate-950 shadow-xs shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 hover:brightness-105 active:scale-[0.98] transition-all cursor-pointer" to="/acc/journals/new">
+              <span className="flex size-5 items-center justify-center rounded-lg bg-slate-950/15 text-slate-950">
+                <Plus className="size-3.5 stroke-[3]" />
+              </span>
+              <span>قيد يدوي جديد</span>
             </Link>
           </div>
         }
@@ -637,33 +640,27 @@ export function JournalsPage() {
                       <td className="num">{money(e.totalDebitBase)}</td><td className="num">{money(e.totalCreditBase)}</td>
                       <td><Badge color={JE_STATUS[e.status].color}>{JE_STATUS[e.status].label}</Badge> {e.reversedById && <Badge color="slate">معكوس</Badge>}</td>
                       <td onClick={(evt) => evt.stopPropagation()}>
-                        <div className="flex justify-end gap-1">
-                          <button
-                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
+                        <ActionGroup>
+                          <ActionButton
+                            variant="view"
                             title="معاينة تفاصيل القيد"
                             onClick={() => nav(`/acc/journals/${e.id}`)}
-                          >
-                            <Eye className="size-3.5" />
-                          </button>
-                          <button
-                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                          />
+                          <ActionButton
+                            variant="print"
                             title="طباعة سند قيد اليومية"
                             onClick={() => window.open(`#/acc/journals/${e.id}?print=true`, '_blank')}
-                          >
-                            <Printer className="size-3.5" />
-                          </button>
+                          />
                           {e.status === 'DRAFT' && (
-                            <button
-                              className="btn-ghost size-7 p-0 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                            <ActionButton
+                              variant="edit"
                               title="تعديل القيد"
                               onClick={() => nav(`/acc/journals/${e.id}/edit`)}
-                            >
-                              <Pencil className="size-3.5" />
-                            </button>
+                            />
                           )}
                           {e.status === 'DRAFT' && (
-                            <button
-                              className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                            <ActionButton
+                              variant="delete"
                               title="حذف مسودة القيد"
                               onClick={async () => {
                                 if (confirm('هل تريد حذف مسودة القيد اليومي؟')) {
@@ -676,11 +673,9 @@ export function JournalsPage() {
                                   }
                                 }
                               }}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
+                            />
                           )}
-                        </div>
+                        </ActionGroup>
                       </td>
                     </tr>
                   ))}

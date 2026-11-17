@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowRight, Building2, Code2, Cpu, Eye, FileCheck2,
-  FileSpreadsheet, FileText, Filter, Pencil, Plus, Printer, RotateCcw, Save, Send, ShieldCheck, Sparkles,
+  ArrowRight, Building2, Code2, Cpu, FileCheck2,
+  FileSpreadsheet, FileText, Filter, Plus, Printer, RotateCcw, Save, Send, ShieldCheck, Sparkles,
   Terminal, Trash2, User, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
@@ -16,7 +16,7 @@ import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
 
 import { PrintEngine } from '../engine/print-engine';
 import {
-  Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader,
+  ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader,
   ReasonDialog, Stat, useToast,
 } from '../components/ui';
 
@@ -205,12 +205,10 @@ export function InvoicesPage() {
             >
               <Sparkles className="size-4" /> توليد الفواتير من المشاريع تلقائياً
             </button>
-            <button
-              className="btn-secondary flex items-center gap-1.5"
+            <AddButton
+              label="إنشاء فاتورة يدوية"
               onClick={() => setShowCreateModal(true)}
-            >
-              <Plus className="size-4" /> إنشاء فاتورة يدوية
-            </button>
+            />
           </div>
         }
       />
@@ -354,33 +352,27 @@ export function InvoicesPage() {
                         </Badge>
                       </td>
                       <td className="text-end">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
-                            onClick={() => navigate(`/sal/invoices/${inv.id}`)}
+                        <ActionGroup>
+                          <ActionButton
+                            variant="view"
                             title="معاينة تفاصيل الفاتورة"
-                          >
-                            <Eye className="size-3.5" />
-                          </button>
-                          <button
-                            className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                            onClick={() => window.open(`#/sal/invoices/${inv.id}?print=true`, '_blank')}
+                            onClick={() => navigate(`/sal/invoices/${inv.id}`)}
+                          />
+                          <ActionButton
+                            variant="print"
                             title="طباعة الفاتورة الضريبية"
-                          >
-                            <Printer className="size-3.5" />
-                          </button>
+                            onClick={() => window.open(`#/sal/invoices/${inv.id}?print=true`, '_blank')}
+                          />
                           {inv.status === 'DRAFT' && (
-                            <button
-                              className="btn-ghost size-7 p-0 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                            <ActionButton
+                              variant="edit"
+                              title="تعديل مسودة الفاتورة"
                               onClick={() => navigate(`/sal/invoices/${inv.id}`)}
-                              title="تعديل الفاتورة"
-                            >
-                              <Pencil className="size-3.5" />
-                            </button>
+                            />
                           )}
                           {inv.status === 'DRAFT' && (
                             <button
-                              className="btn-primary h-7 px-2 text-xs flex items-center gap-1 shadow-xs"
+                              className="btn-primary h-8 px-2.5 text-xs flex items-center gap-1 shadow-xs rounded-xl"
                               onClick={() => doPost(inv.id)}
                               title="ترحيل واعتماد الزكاة ZATCA"
                             >
@@ -389,7 +381,7 @@ export function InvoicesPage() {
                           )}
                           {inv.status === 'POSTED' && !inv.journalEntryId && (
                             <button
-                              className="btn-secondary h-7 px-2 text-xs text-amber-700 hover:text-amber-800"
+                              className="btn-secondary h-8 px-2.5 text-xs text-amber-700 hover:text-amber-800 rounded-xl"
                               onClick={() => doRepair(inv.id)}
                               title="الفاتورة مرحّلة بلا قيد محاسبي: توليد القيد الآن"
                             >
@@ -397,15 +389,13 @@ export function InvoicesPage() {
                             </button>
                           )}
                           {inv.status !== 'CANCELLED' && (
-                            <button
-                              className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                              onClick={() => setCancelTargetId(inv.id)}
+                            <ActionButton
+                              variant="delete"
                               title="إلغاء الفاتورة"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
+                              onClick={() => setCancelTargetId(inv.id)}
+                            />
                           )}
-                        </div>
+                        </ActionGroup>
                       </td>
                     </tr>
                   );

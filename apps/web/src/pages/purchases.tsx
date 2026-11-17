@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, ArrowRight, Building2, CheckCircle2, Download, Eye, FileText,
+  AlertCircle, ArrowRight, Building2, CheckCircle2, Download, FileText,
   Filter, Pencil, Plus, Printer, RotateCcw, Save, Search, Send, ShieldCheck,
   ShoppingCart, Sparkles, Trash2, Truck, Upload, Wallet,
 } from 'lucide-react';
@@ -14,7 +14,7 @@ import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
 import {
-  Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader,
+  ActionButton, ActionGroup, AddButton, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader,
   ReasonDialog, Stat, useToast,
 } from '../components/ui';
 
@@ -84,12 +84,10 @@ export function VendorsPage() {
             >
               <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
             </button>
-            <button
-              className="btn-primary text-xs flex items-center gap-1.5"
+            <AddButton
+              label="إضافة مورد جديد"
               onClick={() => setShowAddModal(true)}
-            >
-              <Plus className="size-4" /> إضافة مورد جديد
-            </button>
+            />
           </div>
         }
       />
@@ -183,37 +181,31 @@ export function VendorsPage() {
                       </Badge>
                     </td>
                     <td onClick={(evt) => evt.stopPropagation()}>
-                      <div className="flex justify-end gap-1">
-                        <button
-                          className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
-                          title="معاينة"
+                      <ActionGroup>
+                        <ActionButton
+                          variant="view"
+                          title="معاينة المورد"
                           onClick={() => setViewingVendor(v)}
-                        >
-                          <Eye className="size-3.5" />
-                        </button>
-                        <button
-                          className="btn-ghost h-7 px-2 text-slate-600 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40"
-                          title="تعديل"
+                        />
+                        <ActionButton
+                          variant="edit"
+                          title="تعديل المورد"
                           onClick={() => {
                             setEditingVendor(v);
                             setShowAddModal(true);
                           }}
-                        >
-                          <Pencil className="size-3.5" />
-                        </button>
-                        <button
-                          className="btn-ghost h-7 px-2 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                        />
+                        <ActionButton
+                          variant="print"
                           title="طباعة بطاقة المورد"
                           onClick={() => {
                             setViewingVendor(v);
                             setTimeout(() => window.print(), 300);
                           }}
-                        >
-                          <Printer className="size-3.5" />
-                        </button>
-                        <button
-                          className="btn-ghost h-7 px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                          title="حذف"
+                        />
+                        <ActionButton
+                          variant="delete"
+                          title="حذف المورد"
                           onClick={() => {
                             if (confirm(`هل أنت متأكد من حذف المورد ${v.nameAr}؟`)) {
                               api.del(`/vendors/${v.id}`)
@@ -224,10 +216,8 @@ export function VendorsPage() {
                                 .catch((err) => toast.error(err));
                             }
                           }}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </div>
+                        />
+                      </ActionGroup>
                     </td>
                   </tr>
                 ))}
@@ -1482,30 +1472,25 @@ export function PurchaseDebitNotesPage() {
                   </td>
                   <td><Badge color="green">مرحّل ومعتمد</Badge></td>
                   <td className="text-end">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
-                        onClick={() => navigate(`/pur/invoices/${d.id}`)}
+                    <ActionGroup>
+                      <ActionButton
+                        variant="view"
                         title="معاينة سند الاستحقاق"
-                      >
-                        <Eye className="size-3.5" />
-                      </button>
-                      <button
-                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                        onClick={() => window.open(`#/pur/invoices/${d.id}?print=true`, '_blank')}
-                        title="طباعة سند الاستحقاق"
-                      >
-                        <Printer className="size-3.5" />
-                      </button>
-                      <button
-                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40"
                         onClick={() => navigate(`/pur/invoices/${d.id}`)}
+                      />
+                      <ActionButton
+                        variant="print"
+                        title="طباعة سند الاستحقاق"
+                        onClick={() => window.open(`#/pur/invoices/${d.id}?print=true`, '_blank')}
+                      />
+                      <ActionButton
+                        variant="edit"
                         title="تعديل الفاتورة"
-                      >
-                        <Pencil className="size-3.5" />
-                      </button>
-                      <button
-                        className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                        onClick={() => navigate(`/pur/invoices/${d.id}`)}
+                      />
+                      <ActionButton
+                        variant="delete"
+                        title="إلغاء الفاتورة"
                         onClick={() => {
                           if (confirm(`إلغاء فاتورة المشتريات ${d.invoiceNo}؟`)) {
                             api.post(`/pur/invoices/${d.id}/cancel`, { reason: 'إلغاء بناءً على طلب المستخدم' })
@@ -1516,11 +1501,8 @@ export function PurchaseDebitNotesPage() {
                               .catch((err) => toast.error(err));
                           }
                         }}
-                        title="إلغاء الفاتورة"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
+                      />
+                    </ActionGroup>
                   </td>
                 </tr>
               ))}

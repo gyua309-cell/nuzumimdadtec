@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Download, FileSpreadsheet, FileText, Printer, Share2, ChevronDown, Settings2 } from 'lucide-react';
+import { Download, FileDown, FileSpreadsheet, FileText, Printer, Share2, ChevronDown, Settings2 } from 'lucide-react';
 import { ExportEngine, ExportColumnDef } from '../engine/export-engine';
 import { PrintEngine, PaperSize, PageOrientation } from '../engine/print-engine';
 import { Modal, Spinner, useToast } from './ui';
@@ -40,7 +40,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   className = '',
 }) => {
   const [open, setOpen] = useState(false);
-  const [loadingType, setLoadingType] = useState<'excel' | 'csv' | 'print' | null>(null);
+  const [loadingType, setLoadingType] = useState<'excel' | 'pdf' | 'csv' | 'print' | null>(null);
   const [colModalOpen, setColModalOpen] = useState(false);
   const [selectedColKeys, setSelectedColKeys] = useState<string[]>(columns.map((c) => c.key));
 
@@ -65,6 +65,42 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   }, [open]);
 
   const activeColumns = columns.filter((c) => selectedColKeys.includes(c.key));
+
+  const handleExportPdf = async () => {
+    setLoadingType('pdf');
+    setOpen(false);
+    try {
+      if (elementIdToPrint) {
+        // If an element ID is given, print that element directly (e.g., formal invoice/receipt)
+        await PrintEngine.print({
+          elementId: elementIdToPrint,
+          title,
+          pageSize,
+          orientation,
+        });
+        toast.success(`تم فتح مستند PDF (${title}) للطباعة والحفظ`);
+      } else {
+        const ok = await ExportEngine.exportPdf({
+          title,
+          filename,
+          columns: activeColumns,
+          data,
+          periodLabel,
+          branchName,
+          currency,
+        });
+        if (ok) {
+          toast.success(`تم إنشاء مستند PDF معتمد (${title}) بنجاح`);
+        } else {
+          toast.error('حدث خطأ أثناء تصدير مستند PDF');
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'فشل تصدير PDF');
+    } finally {
+      setLoadingType(null);
+    }
+  };
 
   const handleExportExcel = async () => {
     setLoadingType('excel');
@@ -127,7 +163,16 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           orientation,
         });
       } else {
-        window.print();
+        // Fallback to table print via ExportEngine PDF/Print wrapper
+        await ExportEngine.exportPdf({
+          title,
+          filename,
+          columns: activeColumns,
+          data,
+          periodLabel,
+          branchName,
+          currency,
+        });
       }
     } finally {
       setLoadingType(null);
@@ -144,67 +189,100 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
     <div className={`relative inline-block text-start ${className}`} ref={menuRef}>
       <button
         type="button"
-        className="btn-secondary text-xs flex items-center gap-1.5 shadow-xs transition-colors hover:border-brand-500"
+        className="btn-secondary text-xs flex items-center gap-2 shadow-2xs hover:border-amber-500/60 dark:hover:border-amber-400/50 transition-all font-semibold"
         onClick={() => setOpen(!open)}
         disabled={loadingType !== null}
+        title="طباعة وتصدير البيانات بعدة صيغ (PDF, Excel, CSV)"
       >
         {loadingType ? (
           <Spinner className="size-3.5" />
         ) : (
-          <Download className="size-3.5 text-brand-600 dark:text-brand-400" />
+          <Download className="size-3.5 text-amber-600 dark:text-amber-400" />
         )}
         <span>طباعة وتصدير</span>
         <ChevronDown className="size-3 text-slate-400 transition-transform duration-200" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
       </button>
 
       {open && (
-        <div className="absolute end-0 mt-1.5 w-60 overflow-hidden rounded-2xl bg-white dark:bg-[#0c1427] border border-slate-200 dark:border-slate-800 shadow-2xl z-50 pb-1.5 text-xs animate-scale-in">
-          <div className="h-1 w-full bg-gradient-to-l from-amber-400 via-cyan-500 to-emerald-500" />
-          <div className="px-3 py-2 text-[10.5px] font-extrabold text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
-            خيارات الطباعة والتصدير ({data.length} سجل)
+        <div className="absolute end-0 mt-1.5 w-68 overflow-hidden rounded-2xl bg-white dark:bg-[#0c1427] border border-slate-200/90 dark:border-slate-800 shadow-2xl z-50 pb-1.5 text-xs animate-scale-in">
+          <div className="h-1 w-full bg-gradient-to-l from-amber-500 via-sky-500 to-emerald-500" />
+          <div className="px-3.5 py-2 text-[10.5px] font-black text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+            <span>خيارات الطباعة والتصدير</span>
+            <span className="font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[10px] text-slate-600 dark:text-slate-300 font-bold">{data.length} سجل</span>
           </div>
 
+          {/* 1. PDF Export */}
           <button
             type="button"
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
-            onClick={handlePrint}
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-700 dark:text-slate-200 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 transition-colors text-start group"
+            onClick={handleExportPdf}
           >
-            <Printer className="size-4 text-blue-600" />
-            <div className="flex-1">
-              <div className="font-semibold">طباعة المستند / تقرير</div>
-              <div className="text-[10px] text-slate-400">معاينة وطباعة A4 / A5 / حراري</div>
+            <div className="flex size-7.5 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 border border-rose-500/30 group-hover:scale-105 transition-transform">
+              <FileDown className="size-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                <span>تصدير مستند PDF</span>
+                <span className="text-[9px] bg-rose-500/15 text-rose-700 dark:text-rose-300 px-1 rounded font-bold">A4</span>
+              </div>
+              <div className="text-[10px] text-slate-400 truncate">مستند رسمي معتمد بختم وترويسة ومجاميع</div>
             </div>
           </button>
 
+          {/* 2. Excel Export */}
           <button
             type="button"
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-700 dark:text-slate-200 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-colors text-start group"
             onClick={handleExportExcel}
           >
-            <FileSpreadsheet className="size-4 text-emerald-600" />
-            <div className="flex-1">
-              <div className="font-semibold">تصدير Excel (.xlsx)</div>
-              <div className="text-[10px] text-slate-400">منسق RTL مع معادلات المجاميع</div>
+            <div className="flex size-7.5 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-500/30 group-hover:scale-105 transition-transform">
+              <FileSpreadsheet className="size-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                <span>تصدير Excel (.xlsx)</span>
+                <span className="text-[9px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-1 rounded font-bold">RTL</span>
+              </div>
+              <div className="text-[10px] text-slate-400 truncate">منسق محاسبياً مع معادلات SUM وتجميد العناوين</div>
             </div>
           </button>
 
+          {/* 3. Direct Print */}
           <button
             type="button"
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-700 dark:text-slate-200 hover:bg-sky-50/50 dark:hover:bg-sky-950/20 transition-colors text-start group"
+            onClick={handlePrint}
+          >
+            <div className="flex size-7.5 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400 border border-sky-500/30 group-hover:scale-105 transition-transform">
+              <Printer className="size-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-slate-900 dark:text-white">معاينة وطباعة فورية</div>
+              <div className="text-[10px] text-slate-400 truncate">طباعة نظيفة A4 أو طابعة إيصالات حرارية</div>
+            </div>
+          </button>
+
+          {/* 4. CSV Export */}
+          <button
+            type="button"
+            className="w-full flex items-center gap-3 px-3.5 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start group"
             onClick={handleExportCsv}
           >
-            <FileText className="size-4 text-slate-500" />
-            <div className="flex-1">
-              <div className="font-semibold">تصدير CSV (UTF-8)</div>
-              <div className="text-[10px] text-slate-400">نصي متوافق مع البرامج الحسابية</div>
+            <div className="flex size-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-300/60 dark:border-slate-700 group-hover:scale-105 transition-transform">
+              <FileText className="size-3.5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-slate-800 dark:text-slate-200">تصدير CSV (UTF-8)</div>
+              <div className="text-[10px] text-slate-400 truncate">ملف نصي متوافق مع كافة المنظومات المحاسبية</div>
             </div>
           </button>
 
-          <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
+          <div className="border-t border-slate-100 dark:border-slate-800/80 my-1" />
 
+          {/* 5. Column Customizer */}
           <button
             type="button"
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
+            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
             onClick={() => {
               setOpen(false);
               setColModalOpen(true);
@@ -214,13 +292,14 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
             <span>تحديد الأعمدة المصدّرة ({selectedColKeys.length}/{columns.length})</span>
           </button>
 
+          {/* 6. WhatsApp Share */}
           <button
             type="button"
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
+            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
             onClick={handleShareWhatsApp}
           >
-            <Share2 className="size-3.5 text-green-500" />
-            <span>مشاركة عبر واتساب</span>
+            <Share2 className="size-3.5 text-emerald-500" />
+            <span>مشاركة ملخص التقرير عبر واتساب</span>
           </button>
         </div>
       )}

@@ -3,15 +3,15 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftRight, CheckCircle2,
-  Clock, Eye, FileCheck, FileText, Layers,
-  Pencil, Plus, Printer, Save, Trash2, Wallet
+  Clock, FileCheck, FileText, Layers,
+  Plus, Printer, Save, Trash2, Wallet
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date, money, today } from '../lib/format';
 import { getStoredCompany } from '../lib/storage-company';
 import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
-import { Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
+import { ActionButton, ActionGroup, AddButton, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
 export interface CustodyTransfer {
   id: string;
@@ -361,9 +361,10 @@ export function CustodiesPage() {
               ]}
               data={custodies}
             />
-            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setCreateModalOpen(true)}>
-              <Plus className="size-4" /> طلب عهدة جديدة
-            </button>
+            <AddButton
+              label="طلب عهدة جديدة"
+              onClick={() => setCreateModalOpen(true)}
+            />
           </div>
         }
       />
@@ -652,41 +653,29 @@ export function CustodiesPage() {
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3.5 px-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          {/* View details */}
-                          <button
-                            onClick={() => setSelectedCustodyId(c.id)}
-                            className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-md transition-colors"
+                      <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                        <ActionGroup className="justify-center">
+                          <ActionButton
+                            variant="view"
                             title="تفاصيل العهدة والإيصالات"
-                          >
-                            <Eye className="size-4" />
-                          </button>
-
-                          {/* Print voucher */}
-                          <button
-                            onClick={() => setPrintModalCustody(c)}
-                            className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-md transition-colors"
+                            onClick={() => setSelectedCustodyId(c.id)}
+                          />
+                          <ActionButton
+                            variant="print"
                             title="طباعة سند صرف وتسوية رسمي"
-                          >
-                            <Printer className="size-4" />
-                          </button>
-
-                          {/* Conditional Actions */}
+                            onClick={() => setPrintModalCustody(c)}
+                          />
                           {c.status === 'DRAFT' && (
-                            <button
-                              onClick={() => {
-                                setSelectedCustodyId(c.id);
-                              }}
-                              className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-md transition-colors"
+                            <ActionButton
+                              variant="edit"
                               title="تعديل العهدة"
-                            >
-                              <Pencil className="size-4 text-amber-600" />
-                            </button>
+                              onClick={() => setSelectedCustodyId(c.id)}
+                            />
                           )}
-
                           {c.status === 'DRAFT' && (
-                            <button
+                            <ActionButton
+                              variant="delete"
+                              title="حذف العهدة"
                               onClick={async () => {
                                 if (confirm(`حذف مسودة العهدة ${c.custody_no}؟`)) {
                                   try {
@@ -698,17 +687,12 @@ export function CustodiesPage() {
                                   }
                                 }
                               }}
-                              className="p-1.5 hover:bg-slate-100 text-rose-600 rounded-md transition-colors"
-                              title="حذف العهدة"
-                            >
-                              <Trash2 className="size-4" />
-                            </button>
+                            />
                           )}
-
                           {c.status === 'DRAFT' && (
                             <button
                               onClick={() => setDisburseModalCustody(c)}
-                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-semibold"
+                              className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 rounded-lg text-xs font-bold border border-sky-300/50"
                             >
                               صرف
                             </button>
@@ -773,7 +757,7 @@ export function CustodiesPage() {
                               إقفال
                             </button>
                           )}
-                        </div>
+                        </ActionGroup>
                       </td>
                     </tr>
                   );

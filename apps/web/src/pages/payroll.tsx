@@ -7,7 +7,7 @@ import { date as _date, downloadCsv, money, today } from '../lib/format';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
-import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
+import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
 
 const CALC_METHOD: Record<string, string> = {
   FIXED: 'مبلغ ثابت',
@@ -262,9 +262,10 @@ export function LoansPage() {
                 statusLabel: LOAN_STATUS[l.status]?.label || l.status,
               }))}
             />
-            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAdding(true)}>
-              <Plus className="size-4" /> إضافة سلفة جديدة
-            </button>
+            <AddButton
+              label="إضافة سلفة جديدة"
+              onClick={() => setAdding(true)}
+            />
           </div>
         }
       />
@@ -402,27 +403,23 @@ export function LoansPage() {
                         <td>
                           <Badge color={LOAN_STATUS[l.status]?.color}>{LOAN_STATUS[l.status]?.label ?? l.status}</Badge>
                         </td>
-                        <td className="text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
-                              onClick={(e) => { e.stopPropagation(); setSelected(l); }}
+                        <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                          <ActionGroup className="justify-center">
+                            <ActionButton
+                              variant="view"
                               title="معاينة تفاصيل السلفة"
-                            >
-                              <Eye className="size-3.5" />
-                            </button>
-                            <button
-                              className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                              onClick={(e) => { e.stopPropagation(); setSelected(l); setTimeout(() => window.print(), 300); }}
+                              onClick={() => setSelected(l)}
+                            />
+                            <ActionButton
+                              variant="print"
                               title="طباعة سند السلفة والأقساط"
-                            >
-                              <Printer className="size-3.5" />
-                            </button>
+                              onClick={() => { setSelected(l); setTimeout(() => window.print(), 300); }}
+                            />
                             {l.status === 'DRAFT' && (
-                              <button
-                                className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
+                              <ActionButton
+                                variant="delete"
+                                title="حذف السلفة"
+                                onClick={async () => {
                                   if (confirm(`حذف سلفة ${l.loanNo}؟`)) {
                                     try {
                                       await api.del(`/loans/${l.id}`);
@@ -433,12 +430,9 @@ export function LoansPage() {
                                     }
                                   }
                                 }}
-                                title="حذف السلفة"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
+                              />
                             )}
-                          </div>
+                          </ActionGroup>
                         </td>
                       </tr>
                     ))}
