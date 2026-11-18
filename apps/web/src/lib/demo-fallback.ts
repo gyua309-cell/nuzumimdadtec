@@ -2218,34 +2218,185 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   // 4. Assignments Reports (Clean Dynamic Data)
   if (path.includes('/assignments/employee-days-report')) {
-    const { empList, empSummary } = computeDynamicProfitability();
-    const rows = empList.map((e) => ({
-      employeeId: e.employeeId,
-      employeeCode: e.employeeCode,
-      employeeName: e.employeeName,
-      departmentName: e.departmentName,
-      allocatedDays: Math.round((e.allocatedPct / 100) * 22),
-      workingDaysInPeriod: 22,
-      utilizationRate: e.allocatedPct,
-      billedRevenue: e.revenueBase,
-      directCost: e.directCostBase,
-      grossProfit: e.grossProfitBase,
-      marginPct: e.grossMarginPct,
-      unutilizedCost: e.unutilizedCostBase,
-      status: e.status,
-    }));
+    const qStr = path.includes('?') ? path.split('?')[1] : '';
+    const qParams = new URLSearchParams(qStr);
+    const periodId = qParams.get('periodId');
+    const period = resolvePeriodByIdOrDate(periodId, null);
+
+    const emps = getEntityList('employees', []);
+    const prjs = getEntityList('projects', []);
+    const clients = getEntityList('clients', defaultClients);
+    const assignments = getEntityList('assignments', []).filter((a: any) => !a.endDate && !a.effectiveTo);
+    const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
+    const invoices = getEntityList('invoices', []).filter((i: any) => i.status !== 'CANCELLED');
+    const overheadPolicy = getOverheadPolicy();
+
+    let totalAllocatedDaysAll = 0;
+    let totalRevenueAll = 0;
+    let totalCostAll = 0;
+    let totalProfitAll = 0;
+    let invoicedCount = 0;
+    let pendingInvoiceCount = 0;
+
+    const rows: any[] = [];
+
+    for (const emp of emps) {
+      const bd = computeEmployeeCostBreakdown(emp, period, overheadPolicy);
+      const empMonthlyCost = bd.distributableCostBase;
+      const positionTitle = emp.positionTitle || emp.role || 'مهندس برمجيات';
+
+      const myAsgs = assignments.filter(
+        (a: any) => a.employeeId === emp.id || a.employeeId === emp.code || a.employeeCode === emp.code
+      );
+
+      if (myAsgs.length > 0) {
+        let empAssignedDaysTotal = 0;
+        for (const a of myAsgs) {
+          const mDays = Number(a.workingDaysInMonth || 22);
+          const days = a.allocatedDays != null ? Number(a.allocatedDays) : (Number(a.allocationPct || 100) / 100) * mDays;
+          empAssignedDaysTotal += days;
+        }
+
+        for (const a of myAsgs) {
+          const prj = prjs.find((p: any) => p.id === a.projectId || p.code === a.projectCode) || {
+            id: a.projectId,
+            code: a.projectCode || 'PRJ-001',
+            nameAr: a.projectName || 'مشروع تطوير منصه',
+            clientId: a.clientId || clients[0]?.id,
+          };
+          const cli = clients.find((c: any) => c.id === prj.clientId || c.id === a.clientId) || clients[0] || {
+            id: 'cli-001',
+            nameAr: 'شركة الإمداد لتقنية المعلومات',
+          };
+
+          const monthDays = Number(a.workingDaysInMonth || 22);
+          const aDays = a.allocatedDays != null ? Number(a.allocatedDays) : Number(((Number(a.allocationPct || 100) / 100) * monthDays).toFixed(2));
+          const aPct = Number(((aDays / monthDays) * 100).toFixed(1));
+
+          const unutilizedDays = Math.max(0, Number((monthDays - empAssignedDaysTotal).toFixed(1)));
+          const unutilizedPct = Math.max(0, Number(((unutilizedDays / monthDays) * 100).toFixed(1)));
+
+          const spOverride = servicePrices.find(
+            (sp: any) => (sp.employeeId === emp.id || sp.employeeId === emp.code) && (sp.projectId === prj.id || sp.projectCode === prj.code)
+          ) || servicePrices.find(
+            (sp: any) => (sp.employeeId === emp.id || sp.employeeId === emp.code) && !sp.projectId
+          );
+
+          const pricingBasis = spOverride?.pricingBasis || a.billingBasis || a.allocationBasis || 'DAILY';
+          const unitPrice = Number(spOverride?.price || a.billableRate || a.dailyRate || a.unitPrice || 1500);
+
+          let revenue = 0;
+          if (pricingBasis === 'DAILY' || pricingBasis === 'DAYS') {
+            revenue = aDays * unitPrice;
+          } else if (pricingBasis === 'HOURLY' || pricingBasis === 'HOURS') {
+            revenue = (aDays * 8) * unitPrice;
+          } else {
+            revenue = (aPct / 100) * unitPrice;
+          }
+
+          const costShare = Math.round(empMonthlyCost * (aPct / 100));
+          const grossProfit = revenue - costShare;
+          const marginPct = revenue > 0 ? Number(((grossProfit / revenue) * 100).toFixed(1)) : 0;
+
+          const invMatch = invoices.find(
+            (i: any) =>
+              (i.projectId === prj.id || i.projectId === a.projectId) &&
+              (!periodId || i.fiscalPeriodId === periodId) &&
+              (i.lines || []).some((l: any) => l.employeeId === emp.id || l.employeeId === emp.code || l.description?.includes(emp.fullNameAr || emp.nameAr))
+          );
+
+          const invoiceStatus = invMatch ? (invMatch.status || 'POSTED') : 'UNINVOICED';
+          if (invMatch) invoicedCount++;
+          else pendingInvoiceCount++;
+
+          totalAllocatedDaysAll += aDays;
+          totalRevenueAll += revenue;
+          totalCostAll += costShare;
+          totalProfitAll += grossProfit;
+
+          rows.push({
+            assignmentId: a.id || `asg-${emp.id}-${prj.id}`,
+            employeeId: emp.id,
+            employeeCode: emp.code,
+            employeeName: emp.fullNameAr || emp.nameAr || emp.name,
+            positionTitle,
+            projectId: prj.id,
+            projectCode: prj.code,
+            projectName: prj.nameAr,
+            clientId: cli.id,
+            clientName: cli.nameAr,
+            allocationBasis: a.allocationBasis || 'DAYS',
+            workingDaysInMonth: monthDays,
+            allocatedDays: aDays,
+            allocationPct: aPct,
+            unutilizedDays,
+            unutilizedPct,
+            pricingBasis,
+            unitPrice: unitPrice.toFixed(2),
+            employeeMonthlyCost: empMonthlyCost.toFixed(2),
+            projectCostShare: costShare.toFixed(2),
+            revenueGenerated: revenue.toFixed(2),
+            grossProfit: grossProfit.toFixed(2),
+            marginPct,
+            invoiceStatus,
+            invoiceId: invMatch?.id || null,
+            invoiceNo: invMatch?.invoiceNo || null,
+          });
+        }
+      } else {
+        totalCostAll += empMonthlyCost;
+        totalProfitAll -= empMonthlyCost;
+        pendingInvoiceCount++;
+
+        rows.push({
+          assignmentId: `unassigned-${emp.id}`,
+          employeeId: emp.id,
+          employeeCode: emp.code,
+          employeeName: emp.fullNameAr || emp.nameAr || emp.name,
+          positionTitle,
+          projectId: '',
+          projectCode: 'BENCH',
+          projectName: 'غير مسند لمشروع (على قوة الشركة - Bench)',
+          clientId: '',
+          clientName: 'تشغيل وتطوير داخلي',
+          allocationBasis: 'DAYS',
+          workingDaysInMonth: 22,
+          allocatedDays: 0,
+          allocationPct: 0,
+          unutilizedDays: 22,
+          unutilizedPct: 100,
+          pricingBasis: 'DAILY',
+          unitPrice: '0.00',
+          employeeMonthlyCost: empMonthlyCost.toFixed(2),
+          projectCostShare: '0.00',
+          revenueGenerated: '0.00',
+          grossProfit: (-empMonthlyCost).toFixed(2),
+          marginPct: 0,
+          invoiceStatus: 'UNINVOICED',
+          invoiceId: null,
+          invoiceNo: null,
+        });
+      }
+    }
+
+    const averageMarginPct = totalRevenueAll > 0 ? Number(((totalProfitAll / totalRevenueAll) * 100).toFixed(1)) : 0;
+
     return {
+      period: {
+        id: period?.id || periodId || 'fp-2026-11',
+        name: period?.name || 'الفترة المالية الحالية',
+        start: period?.startDate || '2026-11-01',
+        end: period?.endDate || '2026-11-30',
+      },
       summary: {
-        employeeCount: empList.length,
-        totalRevenue: Number(empSummary.totalRevenueBase),
-        totalCost: Number(empSummary.totalCostBase),
-        totalGrossProfit: Number(empSummary.totalProfitBase),
-        averageMarginPct: Number(empSummary.averageMarginPct),
-        totalAllocatedDays: rows.reduce((acc: number, r: any) => acc + r.allocatedDays, 0),
-        workingDaysInPeriod: 22,
-        utilizationRate: empList.length > 0 ? (rows.reduce((acc: number, r: any) => acc + r.utilizationRate, 0) / empList.length) : 0,
-        pendingInvoiceCount: 0,
-        pendingInvoiceAmount: 0,
+        totalAssignments: rows.filter((r) => r.projectId).length,
+        totalAllocatedDays: totalAllocatedDaysAll,
+        totalRevenue: totalRevenueAll.toFixed(2),
+        totalCost: totalCostAll.toFixed(2),
+        totalProfit: totalProfitAll.toFixed(2),
+        averageMarginPct,
+        invoicedCount,
+        pendingInvoiceCount,
       },
       rows,
       meta: { total: rows.length },

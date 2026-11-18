@@ -18,7 +18,12 @@ export function EmployeeAllocationDaysReportPage() {
 
   // Active / selected fiscal period
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
-  const activePeriodId = selectedPeriodId || periods[0]?.id || '';
+  const activePeriodId = useMemo(() => {
+    if (selectedPeriodId) return selectedPeriodId;
+    const t = today();
+    const cur = periods.find((p) => p.startDate <= t && p.endDate >= t) || periods.find((p) => p.status === 'OPEN') || periods[0];
+    return cur?.id || '';
+  }, [selectedPeriodId, periods]);
 
   // Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -392,19 +397,32 @@ export function EmployeeAllocationDaysReportPage() {
 
                       {/* Project & Client */}
                       <td>
-                        <div className="font-medium text-slate-800 dark:text-slate-200">
-                          <Link
-                            to={`/prj/projects/${r.projectId}`}
-                            className="hover:underline text-brand-600 dark:text-brand-400"
-                          >
-                            {r.projectName}
-                          </Link>
-                        </div>
-                        <div className="text-xs text-slate-500 font-mono flex items-center gap-1 mt-0.5">
-                          <span>{r.projectCode}</span>
-                          <span>•</span>
-                          <span className="text-slate-600 font-sans">{r.clientName}</span>
-                        </div>
+                        {r.projectId ? (
+                          <>
+                            <div className="font-medium text-slate-800 dark:text-slate-200">
+                              <Link
+                                to={`/prj/projects/${r.projectId}`}
+                                className="hover:underline text-brand-600 dark:text-brand-400"
+                              >
+                                {r.projectName}
+                              </Link>
+                            </div>
+                            <div className="text-xs text-slate-500 font-mono flex items-center gap-1 mt-0.5">
+                              <span>{r.projectCode}</span>
+                              <span>•</span>
+                              <span className="text-slate-600 font-sans">{r.clientName}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div>
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/60">
+                              غير مسند (على قوة الشركة - Bench)
+                            </span>
+                            <div className="text-[11px] text-slate-400 mt-1">
+                              تشغيل داخلي • بانتظار تسكينه بمشروع
+                            </div>
+                          </div>
+                        )}
                       </td>
 
                       {/* Allocation Mode */}
@@ -496,23 +514,34 @@ export function EmployeeAllocationDaysReportPage() {
 
                       {/* Action */}
                       <td className="text-center print:hidden">
-                        {r.invoiceStatus === 'UNINVOICED' ? (
-                          <button
-                            className="btn-primary text-xs py-1 px-2.5 flex items-center gap-1 mx-auto"
-                            onClick={() => setInvoicingRow(r)}
-                            title="توليد مسودة فاتورة مبيعات تلقائياً"
-                          >
-                            <FileText className="size-3.5" />
-                            <span>توليد فاتورة</span>
-                          </button>
+                        {r.projectId ? (
+                          r.invoiceStatus === 'UNINVOICED' ? (
+                            <button
+                              className="btn-primary text-xs py-1 px-2.5 flex items-center gap-1 mx-auto"
+                              onClick={() => setInvoicingRow(r)}
+                              title="توليد مسودة فاتورة مبيعات تلقائياً"
+                            >
+                              <FileText className="size-3.5" />
+                              <span>توليد فاتورة</span>
+                            </button>
+                          ) : (
+                            <Link
+                              to={`/sal/invoices/${r.invoiceId}`}
+                              className="btn-ghost text-xs text-slate-600 hover:text-slate-900 flex items-center gap-1 mx-auto"
+                              title="عرض تفاصيل الفاتورة"
+                            >
+                              <ExternalLink className="size-3.5" />
+                              <span>عرض</span>
+                            </Link>
+                          )
                         ) : (
                           <Link
-                            to={`/sal/invoices/${r.invoiceId}`}
-                            className="btn-ghost text-xs text-slate-600 hover:text-slate-900 flex items-center gap-1 mx-auto"
-                            title="عرض تفاصيل الفاتورة"
+                            to="/prj/assignments"
+                            className="btn-primary bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-1 px-2.5 flex items-center gap-1 mx-auto shadow-xs"
+                            title="تسكين وتخصيص الموظف في مشروع الآن"
                           >
-                            <ExternalLink className="size-3.5" />
-                            <span>عرض</span>
+                            <Sparkles className="size-3.5" />
+                            <span>تسكين في مشروع</span>
                           </Link>
                         )}
                       </td>
