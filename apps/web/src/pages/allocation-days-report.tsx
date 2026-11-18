@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Calendar, CheckCircle2, Clock, Download, ExternalLink,
-  FileText, Printer, Search, Sparkles,
+  ArrowRight, Calendar, CheckCircle2, Clock, Download, ExternalLink,
+  FileText, Printer, Search, Sparkles, Zap,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
@@ -94,6 +94,22 @@ export function EmployeeAllocationDaysReportPage() {
   const data = reportQuery.data;
   const rows = data?.rows || [];
   const summary = data?.summary;
+
+  const benchEmployees = useMemo(() => {
+    return rows.filter((r) => Number(r.unutilizedDays || 0) > 0);
+  }, [rows]);
+
+  const totalBenchDays = useMemo(() => {
+    return benchEmployees.reduce((acc, r) => acc + (Number(r.unutilizedDays) || 0), 0);
+  }, [benchEmployees]);
+
+  const totalLostOpportunityCost = useMemo(() => {
+    return benchEmployees.reduce((acc, r) => {
+      const cost = Number(r.employeeMonthlyCost || 0);
+      const unutilizedPct = Number(r.unutilizedPct || 0);
+      return acc + (cost * (unutilizedPct / 100));
+    }, 0);
+  }, [benchEmployees]);
 
   // Filtered rows
   const filteredRows = useMemo(() => {
@@ -336,6 +352,41 @@ export function EmployeeAllocationDaysReportPage() {
           </div>
         </div>
       </div>
+
+      {/* Bench Intelligence & Revenue Optimization Banner */}
+      {totalBenchDays > 0 && (
+        <div className="rounded-2xl border border-indigo-200/90 bg-gradient-to-l from-indigo-50/70 via-white to-purple-50/50 dark:from-indigo-950/40 dark:via-slate-900 dark:to-purple-950/30 p-4.5 shadow-sm text-xs print:hidden animate-fade-in">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5 max-w-3xl">
+              <div className="size-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-indigo-600/20">
+                <Zap className="size-5" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                    توصيات الذكاء التشغيلي لتعظيم الأرباح واستثمار الأيام الشاغرة (Bench Optimization)
+                  </h4>
+                  <span className="badge-amber text-[10px]">فرصة ربحية متاحة</span>
+                </div>
+                <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                  لديك <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{totalBenchDays} يوماً شاغراً</strong> على قوة الشركة (Bench) لدى {benchEmployees.length} كادر، مما يسبب تكلفة غير مستغلة قدرها <strong className="text-rose-600 dark:text-rose-400 font-bold">{money(totalLostOpportunityCost)}</strong> تُدفع كرواتب دون إيراد مقابل.
+                  عند تسكين هذه الأيام على مشاريعك بسعر خدمة 1,500 ر.س/اليوم، ستحقق إيراداً إضافياً <strong className="text-emerald-600 dark:text-emerald-400 font-bold">+{money(totalBenchDays * 1500)}</strong> وصافي ربح تقديري <strong className="text-emerald-600 dark:text-emerald-400 font-bold">+{money(totalBenchDays * 1500 - totalLostOpportunityCost)}</strong>!
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 ms-auto shrink-0">
+              <Link
+                to="/prj/assignments"
+                className="btn-primary bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4 py-2 flex items-center gap-2 shadow-md shadow-indigo-600/20"
+              >
+                <span>تسكين الأيام الشاغرة بمشروع</span>
+                <ArrowRight className="size-3.5" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Report Table Card */}
       <div className="card overflow-hidden">

@@ -367,8 +367,8 @@ export function ProjectDetailPage() {
     { name: 'employeeId', label: 'الموظف', type: 'ref', ref: REF.employee, required: true },
     { name: 'pricingBasis', label: 'أساس التسعير', type: 'select', options: opts(PRICING_BASIS), required: true, default: 'MONTHLY' },
     { name: 'price', label: 'السعر', type: 'decimal', required: true },
-    { name: 'currencyCode', label: 'العملة', type: 'ref', ref: REF.currency, required: true },
-    { name: 'effectiveFrom', label: 'من تاريخ', type: 'date', required: true },
+    { name: 'currencyCode', label: 'العملة', type: 'ref', ref: REF.currency, required: true, default: 'SAR' },
+    { name: 'effectiveFrom', label: 'من تاريخ', type: 'date', required: true, default: today() },
     { name: 'effectiveTo', label: 'إلى تاريخ', type: 'date' },
     { name: 'reason', label: 'السبب / المبرر', type: 'text', required: true, default: 'تحديد سعر الخدمة' },
   ];
@@ -1102,8 +1102,8 @@ export function ServicePricesPage() {
     { name: 'projectId', label: 'المشروع (اختياري - Override)', type: 'ref', ref: REF.project, hint: 'اتركه فارغًا ليكون السعر الافتراضي العام للموظف، أو حدد مشروعًا ليكون سعرًا خاصًا (Override)' },
     { name: 'pricingBasis', label: 'أساس التسعير', type: 'select', options: opts(PRICING_BASIS), required: true, default: 'MONTHLY' },
     { name: 'price', label: 'السعر', type: 'decimal', required: true },
-    { name: 'currencyCode', label: 'العملة', type: 'ref', ref: REF.currency, required: true },
-    { name: 'effectiveFrom', label: 'من تاريخ', type: 'date', required: true },
+    { name: 'currencyCode', label: 'العملة', type: 'ref', ref: REF.currency, required: true, default: 'SAR' },
+    { name: 'effectiveFrom', label: 'من تاريخ', type: 'date', required: true, default: today() },
     { name: 'effectiveTo', label: 'إلى تاريخ (اتركه فارغًا للسعر الافتراضي المفتوح)', type: 'date' },
     { name: 'reason', label: 'السبب / المبرر', type: 'text', required: true, default: 'سعر خدمة' },
   ];
