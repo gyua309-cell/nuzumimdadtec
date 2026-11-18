@@ -1,5 +1,7 @@
 import { getStoredCompany } from './storage-company';
-import { getEntityList, saveEntityItem } from './local-store';
+import { defaultFiscalPeriodsList, getEntityList, saveEntityItem } from './local-store';
+
+export { defaultFiscalPeriodsList };
 
 /**
  * Pure Synchronous Financial, Costing, Accounting, Governance & Cryptographic Engine
@@ -297,20 +299,6 @@ export const defaultAssetCategoriesList = [
   },
 ];
 
-export const defaultFiscalPeriodsList = [
-  { id: 'fp-2026-01', name: 'يناير 2026', startDate: '2026-01-01', endDate: '2026-01-31', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-02', name: 'فبراير 2026', startDate: '2026-02-01', endDate: '2026-02-28', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-03', name: 'مارس 2026', startDate: '2026-03-01', endDate: '2026-03-31', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-04', name: 'أبريل 2026', startDate: '2026-04-01', endDate: '2026-04-30', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-05', name: 'مايو 2026', startDate: '2026-05-01', endDate: '2026-05-31', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-06', name: 'يونيو 2026', startDate: '2026-06-01', endDate: '2026-06-30', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-07', name: 'يوليو 2026', startDate: '2026-07-01', endDate: '2026-07-31', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-08', name: 'أغسطس 2026', startDate: '2026-08-01', endDate: '2026-08-31', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-09', name: 'سبتمبر 2026', startDate: '2026-09-01', endDate: '2026-09-30', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-10', name: 'أكتوبر 2026', startDate: '2026-10-01', endDate: '2026-10-31', status: 'CLOSED', isAdjustmentPeriod: false },
-  { id: 'fp-2026-11', name: 'نوفمبر 2026', startDate: '2026-11-01', endDate: '2026-11-30', status: 'OPEN', isAdjustmentPeriod: false },
-  { id: 'fp-2026-12', name: 'ديسمبر 2026', startDate: '2026-12-01', endDate: '2026-12-31', status: 'OPEN', isAdjustmentPeriod: false },
-];
 
 export const defaultOverheadPolicy = {
   method: 'PERCENTAGE',

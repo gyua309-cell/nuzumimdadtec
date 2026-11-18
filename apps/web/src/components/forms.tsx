@@ -2,6 +2,7 @@ import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Save } from 'lucide-react';
 import { api } from '../lib/api';
+import { defaultFiscalPeriodsList } from '../lib/local-store';
 import { cleanPayload, EntityForm, FieldDef, fieldErrors, validateFormFields } from './CrudPage';
 import { ModalSize } from './FormPrimitives';
 import { SearchableSelect } from './SearchableSelect';
@@ -141,7 +142,7 @@ export function usePeriods(enabled = true) {
   });
 }
 
-/** Regular (monthly) fiscal period picker; defaults to the period containing today. */
+/** Regular (monthly) fiscal period picker; defaults to the period containing today or active open period. */
 export function PeriodSelect({
   value,
   onChange,
@@ -152,16 +153,26 @@ export function PeriodSelect({
   className?: string;
 }) {
   const periods = usePeriods();
-  const list = useMemo(
-    () => (periods.data ?? []).filter((p) => !p.isAdjustmentPeriod),
-    [periods.data]
-  );
+  const list = useMemo(() => {
+    const rawList = (periods.data ?? []).filter((p) => !p.isAdjustmentPeriod);
+    if (rawList.length < defaultFiscalPeriodsList.length) {
+      const merged = defaultFiscalPeriodsList.map((df) => {
+        const found = rawList.find((r) => r.id === df.id);
+        return found ? { ...df, ...found } : df;
+      });
+      return merged;
+    }
+    return rawList;
+  }, [periods.data]);
 
   useEffect(() => {
     if (!value && list.length) {
       const t = new Date().toISOString().slice(0, 10);
-      const cur = list.find((p) => p.startDate <= t && p.endDate >= t) ?? list[list.length - 1];
-      onChange(cur.id);
+      const cur =
+        list.find((p) => p.startDate <= t && p.endDate >= t) ??
+        list.find((p) => p.status === 'OPEN') ??
+        list[list.length - 1];
+      if (cur) onChange(cur.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.length, value]);
@@ -170,7 +181,7 @@ export function PeriodSelect({
     () =>
       list.map((p) => ({
         value: p.id,
-        label: `${p.name}${p.status !== 'OPEN' ? ` (${p.status === 'CLOSED' ? 'مقفلة' : p.status})` : ''}`,
+        label: `${p.name} — (${p.status === 'OPEN' ? 'مفتوحة' : 'مقفلة'})`,
       })),
     [list]
   );

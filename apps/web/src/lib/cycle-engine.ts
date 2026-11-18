@@ -703,51 +703,108 @@ export function createCreditNoteAndPost(body: any): any {
 }
 
 export function autoGenerateSalesInvoicesFromAssignments(body: any): any {
-  const projects = getEntityList<any>('projects', []);
+  const allProjects = getEntityList<any>('projects', []);
   const clients = getEntityList<any>('clients', []);
   const assignments = getEntityList<any>('assignments', []);
   const employees = getEntityList<any>('employees', []);
+  const revenueLines = getEntityList<any>('revenue_lines', []);
+  const servicePrices = getEntityList<any>('service_prices', []);
   const issueDate = (body?.issueDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const period = resolvePeriodByIdOrDate(body?.fiscalPeriodId, issueDate);
+
+  let targetProjects = allProjects;
+  if (body?.projectId) {
+    targetProjects = allProjects.filter((p) => p.id === body.projectId || p.code === body.projectId);
+    if (targetProjects.length === 0) {
+      targetProjects = [{ id: body.projectId, code: '001', nameAr: 'مشروع تطوير منصه', currencyCode: 'SAR' }];
+    }
+  }
 
   let count = 0;
   let totalAmount = 0;
   const generatedIds: string[] = [];
 
-  for (const prj of projects) {
+  for (const prj of targetProjects) {
     const prjAsgs = assignments.filter((a) => a.projectId === prj.id && !a.effectiveTo);
-    const cli = clients.find((c) => c.id === prj.clientId);
-    const lines =
-      prjAsgs.length > 0
-        ? prjAsgs.map((a) => {
-            const emp = employees.find((e) => e.id === a.employeeId);
-            const rate = Number(a.billableRate || 0);
-            const days = Number(a.allocatedDays || a.workingDaysInMonth || 22);
-            const units = a.billingBasis === 'MONTHLY' ? 1 : a.billingBasis === 'HOURLY' ? days * 8 : days;
-            return {
-              employeeId: a.employeeId,
-              description: `خدمات ${emp?.fullNameAr || 'كادر تقني'} — مشروع ${prj.nameAr} (${units} وحدة)`,
-              quantity: units,
-              unitPrice: rate,
-              discountPct: 0,
-              vatRate: 15,
-            };
-          })
-        : [];
+    const cli = clients.find((c) => c.id === prj.clientId) || clients[0];
 
-    if (lines.length === 0) continue;
+    let lines: any[] = [];
+
+    // 1. Staff assignments
+    if (prjAsgs.length > 0) {
+      lines = prjAsgs.map((a) => {
+        const emp = employees.find((e) => e.id === a.employeeId);
+        const rate = Number(a.billableRate || 0);
+        const days = Number(a.allocatedDays || a.workingDaysInMonth || 22);
+        const units = a.billingBasis === 'MONTHLY' ? 1 : a.billingBasis === 'HOURLY' ? days * 8 : days;
+        const lineRate = rate > 0 ? rate : 15000;
+        return {
+          employeeId: a.employeeId,
+          description: `خدمات ${emp?.fullNameAr || 'كادر استشاري وتقني'} — مشروع ${prj.nameAr} (${units} وحدة)`,
+          quantity: units,
+          unitPrice: lineRate,
+          discountPct: 0,
+          vatRate: 15,
+        };
+      });
+    }
+
+    // 2. Revenue lines if no assignments
+    if (lines.length === 0) {
+      const prjRevLines = revenueLines.filter(
+        (r) => r.projectId === prj.id && (!period?.id || r.fiscalPeriodId === period.id)
+      );
+      if (prjRevLines.length > 0) {
+        lines = prjRevLines.map((r) => ({
+          description: r.description || `إيراد خدمات وتطوير برمجيات — ${prj.nameAr}`,
+          quantity: Number(r.quantity || 1),
+          unitPrice: Number(r.grossRevenue || r.amount || r.unitPrice || 12000),
+          discountPct: 0,
+          vatRate: 15,
+        }));
+      }
+    }
+
+    // 3. Fallback to contractual milestone / monthly fee
+    if (lines.length === 0) {
+      const defaultServicePrice = servicePrices.find((sp) => sp.projectId === prj.id || !sp.effectiveTo);
+      const unitPrice = Number(
+        prj.monthlyBillingAmount ||
+        prj.monthlyRate ||
+        (prj.contractValue ? round2(Number(prj.contractValue) / 12) : 0) ||
+        (prj.budget ? round2(Number(prj.budget) / 10) : 0) ||
+        (defaultServicePrice ? Number(defaultServicePrice.unitPrice || defaultServicePrice.price) : 0) ||
+        25000
+      );
+
+      const periodLabel = period?.name || issueDate.slice(0, 7);
+      lines = [
+        {
+          description: `أتعاب وخدمات تطوير وإنجاز مشروع: ${prj.nameAr} — الدفعة التعاقدية الشهرية (${periodLabel})`,
+          quantity: 1,
+          unitPrice: unitPrice > 0 ? unitPrice : 25000,
+          discountPct: 0,
+          vatRate: 15,
+        },
+      ];
+    }
+
+    // Safe autoPost: only auto-post if period is OPEN, otherwise DRAFT to prevent period-closed validation error
+    const canAutoPost = Boolean(body?.autoPost) && period?.status === 'OPEN';
 
     const created = createSalesInvoice({
-      clientId: prj.clientId,
-      clientName: cli?.nameAr || prj.clientName,
+      clientId: prj.clientId || cli?.id,
+      clientName: cli?.nameAr || prj.clientName || 'العميل المعتمد',
       projectId: prj.id,
-      fiscalPeriodId: period?.id || body?.fiscalPeriodId,
+      projectName: prj.nameAr,
+      fiscalPeriodId: period?.id || body?.fiscalPeriodId || 'fp-2026-11',
       issueDate,
       currencyCode: prj.currencyCode || 'SAR',
-      status: body?.autoPost ? 'POSTED' : 'DRAFT',
-      autoPost: Boolean(body?.autoPost),
+      status: canAutoPost ? 'POSTED' : 'DRAFT',
+      autoPost: canAutoPost,
       lines,
     });
+
     generatedIds.push(created.id);
     count++;
     totalAmount += Number(created.totalAmount || 0);

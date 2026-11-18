@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
-import { PeriodSelect } from '../components/forms';
+import { PeriodSelect, usePeriods } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { ZatcaTaxInvoiceTemplate, exportInvoiceToExcel } from '../components/ZatcaTaxInvoiceTemplate';
 import { ExportMenu } from '../components/ExportMenu';
@@ -455,6 +455,12 @@ function AutoGenerateInvoicesModal({
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
   const [autoPost, setAutoPost] = useState(true);
   const [busy, setBusy] = useState(false);
+  const periods = usePeriods(open);
+
+  const selectedPeriod = useMemo(
+    () => (periods.data ?? []).find((p) => p.id === periodId),
+    [periods.data, periodId]
+  );
 
   const projects = useQuery({
     queryKey: ['ref', '/projects', undefined],
@@ -483,11 +489,15 @@ function AutoGenerateInvoicesModal({
         autoPost,
       });
 
-      toast.success(
-        `تم توليد ${res.count} فاتورة ضريبية بنجاح بإجمالي ${money(res.totalAmount)}!`
-      );
-      onSuccess();
-      onClose();
+      if (res.count > 0) {
+        toast.success(
+          `تم توليد ${res.count} فاتورة ضريبية بنجاح بإجمالي ${money(res.totalAmount)}!`
+        );
+        onSuccess();
+        onClose();
+      } else {
+        toast.info('لم يتم العثور على مشاريع جاهزة للفوترة في هذه الفترة المحددة.');
+      }
     } catch (e) {
       toast.error(e);
     } finally {
@@ -558,6 +568,12 @@ function AutoGenerateInvoicesModal({
           </Field>
         </FormSection>
 
+        {selectedPeriod && selectedPeriod.status === 'CLOSED' && (
+          <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 p-3 text-xs text-amber-800 dark:text-amber-200">
+            ⚠️ <strong>تنبيه مالي:</strong> الفترة المالية ({selectedPeriod.name}) مقفلة رسمياً؛ سيتم إنشاء الفاتورة بحالة <strong>مسودة (DRAFT)</strong> حفاظاً على توازن الفترات المحاسبية، ويمكن ترحيلها عند فتح الفترة أو اختيار فترة مفتوحة (مثل نوفمبر 2026).
+          </div>
+        )}
+
         <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-slate-200/80 dark:border-slate-800 p-3 bg-slate-50/70 dark:bg-slate-900/50">
           <input
             type="checkbox"
@@ -566,7 +582,7 @@ function AutoGenerateInvoicesModal({
             onChange={(e) => setAutoPost(e.target.checked)}
           />
           <span className="font-medium text-slate-800 dark:text-slate-200 text-xs">
-            ترحيل الفواتير فوراً واعتماد تشفير هيئة الزكاة وإنشاء القيود المحاسبية تلقائياً
+            ترحيل الفواتير فوراً واعتماد تشفير هيئة الزكاة وإنشاء القيود المحاسبية تلقائياً (للفترات المفتوحة)
           </span>
         </label>
       </div>

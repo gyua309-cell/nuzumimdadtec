@@ -6,22 +6,64 @@
 
 const STORAGE_PREFIX = 'idham_prod_';
 
+export const defaultFiscalPeriodsList = [
+  { id: 'fp-2026-01', name: 'يناير 2026', startDate: '2026-01-01', endDate: '2026-01-31', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-02', name: 'فبراير 2026', startDate: '2026-02-01', endDate: '2026-02-28', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-03', name: 'مارس 2026', startDate: '2026-03-01', endDate: '2026-03-31', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-04', name: 'أبريل 2026', startDate: '2026-04-01', endDate: '2026-04-30', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-05', name: 'مايو 2026', startDate: '2026-05-01', endDate: '2026-05-31', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-06', name: 'يونيو 2026', startDate: '2026-06-01', endDate: '2026-06-30', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-07', name: 'يوليو 2026', startDate: '2026-07-01', endDate: '2026-07-31', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-08', name: 'أغسطس 2026', startDate: '2026-08-01', endDate: '2026-08-31', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-09', name: 'سبتمبر 2026', startDate: '2026-09-01', endDate: '2026-09-30', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-10', name: 'أكتوبر 2026', startDate: '2026-10-01', endDate: '2026-10-31', status: 'CLOSED', isAdjustmentPeriod: false },
+  { id: 'fp-2026-11', name: 'نوفمبر 2026', startDate: '2026-11-01', endDate: '2026-11-30', status: 'OPEN', isAdjustmentPeriod: false },
+  { id: 'fp-2026-12', name: 'ديسمبر 2026', startDate: '2026-12-01', endDate: '2026-12-31', status: 'OPEN', isAdjustmentPeriod: false },
+];
+
+const BUILTIN_DEFAULTS: Record<string, any[]> = {
+  fiscal_periods: defaultFiscalPeriodsList,
+};
+
 export function getEntityList<T = any>(entityKey: string, initialDefaults: any = []): T[] {
-  if (typeof window === 'undefined') return initialDefaults;
+  const fallback =
+    entityKey === 'fiscal_periods' && (!initialDefaults || initialDefaults.length === 0)
+      ? defaultFiscalPeriodsList
+      : initialDefaults && initialDefaults.length > 0
+        ? initialDefaults
+        : (BUILTIN_DEFAULTS[entityKey] || []);
+
+  if (typeof window === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(`${STORAGE_PREFIX}${entityKey}`);
     if (!raw) {
-      localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(initialDefaults));
-      return initialDefaults;
+      localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(fallback));
+      return fallback;
     }
-    return JSON.parse(raw);
+    let parsed = JSON.parse(raw);
+    if (entityKey === 'fiscal_periods') {
+      if (!Array.isArray(parsed) || parsed.length < defaultFiscalPeriodsList.length) {
+        const merged = [...defaultFiscalPeriodsList];
+        if (Array.isArray(parsed)) {
+          for (const p of parsed) {
+            const idx = merged.findIndex((m) => m.id === p.id);
+            if (idx >= 0) merged[idx] = { ...merged[idx], ...p };
+            else merged.push(p);
+          }
+        }
+        localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(merged));
+        parsed = merged;
+      }
+    }
+    return parsed;
   } catch {
-    return initialDefaults;
+    return fallback;
   }
 }
 
 export function saveEntityItem<T extends { id?: string }>(entityKey: string, item: T): T {
-  const list = getEntityList<any>(entityKey);
+  const fallbackDefaults = BUILTIN_DEFAULTS[entityKey] || [];
+  const list = getEntityList<any>(entityKey, fallbackDefaults);
   const now = new Date().toISOString();
   let result: any;
 
