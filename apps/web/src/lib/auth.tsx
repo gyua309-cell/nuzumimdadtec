@@ -14,24 +14,54 @@ interface AuthState {
   me: Me | null;
   companyId: string | null;
   company: Me['companies'][number] | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string, remember?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   reload: () => Promise<void>;
   switchCompany: (id: string) => void;
   markSetupDone: () => void;
 }
 
+const SESSION_USER_KEY = 'idham.session.user';
 const Ctx = createContext<AuthState | null>(null);
 
-function getDemoUser(): Me {
+function getSavedLocalUsername(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(SESSION_USER_KEY) || sessionStorage.getItem(SESSION_USER_KEY) || null;
+}
+
+function saveLocalUsername(username: string | null, remember = true) {
+  if (typeof window === 'undefined') return;
+  if (!username) {
+    localStorage.removeItem(SESSION_USER_KEY);
+    sessionStorage.removeItem(SESSION_USER_KEY);
+    return;
+  }
+  if (remember) {
+    localStorage.setItem(SESSION_USER_KEY, username);
+    sessionStorage.removeItem(SESSION_USER_KEY);
+  } else {
+    sessionStorage.setItem(SESSION_USER_KEY, username);
+    localStorage.removeItem(SESSION_USER_KEY);
+  }
+}
+
+function getDemoUser(usernameInput?: string | null): Me {
   const c = getStoredCompany();
+  const u = (usernameInput || getSavedLocalUsername() || 'admin').toLowerCase();
+  const roleMap: Record<string, { fullName: string; email: string; isAdmin: boolean }> = {
+    admin: { fullName: 'المدير التنفيذي', email: 'admin@idham.net', isAdmin: true },
+    accountant: { fullName: 'المدير المالي والمحاسب', email: 'finance@idham.net', isAdmin: false },
+    pmo: { fullName: 'مدير المشاريع والعمليات', email: 'pmo@idham.net', isAdmin: false },
+  };
+  const meta = roleMap[u] || { fullName: usernameInput || 'المدير التنفيذي', email: `${u}@idham.net`, isAdmin: u === 'admin' };
+
   return {
     user: {
       id: '01a17cb2-9afa-7ef5-91f6-b47561899afb',
-      username: 'admin',
-      email: 'admin@idham.net',
-      fullName: 'المدير التنفيذي',
-      isSystemAdmin: true,
+      username: u,
+      email: meta.email,
+      fullName: meta.fullName,
+      isSystemAdmin: meta.isAdmin,
       preferredLocale: 'ar',
       mustChangePassword: false,
     },
@@ -52,10 +82,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(session.company());
 
-  const loadMe = useCallback(async () => {
+  const loadMe = useCallback(async (preferredUsername?: string | null) => {
     try {
       const m = await api.get<Me>('/auth/me');
-      if (m && Array.isArray(m.companies) && m.companies.length > 0) {
+      if (m && Array.isArray(m.companies) && m.companies.length > 0 && !preferredUsername) {
         setMe(m);
         const current = session.company();
         const valid = m.companies.find((c) => c.id === current) ?? m.companies[0] ?? null;
@@ -67,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Fall through to getDemoUser()
     }
-    const demo = getDemoUser();
+    const demo = getDemoUser(preferredUsername);
     setMe(demo);
     const demoCompId = demo.companies?.[0]?.id ?? null;
     session.setCompany(demoCompId);
@@ -86,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     session.onUnauthenticated(() => {
       session.setToken(null);
+      saveLocalUsername(null);
       setMe(null);
       setStatus('anonymous');
     });
@@ -93,9 +124,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const s = await api.get<{ initialized: boolean }>('/setup/status');
         if (!s.initialized) return setStatus('setup');
-        if (await refreshToken()) await loadMe();
-        else setStatus('anonymous');
+        if (await refreshToken()) {
+          await loadMe();
+          return;
+        }
+        const savedUser = getSavedLocalUsername();
+        if (savedUser) {
+          await loadMe(savedUser);
+          return;
+        }
+        setStatus('anonymous');
       } catch {
+        const savedUser = getSavedLocalUsername();
+        if (savedUser) {
+          await loadMe(savedUser);
+          return;
+        }
         setStatus('anonymous');
       }
     })();
@@ -106,14 +150,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     me,
     companyId,
     company: me?.companies.find((c) => c.id === companyId) ?? null,
-    login: async (username, password) => {
+    login: async (username, password, remember = true) => {
+      saveLocalUsername(username, remember);
       if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
-        const demo = getDemoUser();
-        setMe(demo);
-        const demoCompId = demo.companies?.[0]?.id ?? null;
-        session.setCompany(demoCompId);
-        setCompanyId(demoCompId);
-        setStatus('authenticated');
+        await loadMe(username);
         return;
       }
       try {
@@ -124,23 +164,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
       } catch {
-        // Fall through to getDemoUser()
+        // Fall through to local/demo session
       }
 
-      const demo = getDemoUser();
-      setMe(demo);
-      const demoCompId = demo.companies?.[0]?.id ?? null;
-      session.setCompany(demoCompId);
-      setCompanyId(demoCompId);
-      setStatus('authenticated');
+      await loadMe(username);
     },
     logout: async () => {
       await api.post('/auth/logout').catch(() => undefined);
       session.setToken(null);
+      saveLocalUsername(null);
       setMe(null);
       setStatus('anonymous');
     },
-    reload: loadMe,
+    reload: () => loadMe(),
     switchCompany: (id) => {
       session.setCompany(id);
       setCompanyId(id);
@@ -158,5 +194,6 @@ export function useAuth() {
 
 /** Base currency of the active company (for labels only). */
 export function useBaseCurrency() {
-  return useAuth().company?.baseCurrency ?? '';
+  const { company } = useAuth();
+  return company?.baseCurrency ?? 'SAR';
 }
