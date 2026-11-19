@@ -11,7 +11,7 @@ import { date, money } from '../lib/format';
 import { SOURCE_MODULE_LABELS, SOURCE_TYPE_LABELS } from '../lib/labels';
 import { PeriodSelect } from '../components/forms';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
-import { Badge, Field, Loading, PageHeader, Spinner, Stat, useToast } from '../components/ui';
+import { Badge, Loading, PageHeader, Spinner, Stat, useToast } from '../components/ui';
 
 interface StepLog {
   step: string;
@@ -352,10 +352,11 @@ export function AutomationHubPage() {
             </p>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-white/10">
-            <Field label="الفترة المالية المستهدفة">
-              <PeriodSelect value={periodId} onChange={setPeriodId} className="w-full" />
-            </Field>
+          <div className="mt-4 pt-3 border-t border-white/10 space-y-1.5">
+            <label className="block text-xs font-bold text-indigo-200">
+              الفترة المالية المستهدفة
+            </label>
+            <PeriodSelect value={periodId} onChange={setPeriodId} className="w-full" />
           </div>
         </div>
 

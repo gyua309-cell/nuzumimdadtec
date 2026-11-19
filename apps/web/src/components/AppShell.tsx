@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Activity, AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, Calculator, CheckCircle2, ChevronDown, ChevronLeft,
-  Cloud, Coins, Command, Database, FileText, Globe, Landmark, LayoutDashboard, Loader2, LogOut, Menu, Moon, Package,
+  Activity, AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, CheckCircle2, ChevronDown, ChevronLeft,
+  Cloud, Coins, Command, Contrast, Database, FileText, Globe, Landmark, LayoutDashboard, Loader2, LogOut, Menu, Moon, Package,
   PanelRightClose, Plus, Search, Server, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet, X, Zap,
 } from 'lucide-react';
 import { api, getApiBaseUrl, getCustomApiUrl, resetApiOfflineCache, setCustomApiUrl } from '../lib/api';
@@ -30,6 +30,7 @@ export interface NavSection {
   to?: string;
   soon?: boolean;
   step?: string;
+  badge?: string;
   color?: SectionColor;
 }
 
@@ -114,19 +115,34 @@ const COLOR_CLASSES: Record<SectionColor, { iconBg: string; text: string; active
   },
 };
 
-const SIDEBAR_ICON_TINT: Record<SectionColor, string> = {
-  blue: 'bg-sky-500/12 text-sky-400',
-  amber: 'bg-amber-500/12 text-amber-400',
-  emerald: 'bg-emerald-500/12 text-emerald-400',
-  indigo: 'bg-indigo-500/15 text-indigo-300',
-  cyan: 'bg-cyan-500/12 text-cyan-400',
-  teal: 'bg-teal-500/12 text-teal-400',
-  violet: 'bg-violet-500/12 text-violet-400',
-  green: 'bg-emerald-500/12 text-emerald-400',
-  rose: 'bg-rose-500/12 text-rose-400',
-  purple: 'bg-purple-500/12 text-purple-400',
-  slate: 'bg-slate-400/15 text-slate-300',
-  zinc: 'bg-zinc-400/15 text-zinc-300',
+const SIDEBAR_ICON_DARK_TINT: Record<SectionColor, string> = {
+  blue: 'bg-sky-500/14 text-sky-400',
+  amber: 'bg-amber-500/14 text-amber-400',
+  emerald: 'bg-emerald-500/14 text-emerald-400',
+  indigo: 'bg-indigo-500/16 text-indigo-300',
+  cyan: 'bg-cyan-500/14 text-cyan-400',
+  teal: 'bg-teal-500/14 text-teal-400',
+  violet: 'bg-violet-500/14 text-violet-400',
+  green: 'bg-emerald-500/14 text-emerald-400',
+  rose: 'bg-rose-500/14 text-rose-400',
+  purple: 'bg-purple-500/14 text-purple-400',
+  slate: 'bg-slate-400/14 text-slate-300',
+  zinc: 'bg-zinc-400/14 text-zinc-300',
+};
+
+const SIDEBAR_ICON_LIGHT_TINT: Record<SectionColor, string> = {
+  blue: 'bg-sky-50 text-sky-600 dark:bg-sky-500/14 dark:text-sky-400',
+  amber: 'bg-amber-50 text-amber-600 dark:bg-amber-500/14 dark:text-amber-400',
+  emerald: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/14 dark:text-emerald-400',
+  indigo: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/16 dark:text-indigo-300',
+  cyan: 'bg-cyan-50 text-cyan-600 dark:bg-cyan-500/14 dark:text-cyan-400',
+  teal: 'bg-teal-50 text-teal-600 dark:bg-teal-500/14 dark:text-teal-400',
+  violet: 'bg-violet-50 text-violet-600 dark:bg-violet-500/14 dark:text-violet-400',
+  green: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/14 dark:text-emerald-400',
+  rose: 'bg-rose-50 text-rose-600 dark:bg-rose-500/14 dark:text-rose-400',
+  purple: 'bg-purple-50 text-purple-600 dark:bg-purple-500/14 dark:text-purple-400',
+  slate: 'bg-slate-100 text-slate-600 dark:bg-slate-400/14 dark:text-slate-300',
+  zinc: 'bg-slate-100 text-slate-600 dark:bg-zinc-400/14 dark:text-zinc-300',
 };
 
 export const PINNED_FAVORITES: Array<{
@@ -135,63 +151,62 @@ export const PINNED_FAVORITES: Array<{
   icon: any;
   color: string;
 }> = [
-  { label: 'الأتمتة والقيود', path: '/automation/hub', icon: Zap, color: 'text-amber-400' },
-  { label: 'الموظفون', path: '/hr/employees', icon: Users, color: 'text-indigo-400' },
-  { label: 'المشاريع', path: '/prj/projects', icon: Briefcase, color: 'text-sky-400' },
-  { label: 'الفواتير', path: '/sal/invoices', icon: FileText, color: 'text-emerald-400' },
-  { label: 'العهد والبنوك', path: '/fin/custodies', icon: Coins, color: 'text-teal-400' },
-  { label: 'شجرة الحسابات', path: '/acc/accounts', icon: BookOpen, color: 'text-violet-400' },
-  { label: 'قيود اليومية', path: '/acc/journals', icon: Landmark, color: 'text-cyan-400' },
-  { label: 'ميزان المراجعة', path: '/reports/trial-balance', icon: BarChart3, color: 'text-amber-400' },
-  { label: 'منصة زاتكا', path: '/zatca/hub', icon: ShieldCheck, color: 'text-rose-400' },
+  { label: 'الأتمتة والقيود', path: '/automation/hub', icon: Zap, color: 'text-amber-500' },
+  { label: 'الموظفون', path: '/hr/employees', icon: Users, color: 'text-indigo-500' },
+  { label: 'المشاريع', path: '/prj/projects', icon: Briefcase, color: 'text-sky-500' },
+  { label: 'الفواتير', path: '/sal/invoices', icon: FileText, color: 'text-emerald-500' },
+  { label: 'العهد والبنوك', path: '/fin/custodies', icon: Coins, color: 'text-teal-500' },
+  { label: 'شجرة الحسابات', path: '/acc/accounts', icon: BookOpen, color: 'text-violet-500' },
+  { label: 'قيود اليومية', path: '/acc/journals', icon: Landmark, color: 'text-cyan-500' },
+  { label: 'ميزان المراجعة', path: '/reports/trial-balance', icon: BarChart3, color: 'text-amber-500' },
+  { label: 'منصة زاتكا', path: '/zatca/hub', icon: ShieldCheck, color: 'text-rose-500' },
+];
+
+type SidebarDomainKey = 'ALL' | 'workforce' | 'commercial' | 'finance' | 'settings';
+
+const SIDEBAR_DOMAINS: Array<{ key: SidebarDomainKey; label: string }> = [
+  { key: 'ALL', label: 'الكل' },
+  { key: 'workforce', label: 'الكوادر' },
+  { key: 'commercial', label: 'التجاري' },
+  { key: 'finance', label: 'المالية' },
+  { key: 'settings', label: 'الإعدادات' },
 ];
 
 export const NAV_GROUPS: NavGroup[] = [
   {
     key: 'overview',
-    label: 'الرئيسية والمؤشرات التنفيذية',
+    label: 'القيادة والأتمتة',
     sections: [
-      { key: 'dash', label: 'لوحة المؤشرات التنفيذية', icon: LayoutDashboard, to: '/', color: 'blue' },
-      { key: 'auto_hub', label: 'مركز الأتمتة والقيود الآلية', icon: Zap, to: '/automation/hub', color: 'amber' },
+      { key: 'dash', label: 'لوحة المؤشرات التنفيذية', icon: LayoutDashboard, to: '/', color: 'indigo' },
+      { key: 'auto_hub', label: 'مركز الأتمتة والقيود الآلية', icon: Zap, to: '/automation/hub', color: 'amber', badge: 'آلي' },
     ],
   },
   {
-    key: 'operations',
-    label: 'الوحدات التشغيلية والإدخالات',
+    key: 'workforce',
+    label: 'الكوادر والمشاريع والرواتب',
     sections: [
       {
         key: 'hr',
-        step: '01',
-        label: 'الموارد البشرية',
+        label: 'الموارد البشرية والتكلفة',
         icon: Users,
         color: 'emerald',
         items: [
           { to: '/hr/employees', label: 'سجل الموظفين' },
           { to: '/hr/positions', label: 'الهيكل الوظيفي' },
-        ],
-      },
-      {
-        key: 'cost',
-        step: '02',
-        label: 'تكلفة الموظفين',
-        icon: Calculator,
-        color: 'indigo',
-        items: [
-          { to: '/cost/sheet', label: 'كشف التكاليف' },
+          { to: '/cost/sheet', label: 'كشف تكلفة الكوادر' },
           { to: '/cost/components', label: 'بنود التكلفة' },
           { to: '/cost/profiles', label: 'ملفات التكلفة' },
         ],
       },
       {
         key: 'prj',
-        step: '03',
         label: 'المشاريع والمطورين',
         icon: Briefcase,
         color: 'cyan',
         items: [
           { to: '/prj/projects', label: 'سجل المشاريع' },
           { to: '/prj/clients', label: 'دليل العملاء' },
-          { to: '/services/catalog', label: 'المخزون الخدمي (دليل الخدمات)' },
+          { to: '/services/catalog', label: 'دليل الخدمات والأسعار' },
           { to: '/prj/employee-tracking', label: 'كروت تتبع الموظفين' },
           { to: '/prj/assignments', label: 'تخصيص الموظفين' },
           { to: '/prj/allocation-days', label: 'توزيع الأيام والنسب' },
@@ -200,8 +215,26 @@ export const NAV_GROUPS: NavGroup[] = [
         ],
       },
       {
+        key: 'pay',
+        label: 'الرواتب والمستحقات',
+        icon: Wallet,
+        color: 'violet',
+        items: [
+          { to: '/pay/runs', label: 'مسيّر الرواتب' },
+          { to: '/pay/eosb', label: 'مكافأة نهاية الخدمة' },
+          { to: '/pay/variables', label: 'البدلات والخصومات' },
+          { to: '/pay/loans', label: 'سلف الموظفين' },
+          { to: '/pay/variable-types', label: 'أنواع البدلات' },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'commercial',
+    label: 'التجاري والخزينة والأصول',
+    sections: [
+      {
         key: 'sal',
-        step: '04',
         label: 'المبيعات والفوترة',
         icon: FileText,
         color: 'emerald',
@@ -212,7 +245,6 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         key: 'pur',
-        step: '05',
         label: 'المشتريات والموردين',
         icon: ShoppingCart,
         color: 'amber',
@@ -224,17 +256,13 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         key: 'fin',
-        step: '06',
         label: 'العهد النقدية',
         icon: Coins,
+        to: '/fin/custodies',
         color: 'cyan',
-        items: [
-          { to: '/fin/custodies', label: 'إدارة العهد النقدية' },
-        ],
       },
       {
         key: 'ast',
-        step: '07',
         label: 'الأصول الثابتة',
         icon: Package,
         color: 'teal',
@@ -244,23 +272,14 @@ export const NAV_GROUPS: NavGroup[] = [
           { to: '/assets/depreciation', label: 'إهلاك الأصول' },
         ],
       },
-      {
-        key: 'pay',
-        step: '08',
-        label: 'الرواتب والبدلات',
-        icon: Wallet,
-        color: 'violet',
-        items: [
-          { to: '/pay/runs', label: 'مسيّر الرواتب' },
-          { to: '/pay/eosb', label: 'مكافأة نهاية الخدمة (نظام العمل)' },
-          { to: '/pay/variables', label: 'البدلات والخصومات' },
-          { to: '/pay/loans', label: 'سلف الموظفين' },
-          { to: '/pay/variable-types', label: 'أنواع البدلات' },
-        ],
-      },
+    ],
+  },
+  {
+    key: 'finance',
+    label: 'المالية والزكاة والتقارير',
+    sections: [
       {
         key: 'acc',
-        step: '09',
         label: 'المحاسبة العامة',
         icon: BookOpen,
         color: 'blue',
@@ -273,37 +292,26 @@ export const NAV_GROUPS: NavGroup[] = [
           { to: '/closing', label: 'إقفال الفترات' },
         ],
       },
-    ],
-  },
-  {
-    key: 'zatca',
-    label: 'هيئة الزكاة والضريبة والجمارك (ZATCA 🇸🇦)',
-    sections: [
       {
         key: 'zatca_main',
-        label: 'منظومة ZATCA والربط المباشر',
+        label: 'الزكاة والضريبة (ZATCA)',
         icon: ShieldCheck,
         color: 'emerald',
+        badge: '🇸🇦',
         items: [
           { to: '/zatca/hub', label: 'مركز القيادة والربط المباشر' },
           { to: '/zatca/invoices', label: 'الفواتير والاعتماد (مرحلة 1 و 2)' },
-          { to: '/zatca/onboarding', label: 'تهيئة واعتماد الحل التقني (CSID)' },
-          { to: '/zatca/qr-validator', label: 'فاحص ومفسر الرمز (QR Validator)' },
+          { to: '/zatca/onboarding', label: 'تهيئة الشهادة الرقمية (CSID)' },
+          { to: '/zatca/qr-validator', label: 'فاحص ومفسر الرمز (QR)' },
           { to: '/reports/zakat', label: 'إقرار الزكاة الشرعية والدخل' },
-          { to: '/reports/vat-return', label: 'إقرار ضريبة القيمة المضافة (15%)' },
+          { to: '/reports/vat-return', label: 'إقرار ضريبة القيمة المضافة 15%' },
         ],
       },
-    ],
-  },
-  {
-    key: 'reporting',
-    label: 'التقارير والقوائم المالية',
-    sections: [
       {
         key: 'stmts',
         label: 'القوائم المالية',
         icon: Landmark,
-        color: 'blue',
+        color: 'indigo',
         items: [
           { to: '/reports/trial-balance', label: 'ميزان المراجعة' },
           { to: '/reports/income-statement', label: 'قائمة الدخل' },
@@ -314,16 +322,16 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         key: 'analytics',
-        label: 'التقارير التحليلية والرقابية',
+        label: 'التقارير التحليلية',
         icon: BarChart3,
         color: 'purple',
         items: [
           { to: '/reports/executive-intelligence', label: 'الرقابة والذكاء المالي' },
           { to: '/reports/employee-profitability', label: 'ربحية الكوادر' },
-          { to: '/reports/ar-aging', label: 'أعمار ديون العملاء' },
           { to: '/rev/profitability', label: 'ربحية المشاريع' },
           { to: '/rev/revenue', label: 'تحليل الإيرادات' },
-          { to: '/reports/custody-movement', label: 'حركة وتسوية العهد (SAR/EGP)' },
+          { to: '/reports/ar-aging', label: 'أعمار ديون العملاء' },
+          { to: '/reports/custody-movement', label: 'حركة وتسوية العهد' },
           { to: '/reports/multi-currency-payroll', label: 'رواتب العملات (SAR/EGP)' },
           { to: '/closing/snapshots', label: 'لقطات الإقفال' },
           { to: '/audit/log', label: 'سجل التدقيق' },
@@ -333,7 +341,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: 'settings',
-    label: 'الإعدادات والتهيئة العامة',
+    label: 'الإعدادات والحوكمة',
     sections: [
       {
         key: 'org',
@@ -353,13 +361,13 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         key: 'iam',
-        label: 'الأمان والمستخدمين',
+        label: 'الأمان والصلاحيات',
         icon: Settings,
         color: 'zinc',
         items: [
           { to: '/settings/users', label: 'إدارة المستخدمين' },
           { to: '/settings/roles', label: 'الأدوار والصلاحيات' },
-          { to: '/audit/security', label: 'الأحداث وسجل الأمان' },
+          { to: '/audit/security', label: 'سجل الأمان' },
           { to: '/settings/password', label: 'تغيير كلمة المرور' },
         ],
       },
@@ -454,26 +462,28 @@ function useDualClock() {
 function Section({
   s,
   collapsed,
-  forceOpen,
+  isExpanded,
+  darkSidebar,
+  onToggle,
+  onExpandFromCollapsed,
   onNavigate,
 }: {
   s: NavSection;
   collapsed?: boolean;
-  forceOpen?: boolean;
+  isExpanded: boolean;
+  darkSidebar: boolean;
+  onToggle: (key: string) => void;
+  onExpandFromCollapsed: (key: string) => void;
   onNavigate?: () => void;
 }) {
   const loc = useLocation();
   const active = s.items?.some((i) => loc.pathname === i.to || loc.pathname.startsWith(`${i.to}/`));
-  const [open, setOpen] = useState(!!active);
+  const iconTint = darkSidebar
+    ? SIDEBAR_ICON_DARK_TINT[s.color || 'indigo']
+    : SIDEBAR_ICON_LIGHT_TINT[s.color || 'indigo'];
 
-  useEffect(() => {
-    if (active) setOpen(true);
-  }, [active]);
-
-  const isExpanded = forceOpen || open;
-  const iconTint = SIDEBAR_ICON_TINT[s.color || 'indigo'];
   const base =
-    'group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-semibold transition-all duration-200 cursor-pointer';
+    'group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-semibold transition-all duration-150 cursor-pointer';
 
   if (s.to) {
     return (
@@ -482,27 +492,60 @@ function Section({
         end
         onClick={onNavigate}
         className={({ isActive }) =>
-          `${base} ${
+          `${base} ${collapsed ? 'justify-center px-0' : ''} ${
             isActive
-              ? 'bg-gradient-to-l from-indigo-600 via-indigo-600 to-sky-600 text-white font-extrabold shadow-md shadow-indigo-950/60 ring-1 ring-white/15'
-              : 'text-slate-300 hover:bg-white/[0.07] hover:text-white'
+              ? darkSidebar
+                ? 'bg-indigo-500/22 text-white font-extrabold ring-1 ring-indigo-400/35 shadow-sm'
+                : 'bg-indigo-50/95 text-indigo-700 font-extrabold ring-1 ring-indigo-500/20 shadow-2xs dark:bg-indigo-500/20 dark:text-indigo-200 dark:ring-indigo-400/30'
+              : darkSidebar
+                ? 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+                : 'text-slate-600 hover:bg-slate-100/85 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/[0.06] dark:hover:text-white'
           }`
         }
         title={collapsed ? s.label : undefined}
       >
         {({ isActive }) => (
           <>
-            {isActive && (
-              <span className="pointer-events-none absolute inset-y-1.5 start-0.5 w-1 rounded-full bg-amber-300 shadow-[0_0_8px_rgba(252,211,77,0.8)]" />
+            {isActive && !collapsed && (
+              <span
+                className={`pointer-events-none absolute inset-y-2 start-0 w-[3px] rounded-e-full ${
+                  darkSidebar
+                    ? 'bg-gradient-to-b from-amber-300 to-indigo-400'
+                    : 'bg-gradient-to-b from-indigo-600 to-sky-500 dark:from-indigo-400 dark:to-sky-400'
+                }`}
+              />
             )}
             <div
-              className={`flex size-7.5 shrink-0 items-center justify-center rounded-lg transition-all duration-200 group-hover:scale-105 ${
-                isActive ? 'bg-white/20 text-white shadow-inner' : `${iconTint} ring-1 ring-white/[0.06]`
+              className={`flex size-7.5 shrink-0 items-center justify-center rounded-lg transition-all duration-150 group-hover:scale-105 ${
+                isActive
+                  ? darkSidebar
+                    ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-950/40'
+                    : 'bg-indigo-600 text-white shadow-xs shadow-indigo-600/25 dark:bg-indigo-500'
+                  : iconTint
               }`}
             >
               <s.icon className="size-4" />
             </div>
-            {!collapsed && <span className="flex-1 whitespace-nowrap text-start text-[13px]">{s.label}</span>}
+            {!collapsed && (
+              <>
+                <span className="flex-1 truncate text-start text-[13px]">{s.label}</span>
+                {s.badge && (
+                  <span
+                    className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-extrabold ${
+                      isActive
+                        ? darkSidebar
+                          ? 'bg-amber-400/20 text-amber-200'
+                          : 'bg-indigo-600/12 text-indigo-700 dark:bg-indigo-400/20 dark:text-indigo-200'
+                        : darkSidebar
+                          ? 'bg-amber-400/15 text-amber-300'
+                          : 'bg-amber-500/12 text-amber-700 dark:bg-amber-500/18 dark:text-amber-300'
+                    }`}
+                  >
+                    {s.badge}
+                  </span>
+                )}
+              </>
+            )}
           </>
         )}
       </NavLink>
@@ -513,54 +556,61 @@ function Section({
     <div>
       <button
         type="button"
-        className={`${base} ${
+        className={`${base} ${collapsed ? 'justify-center px-0' : ''} ${
           active
-            ? 'bg-gradient-to-l from-indigo-500/20 via-indigo-500/12 to-transparent text-white font-bold ring-1 ring-indigo-400/25'
-            : 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+            ? darkSidebar
+              ? 'bg-white/[0.08] text-white font-bold ring-1 ring-white/10'
+              : 'bg-indigo-50/75 text-indigo-700 font-bold ring-1 ring-indigo-500/15 dark:bg-indigo-500/15 dark:text-indigo-200 dark:ring-indigo-400/25'
+            : darkSidebar
+              ? 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+              : 'text-slate-600 hover:bg-slate-100/85 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/[0.06] dark:hover:text-white'
         }`}
-        onClick={() => setOpen(!open)}
+        onClick={() => (collapsed ? onExpandFromCollapsed(s.key) : onToggle(s.key))}
         title={collapsed ? s.label : undefined}
       >
-        {active && (
-          <span className="pointer-events-none absolute inset-y-1.5 start-0 w-[3px] rounded-e-full bg-gradient-to-b from-indigo-400 to-sky-400 shadow-[0_0_10px_rgba(129,140,248,0.8)]" />
+        {active && !collapsed && (
+          <span
+            className={`pointer-events-none absolute inset-y-2 start-0 w-[3px] rounded-e-full ${
+              darkSidebar
+                ? 'bg-indigo-400'
+                : 'bg-indigo-600 dark:bg-indigo-400'
+            }`}
+          />
         )}
         <div
-          className={`flex size-7.5 shrink-0 items-center justify-center rounded-lg transition-all duration-200 group-hover:scale-105 ${
-            active ? 'bg-indigo-500/30 text-indigo-200 ring-1 ring-indigo-400/40' : `${iconTint} ring-1 ring-white/[0.06]`
+          className={`flex size-7.5 shrink-0 items-center justify-center rounded-lg transition-all duration-150 group-hover:scale-105 ${
+            active
+              ? darkSidebar
+                ? 'bg-indigo-500/30 text-indigo-200'
+                : 'bg-indigo-600/12 text-indigo-600 dark:bg-indigo-500/25 dark:text-indigo-300'
+              : iconTint
           }`}
         >
           <s.icon className="size-4" />
         </div>
         {!collapsed && (
           <>
-            <span className="flex flex-1 min-w-0 items-center gap-1.5 whitespace-nowrap text-start text-[13px]">
-              {s.step && (
-                <span
-                  className={`inline-flex h-4.5 min-w-[20px] shrink-0 items-center justify-center rounded-md px-1 font-mono text-[9.5px] font-extrabold ${
-                    active
-                      ? 'bg-indigo-400/25 text-indigo-200'
-                      : 'bg-white/[0.07] text-slate-400'
-                  }`}
-                >
-                  {s.step}
-                </span>
-              )}
-              <span className="truncate">{s.label}</span>
-            </span>
-            {s.items && (
-              <span className="hidden sm:inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white/[0.06] px-1 font-mono text-[9px] font-bold text-slate-400">
-                {s.items.length}
-              </span>
-            )}
+            <span className="flex-1 truncate text-start text-[13px]">{s.label}</span>
+            {s.badge && <span className="text-[11px] shrink-0">{s.badge}</span>}
             <ChevronDown
-              className={`size-3.5 shrink-0 text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-indigo-300' : ''}`}
+              className={`size-3.5 shrink-0 transition-transform duration-200 ${
+                isExpanded
+                  ? darkSidebar
+                    ? 'rotate-180 text-indigo-300'
+                    : 'rotate-180 text-indigo-600 dark:text-indigo-300'
+                  : 'text-slate-400'
+              }`}
             />
           </>
         )}
       </button>
 
       {!collapsed && isExpanded && s.items && (
-        <div className="ms-5 mt-1 space-y-0.5 border-s border-indigo-400/20 ps-2.5">
+        <div
+          className={`ms-[21px] mt-1 mb-1 space-y-0.5 border-s-[1.5px] ps-3 ${
+            darkSidebar ? 'border-white/12' : 'border-slate-200/90 dark:border-slate-800'
+          }`}
+        >
           {s.items.map((i) => (
             <NavLink
               key={i.to}
@@ -568,26 +618,31 @@ function Section({
               end
               onClick={onNavigate}
               className={({ isActive }) =>
-                `group/sub flex items-center justify-between rounded-lg px-2.5 py-1.5 text-[12px] transition-all duration-150 ${
+                `group/sub flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-all duration-150 ${
                   isActive
-                    ? 'bg-indigo-500/22 font-bold text-white ring-1 ring-indigo-400/30 shadow-2xs'
-                    : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-100 font-medium'
+                    ? darkSidebar
+                      ? 'bg-indigo-500/22 font-bold text-white'
+                      : 'bg-indigo-50 font-bold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200'
+                    : darkSidebar
+                      ? 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-100 font-medium'
+                      : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-slate-100 font-medium'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  <span className="flex items-center gap-2 whitespace-nowrap truncate">
-                    <span
-                      className={`size-1.5 shrink-0 rounded-full transition-all duration-150 ${
-                        isActive
-                          ? 'bg-amber-300 scale-125 shadow-[0_0_8px_rgba(252,211,77,0.9)]'
-                          : 'bg-slate-600 group-hover/sub:bg-indigo-300'
-                      }`}
-                    />
-                    <span className="truncate">{i.label}</span>
-                  </span>
-                  {isActive && <span className="size-1.5 shrink-0 rounded-full bg-indigo-400 animate-pulse" />}
+                  <span
+                    className={`shrink-0 rounded-full transition-all duration-150 ${
+                      isActive
+                        ? darkSidebar
+                          ? 'h-3 w-1 bg-amber-300'
+                          : 'h-3 w-1 bg-indigo-600 dark:bg-indigo-400'
+                        : darkSidebar
+                          ? 'size-1.5 bg-slate-600 group-hover/sub:bg-slate-300'
+                          : 'size-1.5 bg-slate-300 dark:bg-slate-600 group-hover/sub:bg-indigo-400'
+                    }`}
+                  />
+                  <span className="truncate">{i.label}</span>
                 </>
               )}
             </NavLink>
@@ -607,13 +662,44 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const navigate = useNavigate();
 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('idham.sidebar.collapsed') === 'true');
+  const [darkSidebarPref, setDarkSidebarPref] = useState(() => localStorage.getItem('idham.sidebar.dark') === 'true');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [favsExpanded, setFavsExpanded] = useState(false);
+  const [activeDomain, setActiveDomain] = useState<SidebarDomainKey>('ALL');
   const [navFilter, setNavFilter] = useState('');
+  const [openSectionKey, setOpenSectionKey] = useState<string | null>(() => {
+    for (const g of NAV_GROUPS) {
+      for (const s of g.sections) {
+        if (s.items?.some((i) => window.location.hash.includes(i.to) || window.location.pathname === i.to)) {
+          return s.key;
+        }
+      }
+    }
+    return null;
+  });
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState('');
   const [cmdIndex, setCmdIndex] = useState(0);
   const cmdInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleSidebarStyle = () => {
+    setDarkSidebarPref((prev) => {
+      const next = !prev;
+      localStorage.setItem('idham.sidebar.dark', String(next));
+      return next;
+    });
+  };
+
+  // Auto-open active route's accordion section on navigation
+  useEffect(() => {
+    for (const g of NAV_GROUPS) {
+      for (const s of g.sections) {
+        if (s.items?.some((i) => loc.pathname === i.to || loc.pathname.startsWith(`${i.to}/`))) {
+          setOpenSectionKey(s.key);
+          return;
+        }
+      }
+    }
+  }, [loc.pathname]);
 
   // Cloud Database Sync Modal State
   const [cloudModalOpen, setCloudModalOpen] = useState(false);
@@ -705,10 +791,15 @@ export function AppShell({ children }: { children?: ReactNode }) {
     });
   };
 
-  // Filtered sidebar groups
+  // Filtered sidebar groups (respects both search query and active domain pill)
   const filteredNavGroups = useMemo(() => {
     const q = navFilter.trim().toLowerCase();
-    if (!q) return NAV_GROUPS;
+    const baseGroups =
+      activeDomain === 'ALL'
+        ? NAV_GROUPS
+        : NAV_GROUPS.filter((g) => g.key === activeDomain);
+
+    if (!q) return baseGroups;
     return NAV_GROUPS.map((g) => {
       const sections = g.sections
         .map((s) => {
@@ -722,7 +813,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
         .filter(Boolean) as NavSection[];
       return sections.length > 0 ? { ...g, sections } : null;
     }).filter(Boolean) as NavGroup[];
-  }, [navFilter]);
+  }, [navFilter, activeDomain]);
 
   // Command palette matches (Screens + Live Entities: Employees, Projects, Invoices, Journals, Accounts)
   const cmdMatches = useMemo(() => {
@@ -862,180 +953,279 @@ export function AppShell({ children }: { children?: ReactNode }) {
         />
       )}
 
-      {/* ─────────── Royal Midnight Navy Executive Sidebar ─────────── */}
+      {/* ─────────── Re-Engineered Executive Adaptive / Royal Sidebar ─────────── */}
       <aside
-        className={`relative fixed inset-y-0 start-0 z-40 flex shrink-0 flex-col border-e border-indigo-950/80 bg-gradient-to-b from-[#070c1b] via-[#0b1329] to-[#050914] text-slate-200 shadow-2xl shadow-slate-950/50 transition-all duration-300 dark:border-slate-800/80 dark:from-[#050812] dark:via-[#080e1f] dark:to-[#040710] lg:static lg:z-auto ${
-          mobileMenuOpen ? 'translate-x-0 w-[296px]' : 'max-lg:translate-x-full'
-        } ${collapsed ? 'lg:w-[76px]' : 'lg:w-[296px]'}`}
+        className={`relative fixed inset-y-0 start-0 z-40 flex shrink-0 flex-col transition-all duration-300 lg:static lg:z-auto ${
+          darkSidebarPref
+            ? 'border-e border-indigo-950/80 bg-gradient-to-b from-[#070c1b] via-[#0b1329] to-[#050914] text-slate-200 shadow-2xl shadow-slate-950/50'
+            : 'border-e border-slate-200/90 bg-white/95 text-slate-700 shadow-[4px_0_24px_-12px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-slate-800/85 dark:bg-[#080e1f]/95 dark:text-slate-200 dark:shadow-2xl'
+        } ${
+          mobileMenuOpen ? 'translate-x-0 w-[268px]' : 'max-lg:translate-x-full'
+        } ${collapsed ? 'lg:w-[72px]' : 'lg:w-[268px]'}`}
       >
-        {/* Ambient Top-Edge Glow Inside Sidebar */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.22),transparent_72%)]" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-l from-indigo-500 via-sky-400 to-emerald-400 opacity-90" />
+        {/* Top Luminous Accent Hairline */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-l from-indigo-600 via-sky-500 to-emerald-500 opacity-90" />
 
         {/* Brand Logo Header */}
-        <div className="relative flex h-16 shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#070d1d]/80 px-3.5 backdrop-blur-md">
-          <Link to="/" className="flex min-w-0 items-center gap-2.5 group">
-            <div className="relative flex size-9.5 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 text-white shadow-lg shadow-indigo-600/35 ring-1 ring-white/25 transition-transform duration-200 group-hover:scale-105">
+        <div
+          className={`relative flex h-16 shrink-0 items-center justify-between border-b px-3 ${
+            darkSidebarPref
+              ? 'border-white/[0.08] bg-[#070d1d]/80'
+              : 'border-slate-200/80 bg-gradient-to-l from-white via-white to-indigo-50/40 dark:border-slate-800/85 dark:from-[#080e1f] dark:to-[#0c142a]'
+          }`}
+        >
+          <Link to="/" className={`flex min-w-0 items-center gap-2.5 group ${collapsed && !mobileMenuOpen ? 'mx-auto' : ''}`}>
+            <div className="relative flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-sky-500 text-white shadow-md shadow-indigo-600/30 ring-1 ring-white/25 transition-transform duration-200 group-hover:scale-105">
               <Landmark className="size-4.5" />
-              <span className="absolute -bottom-0.5 -end-0.5 size-2.5 rounded-full bg-emerald-400 ring-2 ring-[#070d1d]" />
+              <span
+                className={`absolute -bottom-0.5 -end-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ${
+                  darkSidebarPref ? 'ring-[#070d1d]' : 'ring-white dark:ring-[#080e1f]'
+                }`}
+              />
             </div>
             {(!collapsed || mobileMenuOpen) && (
               <div className="min-w-0 leading-tight animate-fade-in">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[15px] font-black tracking-tight text-white">IDHAM ERP</span>
-                  <span className="rounded-md bg-gradient-to-r from-amber-400/20 to-indigo-500/25 px-1.5 py-0.5 text-[9px] font-black text-amber-300 border border-amber-400/35 shadow-2xs">
-                    ROYAL PRO
+                  <span
+                    className={`text-[15px] font-black tracking-tight ${
+                      darkSidebarPref ? 'text-white' : 'text-slate-900 dark:text-white'
+                    }`}
+                  >
+                    IDHAM ERP
+                  </span>
+                  <span
+                    className={`rounded-md px-1.5 py-0.5 text-[9px] font-black border ${
+                      darkSidebarPref
+                        ? 'bg-amber-400/20 text-amber-300 border-amber-400/35'
+                        : 'bg-indigo-600/10 text-indigo-700 border-indigo-500/25 dark:bg-amber-400/15 dark:text-amber-300 dark:border-amber-400/30'
+                    }`}
+                  >
+                    PRO
                   </span>
                 </div>
-                <div className="text-[10.5px] font-medium text-slate-400 flex items-center gap-1.5 mt-0.5">
-                  <span>الموارد البشرية والمحاسبة</span>
+                <div className="text-[10.5px] font-medium text-slate-400 dark:text-slate-400 truncate mt-0.5">
+                  الموارد البشرية والمحاسبة
                 </div>
               </div>
             )}
           </Link>
 
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex lg:hidden size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white"
-              aria-label="إغلاق القائمة"
-            >
-              <X className="size-4" />
-            </button>
+          {(!collapsed || mobileMenuOpen) && (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onClick={toggleSidebarStyle}
+                className={`hidden lg:flex size-7.5 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+                  darkSidebarPref
+                    ? 'text-slate-400 hover:bg-white/10 hover:text-amber-300'
+                    : 'text-slate-400 hover:bg-slate-100 hover:text-indigo-600 dark:hover:bg-white/10 dark:hover:text-amber-300'
+                }`}
+                title={darkSidebarPref ? 'تبديل القائمة للمظهر المتناغم مع الصفحة' : 'تبديل القائمة للون الكحلي الداكن'}
+              >
+                <Contrast className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex lg:hidden size-7.5 items-center justify-center rounded-lg ${
+                  darkSidebarPref ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-white/10'
+                }`}
+                aria-label="إغلاق القائمة"
+              >
+                <X className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={toggleCollapse}
+                className={`hidden lg:flex size-7.5 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+                  darkSidebarPref
+                    ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                    : 'text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-white/10 dark:hover:text-white'
+                }`}
+                title="طي القائمة الجانبية"
+              >
+                <PanelRightClose className="size-4" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Expand Button when Collapsed */}
+        {collapsed && !mobileMenuOpen && (
+          <div className="hidden lg:flex justify-center pt-2.5 pb-1">
             <button
               type="button"
               onClick={toggleCollapse}
-              className="hidden lg:flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
-              title={collapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
+              className={`flex size-8 items-center justify-center rounded-xl transition-colors cursor-pointer ${
+                darkSidebarPref
+                  ? 'bg-white/[0.06] text-slate-300 hover:bg-white/15 hover:text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-white/[0.06] dark:text-slate-300 dark:hover:bg-white/12'
+              }`}
+              title="توسيع القائمة الجانبية"
             >
-              <PanelRightClose className={`size-4 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
+              <PanelRightClose className="size-4 rotate-180" />
             </button>
           </div>
-        </div>
+        )}
 
-        {/* Quick Sidebar Filter Input */}
+        {/* Compact Filter Input + 5-Domain Workspace Switcher */}
         {(!collapsed || mobileMenuOpen) && (
-          <div className="relative px-3 pt-3 pb-1.5">
+          <div
+            className={`px-3 pt-2.5 pb-2 space-y-2 border-b ${
+              darkSidebarPref ? 'border-white/[0.07]' : 'border-slate-100 dark:border-slate-800/80'
+            }`}
+          >
+            {/* Compact Filter Input */}
             <div className="relative">
-              <Search className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 size-3.5 text-indigo-300/75" />
+              <Search className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 size-3.5 text-slate-400" />
               <input
                 type="text"
                 value={navFilter}
                 onChange={(e) => setNavFilter(e.target.value)}
-                placeholder="تصفية القوائم والشاشات..."
-                className="w-full rounded-xl border border-white/10 bg-white/[0.06] ps-8 pe-7 py-1.5 text-xs font-medium text-slate-100 placeholder:text-slate-400/80 outline-none transition-all focus:border-indigo-400/80 focus:bg-white/[0.1] focus:ring-2 focus:ring-indigo-500/20"
+                placeholder="تصفية سريعة للقوائم..."
+                className={`w-full rounded-xl border ps-8 pe-7 py-1.5 text-xs font-medium outline-none transition-all ${
+                  darkSidebarPref
+                    ? 'border-white/10 bg-white/[0.06] text-slate-100 placeholder:text-slate-400 focus:border-indigo-400/80 focus:bg-white/[0.1]'
+                    : 'border-slate-200/90 bg-slate-50/90 text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:focus:border-indigo-500'
+                }`}
               />
               {navFilter && (
                 <button
                   type="button"
                   onClick={() => setNavFilter('')}
-                  className="absolute end-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:text-white cursor-pointer"
+                  className="absolute end-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
                   title="مسح التصفية"
                 >
                   <X className="size-3" />
                 </button>
               )}
             </div>
-          </div>
-        )}
 
-        {/* Quick Access Pinned Favorites (Compact 4 by default + expandable) */}
-        {(!collapsed || mobileMenuOpen) && (
-          <div className="relative px-3 pt-1.5 pb-1.5">
-            <div className="flex items-center justify-between text-[10.5px] font-bold text-slate-400 mb-1.5 px-1">
-              <span className="flex items-center gap-1.5">
-                <span className="size-1.5 rounded-full bg-amber-400" />
-                <span>الوصول السريع</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setFavsExpanded((v) => !v)}
-                className="text-[10.5px] font-bold text-indigo-300 hover:text-amber-300 transition-colors cursor-pointer"
-              >
-                {favsExpanded ? 'عرض أقل' : `الكل (${PINNED_FAVORITES.length})`}
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {(favsExpanded ? PINNED_FAVORITES : PINNED_FAVORITES.slice(0, 4)).map((fav) => {
-                const Icon = fav.icon;
-                const isActive = loc.pathname.startsWith(fav.path);
+            {/* 5-Domain Workspace Pill Bar (Instant Department Focus) */}
+            <div
+              className={`grid grid-cols-5 gap-0.5 rounded-xl p-0.5 text-[10.5px] font-bold ${
+                darkSidebarPref
+                  ? 'bg-white/[0.05] border border-white/[0.06]'
+                  : 'bg-slate-100/90 border border-slate-200/60 dark:bg-slate-900/90 dark:border-slate-800'
+              }`}
+            >
+              {SIDEBAR_DOMAINS.map((dom) => {
+                const isSelected = activeDomain === dom.key;
                 return (
-                  <NavLink
-                    key={fav.path}
-                    to={fav.path}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={`group flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150 truncate ${
-                      isActive
-                        ? 'bg-gradient-to-l from-indigo-600/35 to-sky-600/20 text-white border border-indigo-400/45 shadow-sm shadow-indigo-950/40'
-                        : 'bg-white/[0.045] hover:bg-white/[0.095] text-slate-300 hover:text-white border border-white/[0.05] hover:border-white/15'
+                  <button
+                    key={dom.key}
+                    type="button"
+                    onClick={() => {
+                      setActiveDomain(dom.key);
+                      setNavFilter('');
+                    }}
+                    className={`rounded-lg py-1 text-center transition-all cursor-pointer truncate ${
+                      isSelected
+                        ? darkSidebarPref
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-white text-indigo-700 shadow-2xs ring-1 ring-slate-200/80 dark:bg-indigo-600 dark:text-white dark:ring-0'
+                        : darkSidebarPref
+                          ? 'text-slate-400 hover:text-slate-200'
+                          : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                     }`}
-                    title={fav.label}
                   >
-                    <Icon className={`size-3.5 shrink-0 transition-transform duration-150 group-hover:scale-110 ${isActive ? 'text-amber-300' : fav.color}`} />
-                    <span className="truncate">{fav.label}</span>
-                  </NavLink>
+                    {dom.label}
+                  </button>
                 );
               })}
             </div>
           </div>
         )}
 
-        {/* Grouped Navigation Links with Custom Sleek Scrollbar */}
-        <nav className="relative flex-1 space-y-3.5 overflow-y-auto px-3 py-2 custom-scrollbar">
+        {/* Grouped Navigation Links with Exclusive Accordion & Custom Sleek Scrollbar */}
+        <nav className="relative flex-1 space-y-3 overflow-y-auto px-2.5 py-2.5 custom-scrollbar">
           {filteredNavGroups.length === 0 ? (
             <div className="py-8 text-center text-xs font-semibold text-slate-400">
               لا توجد شاشات مطابقة لـ «{navFilter}»
             </div>
           ) : (
             filteredNavGroups.map((group) => (
-              <div key={group.key} className="space-y-1">
+              <div key={group.key} className="space-y-0.5">
                 {(!collapsed || mobileMenuOpen) && (
-                  <div className="flex items-center gap-2 px-2 pt-2.5 pb-1">
-                    <span className="text-[10px] font-extrabold tracking-wide text-slate-400/85 uppercase whitespace-nowrap">
+                  <div className="flex items-center gap-2 px-2 pt-1.5 pb-1">
+                    <span
+                      className={`text-[10.5px] font-extrabold tracking-wide whitespace-nowrap ${
+                        darkSidebarPref ? 'text-slate-400/80' : 'text-slate-400 dark:text-slate-500'
+                      }`}
+                    >
                       {group.label}
                     </span>
-                    <span className="h-px flex-1 bg-gradient-to-l from-white/12 to-transparent" />
+                    <span
+                      className={`h-px flex-1 ${
+                        darkSidebarPref
+                          ? 'bg-gradient-to-l from-white/10 to-transparent'
+                          : 'bg-gradient-to-l from-slate-200/90 to-transparent dark:from-slate-800'
+                      }`}
+                    />
                   </div>
                 )}
-                {group.sections.map((s) => (
-                  <Section
-                    key={s.key}
-                    s={s}
-                    collapsed={collapsed && !mobileMenuOpen}
-                    forceOpen={!!navFilter.trim()}
-                    onNavigate={() => setMobileMenuOpen(false)}
-                  />
-                ))}
+                {group.sections.map((s) => {
+                  const forceOpen = !!navFilter.trim() || activeDomain !== 'ALL';
+                  const isExpanded = forceOpen || openSectionKey === s.key;
+                  return (
+                    <Section
+                      key={s.key}
+                      s={s}
+                      collapsed={collapsed && !mobileMenuOpen}
+                      isExpanded={isExpanded}
+                      darkSidebar={darkSidebarPref}
+                      onToggle={(k) => setOpenSectionKey((prev) => (prev === k ? null : k))}
+                      onExpandFromCollapsed={(k) => {
+                        setCollapsed(false);
+                        localStorage.setItem('idham.sidebar.collapsed', 'false');
+                        setOpenSectionKey(k);
+                      }}
+                      onNavigate={() => setMobileMenuOpen(false)}
+                    />
+                  );
+                })}
               </div>
             ))
           )}
         </nav>
 
-        {/* System Status Pill + Compact Executive User Footer */}
-        <div className="relative border-t border-white/[0.08] bg-[#060b18]/90 p-2.5 space-y-2 backdrop-blur-md">
-          {(!collapsed || mobileMenuOpen) && (
-            <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-2.5 py-1.5 text-[10.5px]">
-              <span className="flex items-center gap-1.5 font-bold text-emerald-300">
-                <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>ZATCA Phase 2 • Auto-GL</span>
-              </span>
-              <span className="font-mono font-extrabold text-emerald-200/80">100%</span>
-            </div>
-          )}
-          <div className={`flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-white/[0.05] p-2 ${collapsed && !mobileMenuOpen ? 'justify-center' : 'justify-between'}`}>
+        {/* Sleek Compact Executive User Footer */}
+        <div
+          className={`relative border-t p-2.5 ${
+            darkSidebarPref
+              ? 'border-white/[0.08] bg-[#060b18]/85'
+              : 'border-slate-200/85 bg-slate-50/75 dark:border-slate-800/85 dark:bg-[#060b18]/80'
+          }`}
+        >
+          <div
+            className={`flex items-center gap-2.5 rounded-xl border p-2 ${
+              darkSidebarPref
+                ? 'border-white/[0.07] bg-white/[0.05]'
+                : 'border-slate-200/80 bg-white shadow-2xs dark:border-slate-800 dark:bg-white/[0.04]'
+            } ${collapsed && !mobileMenuOpen ? 'justify-center' : 'justify-between'}`}
+          >
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="relative flex size-8.5 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 font-black text-xs text-white shadow-sm ring-1 ring-white/20">
+              <div className="relative flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-600 to-sky-500 font-black text-xs text-white shadow-xs">
                 {me?.user.fullName ? me.user.fullName[0] : 'م'}
-                <span className="absolute -bottom-0.5 -end-0.5 size-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0b1329]" />
+                <span
+                  className={`absolute -bottom-0.5 -end-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ${
+                    darkSidebarPref ? 'ring-[#0b1329]' : 'ring-white dark:ring-[#080e1f]'
+                  }`}
+                />
               </div>
               {(!collapsed || mobileMenuOpen) && (
                 <div className="min-w-0 text-xs animate-fade-in">
-                  <div className="font-bold text-white leading-tight truncate">
+                  <div
+                    className={`font-extrabold leading-tight truncate ${
+                      darkSidebarPref ? 'text-white' : 'text-slate-900 dark:text-white'
+                    }`}
+                  >
                     {me?.user.fullName || 'المدير التنفيذي'}
                   </div>
-                  <div className="text-[10.5px] font-semibold text-indigo-300 truncate mt-0.5">
-                    {me?.user.username === 'admin' ? 'المدير التنفيذي للنظام' : `@${me?.user.username}`}
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 truncate mt-0.5">
+                    <span>{me?.user.username === 'admin' ? 'المدير التنفيذي' : `@${me?.user.username}`}</span>
+                    <span className="opacity-45">•</span>
+                    <span className="font-mono">ZATCA ✓</span>
                   </div>
                 </div>
               )}
@@ -1043,7 +1233,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
             {(!collapsed || mobileMenuOpen) && (
               <button
                 type="button"
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 transition-colors cursor-pointer"
+                className={`flex size-7.5 shrink-0 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+                  darkSidebarPref
+                    ? 'text-slate-400 hover:bg-rose-500/20 hover:text-rose-300'
+                    : 'text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/20 dark:hover:text-rose-300'
+                }`}
                 onClick={() => void logout()}
                 aria-label="تسجيل الخروج من النظام"
                 title="تسجيل الخروج من النظام"
