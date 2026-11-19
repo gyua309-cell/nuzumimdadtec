@@ -483,7 +483,7 @@ function Section({
     : SIDEBAR_ICON_LIGHT_TINT[s.color || 'indigo'];
 
   const base =
-    'group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-semibold transition-all duration-150 cursor-pointer';
+    'group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13.5px] font-extrabold transition-all duration-150 cursor-pointer';
 
   if (s.to) {
     return (
@@ -495,11 +495,11 @@ function Section({
           `${base} ${collapsed ? 'justify-center px-0' : ''} ${
             isActive
               ? darkSidebar
-                ? 'bg-indigo-500/22 text-white font-extrabold ring-1 ring-indigo-400/35 shadow-sm'
-                : 'bg-indigo-50/95 text-indigo-700 font-extrabold ring-1 ring-indigo-500/20 shadow-2xs dark:bg-indigo-500/20 dark:text-indigo-200 dark:ring-indigo-400/30'
+                ? 'bg-indigo-500/24 text-white font-black ring-1 ring-indigo-400/40 shadow-sm'
+                : 'bg-indigo-50 text-indigo-800 font-black ring-1 ring-indigo-500/25 shadow-2xs dark:bg-indigo-500/22 dark:text-white dark:ring-indigo-400/35'
               : darkSidebar
-                ? 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
-                : 'text-slate-600 hover:bg-slate-100/85 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/[0.06] dark:hover:text-white'
+                ? 'text-slate-100 hover:bg-white/[0.08] hover:text-white'
+                : 'text-slate-950 hover:bg-slate-100/90 hover:text-indigo-900 dark:text-slate-100 dark:hover:bg-white/[0.08] dark:hover:text-white'
           }`
         }
         title={collapsed ? s.label : undefined}
@@ -508,7 +508,7 @@ function Section({
           <>
             {isActive && !collapsed && (
               <span
-                className={`pointer-events-none absolute inset-y-2 start-0 w-[3px] rounded-e-full ${
+                className={`pointer-events-none absolute inset-y-2 start-0 w-[3.5px] rounded-e-full ${
                   darkSidebar
                     ? 'bg-gradient-to-b from-amber-300 to-indigo-400'
                     : 'bg-gradient-to-b from-indigo-600 to-sky-500 dark:from-indigo-400 dark:to-sky-400'
@@ -528,17 +528,17 @@ function Section({
             </div>
             {!collapsed && (
               <>
-                <span className="flex-1 truncate text-start text-[13px]">{s.label}</span>
+                <span className={`flex-1 truncate text-start text-[13.5px] ${isActive ? 'font-black' : 'font-extrabold'}`}>{s.label}</span>
                 {s.badge && (
                   <span
-                    className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-extrabold ${
+                    className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] font-black ${
                       isActive
                         ? darkSidebar
-                          ? 'bg-amber-400/20 text-amber-200'
-                          : 'bg-indigo-600/12 text-indigo-700 dark:bg-indigo-400/20 dark:text-indigo-200'
+                          ? 'bg-amber-400/25 text-amber-200'
+                          : 'bg-indigo-600/15 text-indigo-800 dark:bg-indigo-400/25 dark:text-indigo-100'
                         : darkSidebar
-                          ? 'bg-amber-400/15 text-amber-300'
-                          : 'bg-amber-500/12 text-amber-700 dark:bg-amber-500/18 dark:text-amber-300'
+                          ? 'bg-amber-400/18 text-amber-300'
+                          : 'bg-amber-500/15 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
                     }`}
                   >
                     {s.badge}
@@ -559,18 +559,18 @@ function Section({
         className={`${base} ${collapsed ? 'justify-center px-0' : ''} ${
           active
             ? darkSidebar
-              ? 'bg-white/[0.08] text-white font-bold ring-1 ring-white/10'
-              : 'bg-indigo-50/75 text-indigo-700 font-bold ring-1 ring-indigo-500/15 dark:bg-indigo-500/15 dark:text-indigo-200 dark:ring-indigo-400/25'
+              ? 'bg-white/[0.1] text-white font-black ring-1 ring-white/15'
+              : 'bg-indigo-50/90 text-indigo-800 font-black ring-1 ring-indigo-500/20 dark:bg-indigo-500/20 dark:text-white dark:ring-indigo-400/30'
             : darkSidebar
-              ? 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
-              : 'text-slate-600 hover:bg-slate-100/85 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/[0.06] dark:hover:text-white'
+              ? 'text-slate-100 hover:bg-white/[0.08] hover:text-white'
+              : 'text-slate-950 hover:bg-slate-100/90 hover:text-indigo-900 dark:text-slate-100 dark:hover:bg-white/[0.08] dark:hover:text-white'
         }`}
         onClick={() => (collapsed ? onExpandFromCollapsed(s.key) : onToggle(s.key))}
         title={collapsed ? s.label : undefined}
       >
         {active && !collapsed && (
           <span
-            className={`pointer-events-none absolute inset-y-2 start-0 w-[3px] rounded-e-full ${
+            className={`pointer-events-none absolute inset-y-2 start-0 w-[3.5px] rounded-e-full ${
               darkSidebar
                 ? 'bg-indigo-400'
                 : 'bg-indigo-600 dark:bg-indigo-400'
@@ -581,8 +581,8 @@ function Section({
           className={`flex size-7.5 shrink-0 items-center justify-center rounded-lg transition-all duration-150 group-hover:scale-105 ${
             active
               ? darkSidebar
-                ? 'bg-indigo-500/30 text-indigo-200'
-                : 'bg-indigo-600/12 text-indigo-600 dark:bg-indigo-500/25 dark:text-indigo-300'
+                ? 'bg-indigo-500/35 text-indigo-100'
+                : 'bg-indigo-600/15 text-indigo-700 dark:bg-indigo-500/25 dark:text-indigo-200'
               : iconTint
           }`}
         >
@@ -590,15 +590,17 @@ function Section({
         </div>
         {!collapsed && (
           <>
-            <span className="flex-1 truncate text-start text-[13px]">{s.label}</span>
+            <span className={`flex-1 truncate text-start text-[13.5px] ${active ? 'font-black' : 'font-extrabold'}`}>{s.label}</span>
             {s.badge && <span className="text-[11px] shrink-0">{s.badge}</span>}
             <ChevronDown
-              className={`size-3.5 shrink-0 transition-transform duration-200 ${
+              className={`size-4 shrink-0 transition-transform duration-200 ${
                 isExpanded
                   ? darkSidebar
                     ? 'rotate-180 text-indigo-300'
-                    : 'rotate-180 text-indigo-600 dark:text-indigo-300'
-                  : 'text-slate-400'
+                    : 'rotate-180 text-indigo-700 dark:text-indigo-300'
+                  : darkSidebar
+                    ? 'text-slate-400'
+                    : 'text-slate-600 dark:text-slate-400'
               }`}
             />
           </>
@@ -607,8 +609,8 @@ function Section({
 
       {!collapsed && isExpanded && s.items && (
         <div
-          className={`ms-[21px] mt-1 mb-1 space-y-0.5 border-s-[1.5px] ps-3 ${
-            darkSidebar ? 'border-white/12' : 'border-slate-200/90 dark:border-slate-800'
+          className={`ms-[21px] mt-1 mb-1.5 space-y-0.5 border-s-[2px] ps-3 ${
+            darkSidebar ? 'border-white/15' : 'border-slate-300/90 dark:border-slate-700'
           }`}
         >
           {s.items.map((i) => (
@@ -618,14 +620,14 @@ function Section({
               end
               onClick={onNavigate}
               className={({ isActive }) =>
-                `group/sub flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-all duration-150 ${
+                `group/sub flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] transition-all duration-150 ${
                   isActive
                     ? darkSidebar
-                      ? 'bg-indigo-500/22 font-bold text-white'
-                      : 'bg-indigo-50 font-bold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200'
+                      ? 'bg-indigo-500/25 font-black text-white'
+                      : 'bg-indigo-50 font-black text-indigo-800 dark:bg-indigo-500/25 dark:text-white'
                     : darkSidebar
-                      ? 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-100 font-medium'
-                      : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-slate-100 font-medium'
+                      ? 'text-slate-200 hover:bg-white/[0.08] hover:text-white font-bold'
+                      : 'text-slate-800 hover:bg-slate-100/90 hover:text-slate-950 dark:text-slate-200 dark:hover:bg-white/[0.08] dark:hover:text-white font-bold'
                 }`
               }
             >
@@ -635,11 +637,11 @@ function Section({
                     className={`shrink-0 rounded-full transition-all duration-150 ${
                       isActive
                         ? darkSidebar
-                          ? 'h-3 w-1 bg-amber-300'
-                          : 'h-3 w-1 bg-indigo-600 dark:bg-indigo-400'
+                          ? 'h-3.5 w-1 bg-amber-300'
+                          : 'h-3.5 w-1 bg-indigo-600 dark:bg-indigo-400'
                         : darkSidebar
-                          ? 'size-1.5 bg-slate-600 group-hover/sub:bg-slate-300'
-                          : 'size-1.5 bg-slate-300 dark:bg-slate-600 group-hover/sub:bg-indigo-400'
+                          ? 'size-1.5 bg-slate-500 group-hover/sub:bg-slate-200'
+                          : 'size-1.5 bg-slate-400 dark:bg-slate-500 group-hover/sub:bg-indigo-600'
                     }`}
                   />
                   <span className="truncate">{i.label}</span>
@@ -1003,7 +1005,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
                     PRO
                   </span>
                 </div>
-                <div className="text-[10.5px] font-medium text-slate-400 dark:text-slate-400 truncate mt-0.5">
+                <div
+                  className={`text-[11px] font-bold truncate mt-0.5 ${
+                    darkSidebarPref ? 'text-slate-300' : 'text-slate-700 dark:text-slate-300'
+                  }`}
+                >
                   الموارد البشرية والمحاسبة
                 </div>
               </div>
@@ -1077,23 +1083,27 @@ export function AppShell({ children }: { children?: ReactNode }) {
           >
             {/* Compact Filter Input */}
             <div className="relative">
-              <Search className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 size-3.5 text-slate-400" />
+              <Search
+                className={`pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 size-3.5 ${
+                  darkSidebarPref ? 'text-slate-300' : 'text-slate-600 dark:text-slate-400'
+                }`}
+              />
               <input
                 type="text"
                 value={navFilter}
                 onChange={(e) => setNavFilter(e.target.value)}
                 placeholder="تصفية سريعة للقوائم..."
-                className={`w-full rounded-xl border ps-8 pe-7 py-1.5 text-xs font-medium outline-none transition-all ${
+                className={`w-full rounded-xl border ps-8 pe-7 py-1.5 text-xs font-bold outline-none transition-all ${
                   darkSidebarPref
-                    ? 'border-white/10 bg-white/[0.06] text-slate-100 placeholder:text-slate-400 focus:border-indigo-400/80 focus:bg-white/[0.1]'
-                    : 'border-slate-200/90 bg-slate-50/90 text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:focus:border-indigo-500'
+                    ? 'border-white/15 bg-white/[0.08] text-white placeholder:text-slate-300 focus:border-indigo-400/80 focus:bg-white/[0.12]'
+                    : 'border-slate-300/90 bg-slate-50 text-slate-950 placeholder:text-slate-600 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/15 dark:border-slate-700 dark:bg-slate-900/85 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-indigo-500'
                 }`}
               />
               {navFilter && (
                 <button
                   type="button"
                   onClick={() => setNavFilter('')}
-                  className="absolute end-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+                  className="absolute end-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white cursor-pointer"
                   title="مسح التصفية"
                 >
                   <X className="size-3" />
@@ -1103,10 +1113,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
             {/* 5-Domain Workspace Pill Bar (Instant Department Focus) */}
             <div
-              className={`grid grid-cols-5 gap-0.5 rounded-xl p-0.5 text-[10.5px] font-bold ${
+              className={`grid grid-cols-5 gap-0.5 rounded-xl p-0.5 text-[11px] font-extrabold ${
                 darkSidebarPref
-                  ? 'bg-white/[0.05] border border-white/[0.06]'
-                  : 'bg-slate-100/90 border border-slate-200/60 dark:bg-slate-900/90 dark:border-slate-800'
+                  ? 'bg-white/[0.06] border border-white/[0.08]'
+                  : 'bg-slate-100 border border-slate-200/85 dark:bg-slate-900/90 dark:border-slate-800'
               }`}
             >
               {SIDEBAR_DOMAINS.map((dom) => {
@@ -1122,11 +1132,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
                     className={`rounded-lg py-1 text-center transition-all cursor-pointer truncate ${
                       isSelected
                         ? darkSidebarPref
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-white text-indigo-700 shadow-2xs ring-1 ring-slate-200/80 dark:bg-indigo-600 dark:text-white dark:ring-0'
+                          ? 'bg-indigo-600 text-white font-black shadow-xs'
+                          : 'bg-white text-indigo-800 font-black shadow-xs ring-1 ring-indigo-200/90 dark:bg-indigo-600 dark:text-white dark:ring-0'
                         : darkSidebarPref
-                          ? 'text-slate-400 hover:text-slate-200'
-                          : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                          ? 'text-slate-200 hover:text-white'
+                          : 'text-slate-800 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white'
                     }`}
                   >
                     {dom.label}
@@ -1138,19 +1148,24 @@ export function AppShell({ children }: { children?: ReactNode }) {
         )}
 
         {/* Grouped Navigation Links with Exclusive Accordion & Custom Sleek Scrollbar */}
-        <nav className="relative flex-1 space-y-3 overflow-y-auto px-2.5 py-2.5 custom-scrollbar">
+        <nav className="relative flex-1 space-y-3.5 overflow-y-auto px-2.5 py-2.5 custom-scrollbar">
           {filteredNavGroups.length === 0 ? (
-            <div className="py-8 text-center text-xs font-semibold text-slate-400">
+            <div className="py-8 text-center text-xs font-bold text-slate-600 dark:text-slate-400">
               لا توجد شاشات مطابقة لـ «{navFilter}»
             </div>
           ) : (
             filteredNavGroups.map((group) => (
-              <div key={group.key} className="space-y-0.5">
+              <div key={group.key} className="space-y-1">
                 {(!collapsed || mobileMenuOpen) && (
-                  <div className="flex items-center gap-2 px-2 pt-1.5 pb-1">
+                  <div className="flex items-center gap-2 px-2 pt-2 pb-1">
                     <span
-                      className={`text-[10.5px] font-extrabold tracking-wide whitespace-nowrap ${
-                        darkSidebarPref ? 'text-slate-400/80' : 'text-slate-400 dark:text-slate-500'
+                      className={`size-1.5 shrink-0 rounded-full ${
+                        darkSidebarPref ? 'bg-indigo-400' : 'bg-indigo-600 dark:bg-indigo-400'
+                      }`}
+                    />
+                    <span
+                      className={`text-[11.5px] font-black tracking-normal whitespace-nowrap ${
+                        darkSidebarPref ? 'text-indigo-200' : 'text-slate-900 dark:text-indigo-200'
                       }`}
                     >
                       {group.label}
@@ -1158,8 +1173,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
                     <span
                       className={`h-px flex-1 ${
                         darkSidebarPref
-                          ? 'bg-gradient-to-l from-white/10 to-transparent'
-                          : 'bg-gradient-to-l from-slate-200/90 to-transparent dark:from-slate-800'
+                          ? 'bg-gradient-to-l from-indigo-400/25 to-transparent'
+                          : 'bg-gradient-to-l from-slate-300/90 to-transparent dark:from-slate-700'
                       }`}
                     />
                   </div>
@@ -1291,13 +1306,13 @@ export function AppShell({ children }: { children?: ReactNode }) {
           )}
 
           {/* Active Branch Selector Glass Pill */}
-          <div className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/85 hover:border-indigo-300/80 px-2.5 text-xs shadow-2xs transition-colors dark:border-slate-800 dark:bg-slate-900/90 dark:hover:border-indigo-500/40">
+          <div className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/95 bg-slate-50/90 hover:border-indigo-400/80 px-2.5 text-xs shadow-2xs transition-colors dark:border-slate-800 dark:bg-slate-900/90 dark:hover:border-indigo-500/40">
             <div className="flex size-5 shrink-0 items-center justify-center rounded-md bg-indigo-500/12 text-indigo-600 dark:text-indigo-400">
               <Globe className="size-3.5" />
             </div>
-            <span className="hidden 2xl:inline whitespace-nowrap font-bold text-slate-500 dark:text-slate-400 text-[11px]">الفرع:</span>
+            <span className="hidden 2xl:inline whitespace-nowrap font-extrabold text-slate-800 dark:text-slate-300 text-[11.5px]">الفرع:</span>
             <select
-              className="bg-transparent text-xs font-extrabold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[145px] sm:max-w-[190px] truncate"
+              className="bg-transparent text-xs font-black text-slate-950 dark:text-white outline-none cursor-pointer max-w-[145px] sm:max-w-[190px] truncate"
               value={activeBranchId}
               onChange={(e) => handleBranchChange(e.target.value)}
               title={company?.nameAr || 'جميع الفروع'}
@@ -1317,30 +1332,30 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <button
             type="button"
             onClick={() => setCloudModalOpen(true)}
-            className={`hidden xl:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2.5 text-[11px] font-extrabold transition-all cursor-pointer shadow-2xs ${
+            className={`hidden xl:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2.5 text-[11.5px] font-extrabold transition-all cursor-pointer shadow-2xs ${
               isCloudConfigured
-                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/18'
-                : 'border-slate-200/90 bg-slate-50/85 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:bg-slate-800'
+                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/18'
+                : 'border-slate-200/95 bg-slate-50/90 text-slate-900 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-200 dark:hover:bg-slate-800'
             }`}
             title="حالة اتصال قاعدة البيانات والسيرفر السحابي (اضغط لضبط السحابة والمزامنة الفورية)"
           >
             <span className={`size-2 shrink-0 rounded-full ${isCloudConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
             <span className="whitespace-nowrap">{isCloudConfigured ? 'سحابي متصل' : 'محلي آمن'}</span>
-            <Database className="size-3 shrink-0 opacity-65" />
+            <Database className="size-3 shrink-0 opacity-75" />
           </button>
 
           {/* Dual Live Clocks: Mecca & Cairo */}
-          <div className="hidden 2xl:flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/85 px-3 text-xs text-slate-600 shadow-2xs dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300">
-            <div className="flex items-center gap-1 whitespace-nowrap font-semibold">
+          <div className="hidden 2xl:flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200/95 bg-slate-50/90 px-3 text-xs text-slate-800 shadow-2xs dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-200">
+            <div className="flex items-center gap-1 whitespace-nowrap font-bold">
               <span className="text-[11px]">🇸🇦</span>
-              <span className="num font-mono text-slate-900 dark:text-white font-extrabold">{meccaTime}</span>
-              <span className="text-[10.5px] text-slate-500 dark:text-slate-400">مكة</span>
+              <span className="num font-mono text-slate-950 dark:text-white font-black">{meccaTime}</span>
+              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">مكة</span>
             </div>
-            <span className="h-3.5 w-px bg-slate-200 dark:bg-slate-700" />
-            <div className="flex items-center gap-1 whitespace-nowrap font-semibold">
+            <span className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
+            <div className="flex items-center gap-1 whitespace-nowrap font-bold">
               <span className="text-[11px]">🇪🇬</span>
-              <span className="num font-mono text-slate-900 dark:text-white font-extrabold">{cairoTime}</span>
-              <span className="text-[10.5px] text-slate-500 dark:text-slate-400">القاهرة</span>
+              <span className="num font-mono text-slate-950 dark:text-white font-black">{cairoTime}</span>
+              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">القاهرة</span>
             </div>
           </div>
 
@@ -1353,7 +1368,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 setCmdQuery('');
                 setCmdIndex(0);
               }}
-              className="group flex h-9.5 w-full max-w-[290px] items-center justify-between gap-2 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 hover:bg-white hover:border-indigo-400/70 hover:shadow-sm px-3 text-xs font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:border-indigo-500/50 transition-all cursor-pointer"
+              className="group flex h-9.5 w-full max-w-[290px] items-center justify-between gap-2 whitespace-nowrap rounded-xl border border-slate-200/95 bg-slate-50 hover:bg-white hover:border-indigo-400/80 hover:shadow-sm px-3 text-xs font-bold text-slate-700 dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:border-indigo-500/50 transition-all cursor-pointer"
               title="البحث الشامل الفوري عن موظف، مشروع، فاتورة، قيد، أو شاشة (Ctrl+K)"
             >
               <span className="flex items-center gap-2 min-w-0 truncate">
@@ -1361,7 +1376,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 <span className="hidden md:inline truncate">ابحث عن موظف، فاتورة، قيد…</span>
                 <span className="md:hidden">بحث</span>
               </span>
-              <kbd className="hidden xl:inline-flex shrink-0 items-center gap-0.5 rounded-md border border-slate-200/90 bg-white px-1.5 py-0.5 font-mono text-[10px] font-extrabold text-slate-500 shadow-2xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              <kbd className="hidden xl:inline-flex shrink-0 items-center gap-0.5 rounded-md border border-slate-300/90 bg-white px-1.5 py-0.5 font-mono text-[10px] font-black text-slate-700 shadow-2xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                 Ctrl+K
               </kbd>
             </button>
@@ -1373,10 +1388,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
             <NavLink
               to="/automation/hub"
               className={({ isActive }) =>
-                `flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border font-extrabold px-2.5 text-xs shadow-2xs transition-all active:scale-95 ${
+                `flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border font-black px-2.5 text-xs shadow-2xs transition-all active:scale-95 ${
                   isActive
                     ? 'border-amber-500/60 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-amber-500/25'
-                    : 'border-amber-400/45 bg-gradient-to-r from-amber-500/15 via-indigo-500/10 to-emerald-500/15 hover:from-amber-500/25 hover:to-indigo-500/20 text-slate-900 dark:text-amber-200'
+                    : 'border-amber-400/45 bg-gradient-to-r from-amber-500/15 via-indigo-500/10 to-emerald-500/15 hover:from-amber-500/25 hover:to-indigo-500/20 text-slate-950 dark:text-amber-200'
                 }`
               }
               title="مركز الأتمتة الذكية والتوليد التلقائي للقيود المحاسبية"
@@ -1389,7 +1404,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             {/* Primary Royal Indigo CTA: + فاتورة */}
             <NavLink
               to="/sal/invoices"
-              className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-xl bg-gradient-to-b from-indigo-500 via-indigo-600 to-indigo-700 hover:brightness-110 text-white font-extrabold px-3 text-xs shadow-sm shadow-indigo-600/30 ring-1 ring-inset ring-white/15 transition-all active:scale-95"
+              className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-xl bg-gradient-to-b from-indigo-500 via-indigo-600 to-indigo-700 hover:brightness-110 text-white font-black px-3 text-xs shadow-sm shadow-indigo-600/30 ring-1 ring-inset ring-white/15 transition-all active:scale-95"
               title="إنشاء فاتورة مبيعات / تأجير جديدة"
             >
               <Plus className="size-3.5 shrink-0 stroke-[2.75]" />
@@ -1397,14 +1412,14 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </NavLink>
 
             {/* Unified Segmented Quick Shortcuts Bar (الخزينة | القيود | الحسابات) */}
-            <div className="hidden md:flex h-9 shrink-0 items-center rounded-xl border border-slate-200/90 bg-slate-50/85 p-0.5 shadow-2xs dark:border-slate-800 dark:bg-slate-900/90">
+            <div className="hidden md:flex h-9 shrink-0 items-center rounded-xl border border-slate-200/95 bg-slate-50/90 p-0.5 shadow-2xs dark:border-slate-800 dark:bg-slate-900/90">
               <NavLink
                 to="/fin/custodies"
                 className={({ isActive }) =>
-                  `flex h-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-bold transition-all ${
+                  `flex h-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-extrabold transition-all ${
                     isActive
-                      ? 'bg-white text-emerald-700 shadow-2xs dark:bg-slate-800 dark:text-emerald-300'
-                      : 'text-slate-600 hover:text-slate-950 hover:bg-white/70 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800/60'
+                      ? 'bg-white text-emerald-800 shadow-2xs dark:bg-slate-800 dark:text-emerald-300'
+                      : 'text-slate-900 hover:text-indigo-800 hover:bg-white/80 dark:text-slate-200 dark:hover:text-white dark:hover:bg-slate-800/60'
                   }`
                 }
                 title="الخزينة والعهد النقدية"
@@ -1412,14 +1427,14 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 <Coins className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span className="whitespace-nowrap">الخزينة</span>
               </NavLink>
-              <span className="h-4 w-px bg-slate-200/90 dark:bg-slate-800" />
+              <span className="h-4 w-px bg-slate-200/95 dark:bg-slate-800" />
               <NavLink
                 to="/acc/journals"
                 className={({ isActive }) =>
-                  `hidden lg:flex h-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-bold transition-all ${
+                  `hidden lg:flex h-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-extrabold transition-all ${
                     isActive
-                      ? 'bg-white text-indigo-700 shadow-2xs dark:bg-slate-800 dark:text-indigo-300'
-                      : 'text-slate-600 hover:text-slate-950 hover:bg-white/70 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800/60'
+                      ? 'bg-white text-indigo-800 shadow-2xs dark:bg-slate-800 dark:text-indigo-300'
+                      : 'text-slate-900 hover:text-indigo-800 hover:bg-white/80 dark:text-slate-200 dark:hover:text-white dark:hover:bg-slate-800/60'
                   }`
                 }
                 title="دفتر قيود اليومية"
@@ -1427,14 +1442,14 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 <FileText className="size-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
                 <span className="whitespace-nowrap">القيود</span>
               </NavLink>
-              <span className="hidden xl:inline-block h-4 w-px bg-slate-200/90 dark:bg-slate-800" />
+              <span className="hidden xl:inline-block h-4 w-px bg-slate-200/95 dark:bg-slate-800" />
               <NavLink
                 to="/acc/accounts"
                 className={({ isActive }) =>
-                  `hidden xl:flex h-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-bold transition-all ${
+                  `hidden xl:flex h-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-extrabold transition-all ${
                     isActive
-                      ? 'bg-white text-sky-700 shadow-2xs dark:bg-slate-800 dark:text-sky-300'
-                      : 'text-slate-600 hover:text-slate-950 hover:bg-white/70 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800/60'
+                      ? 'bg-white text-sky-800 shadow-2xs dark:bg-slate-800 dark:text-sky-300'
+                      : 'text-slate-900 hover:text-indigo-800 hover:bg-white/80 dark:text-slate-200 dark:hover:text-white dark:hover:bg-slate-800/60'
                   }`
                 }
                 title="دليل وشجرة الحسابات المحاسبية"
@@ -1448,7 +1463,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             <button
               type="button"
               onClick={toggle}
-              className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 hover:bg-white hover:border-indigo-300/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 px-2.5 text-xs font-bold shadow-2xs transition-all cursor-pointer"
+              className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/95 bg-slate-50/90 hover:bg-white hover:border-indigo-400/80 text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 px-2.5 text-xs font-extrabold shadow-2xs transition-all cursor-pointer"
               title={dark ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'}
             >
               {dark ? (
@@ -1473,31 +1488,31 @@ export function AppShell({ children }: { children?: ReactNode }) {
         <main className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-5 md:p-6">
           {/* Active Module Breadcrumb Bar on Non-Dashboard Screens */}
           {activeBreadcrumb && (
-            <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/85 backdrop-blur-md px-3.5 py-2 text-xs shadow-2xs dark:border-slate-800/80 dark:bg-[#0b1224]/85 animate-fade-in">
-              <div className="flex flex-wrap items-center gap-1.5 text-slate-500 dark:text-slate-400">
+            <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/90 bg-white/92 backdrop-blur-md px-3.5 py-2 text-xs shadow-2xs dark:border-slate-800/80 dark:bg-[#0b1224]/85 animate-fade-in">
+              <div className="flex flex-wrap items-center gap-1.5 text-slate-700 dark:text-slate-300">
                 <Link
                   to="/"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/8 px-2 py-0.5 font-bold text-indigo-700 hover:bg-indigo-500/15 dark:text-indigo-300 transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/10 px-2 py-0.5 font-extrabold text-indigo-800 hover:bg-indigo-500/18 dark:text-indigo-300 transition-colors"
                 >
                   <LayoutDashboard className="size-3.5" />
                   <span>لوحة المؤشرات</span>
                 </Link>
-                <ChevronLeft className="size-3.5 opacity-45" />
-                <span className="font-semibold text-slate-600 dark:text-slate-300">{activeBreadcrumb.section}</span>
+                <ChevronLeft className="size-3.5 opacity-60" />
+                <span className="font-extrabold text-slate-900 dark:text-slate-100">{activeBreadcrumb.section}</span>
                 {activeBreadcrumb.item && (
                   <>
-                    <ChevronLeft className="size-3.5 opacity-45" />
-                    <span className="rounded-lg bg-slate-100 dark:bg-slate-800/90 px-2 py-0.5 font-extrabold text-indigo-700 dark:text-indigo-300">
+                    <ChevronLeft className="size-3.5 opacity-60" />
+                    <span className="rounded-lg bg-indigo-50 dark:bg-slate-800/90 px-2 py-0.5 font-black text-indigo-800 dark:text-indigo-200">
                       {activeBreadcrumb.item}
                     </span>
                   </>
                 )}
               </div>
-              <div className="hidden sm:flex items-center gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              <div className="hidden sm:flex items-center gap-2 text-[11.5px] font-extrabold text-slate-800 dark:text-slate-200">
                 <span className="size-1.5 rounded-full bg-emerald-500" />
                 <span>{company?.nameAr}</span>
-                <span className="opacity-40">•</span>
-                <span className="rounded-md bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 font-mono text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300">
+                <span className="opacity-45">•</span>
+                <span className="rounded-md bg-indigo-500/12 border border-indigo-500/25 px-1.5 py-0.5 font-mono text-[10.5px] font-black text-indigo-800 dark:text-indigo-200">
                   {company?.baseCurrency || 'SAR'}
                 </span>
               </div>

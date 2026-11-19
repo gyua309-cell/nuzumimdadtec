@@ -145,18 +145,18 @@ export function ErpModalShell({
               <div className="flex items-center gap-2 flex-wrap">
                 <h2
                   id={titleId}
-                  className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white tracking-tight truncate"
+                  className="font-black text-base sm:text-lg text-slate-950 dark:text-white tracking-tight truncate"
                 >
                   {title}
                 </h2>
                 {dirty && (
-                  <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-950/70 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
+                  <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-950/70 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
                     تعديلات غير محفوظة
                   </span>
                 )}
               </div>
               {subtitle && (
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 truncate">
+                <p className="mt-0.5 text-xs font-bold text-slate-700 dark:text-slate-300 truncate">
                   {subtitle}
                 </p>
               )}
@@ -311,9 +311,9 @@ export const FormSection = React.memo(function FormSection({
             </span>
           )}
           <div className="min-w-0">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{title}</h3>
+            <h3 className="text-sm font-black text-slate-950 dark:text-white truncate">{title}</h3>
             {subtitle && (
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{subtitle}</p>
+              <p className="text-[11.5px] font-bold text-slate-700 dark:text-slate-300 truncate">{subtitle}</p>
             )}
           </div>
         </div>

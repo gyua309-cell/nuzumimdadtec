@@ -277,13 +277,13 @@ export function PageHeader({
           )}
           <div className="space-y-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-snug">
+              <h1 className="text-xl sm:text-[22px] font-black text-slate-950 dark:text-white tracking-tight leading-snug">
                 {safeTitle}
               </h1>
               {badge}
             </div>
             {subtitle && (
-              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-3xl leading-relaxed font-medium">
+              <p className="text-xs sm:text-[13px] text-slate-700 dark:text-slate-300 max-w-3xl leading-relaxed font-bold">
                 {subtitle}
               </p>
             )}
@@ -335,11 +335,11 @@ export function ErrorState({ error }: { error: unknown }) {
 
 export function EmptyState({ text, action }: { text: string; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-3.5 p-14 text-center text-sm text-slate-500 animate-fade-in">
+    <div className="flex flex-col items-center gap-3.5 p-14 text-center text-sm text-slate-700 animate-fade-in">
       <div className="size-16 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#080e1c] flex items-center justify-center shadow-2xs">
         <Inbox className="size-7 text-indigo-500/80 dark:text-indigo-400/80" />
       </div>
-      <div className="font-bold text-slate-700 dark:text-slate-300 max-w-md leading-relaxed">{text}</div>
+      <div className="font-extrabold text-slate-900 dark:text-slate-200 max-w-md leading-relaxed">{text}</div>
       {action && <div className="pt-1.5">{action}</div>}
     </div>
   );
@@ -368,7 +368,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-0.5 text-[11px] font-bold ${
+      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-0.5 text-[11.5px] font-extrabold ${
         badgeColors[color] ?? badgeColors.slate
       }`}
     >
@@ -563,9 +563,9 @@ export function Pager({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/85 px-4 py-3 text-xs dark:border-slate-800/90 bg-slate-50/70 dark:bg-[#091020] rounded-b-2xl">
-      <span className="text-slate-500 dark:text-slate-400 font-medium">
-        عرض <span className="num font-bold text-slate-800 dark:text-slate-200">{from}–{to}</span> من أصل{' '}
-        <span className="num font-bold text-slate-900 dark:text-white">{total}</span> سجل
+      <span className="text-slate-700 dark:text-slate-300 font-bold">
+        عرض <span className="num font-black text-slate-950 dark:text-white">{from}–{to}</span> من أصل{' '}
+        <span className="num font-black text-slate-950 dark:text-white">{total}</span> سجل
       </span>
       <div className="flex items-center gap-1">
         <button
@@ -712,7 +712,7 @@ export function Stat({
 
       <div className="relative p-4 sm:p-5">
         <div className="flex items-start justify-between gap-2.5">
-          <span className="text-xs font-bold text-slate-600 dark:text-slate-300 leading-snug">{label}</span>
+          <span className="text-[13px] font-extrabold text-slate-900 dark:text-slate-100 leading-snug">{label}</span>
           {Icon && (
             <div
               className={`flex size-9.5 shrink-0 items-center justify-center rounded-xl border ${theme.iconBox} transition-transform duration-200 group-hover:scale-110`}
@@ -723,7 +723,7 @@ export function Stat({
         </div>
 
         <div className="mt-2.5 flex items-end justify-between gap-2">
-          <div className="num text-start text-2xl font-black tracking-tight text-slate-900 dark:text-white leading-tight truncate">
+          <div className="num text-start text-2xl sm:text-[26px] font-black tracking-tight text-slate-950 dark:text-white leading-tight truncate">
             {value}
           </div>
           {sparkline && sparkline.length >= 2 && <MiniStatSpark points={sparkline} stroke={theme.stroke} />}
@@ -739,8 +739,8 @@ export function Stat({
         )}
 
         {(hint || trend) && (
-          <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100/90 dark:border-slate-800/80 pt-2.5 text-[11px] text-slate-500 dark:text-slate-400">
-            <div className="flex items-center gap-1.5 min-w-0 truncate font-medium">{hint}</div>
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100/90 dark:border-slate-800/80 pt-2.5 text-[11.5px] text-slate-700 dark:text-slate-300">
+            <div className="flex items-center gap-1.5 min-w-0 truncate font-bold">{hint}</div>
             {trend && (
               <span
                 className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[10px] font-bold font-mono ${

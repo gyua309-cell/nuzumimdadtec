@@ -270,7 +270,7 @@ export function BanksHubPage() {
           {/* Section 1: Registered Bank Accounts Table */}
           <div className="card bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <h3 className="text-sm font-black text-slate-950 dark:text-white flex items-center gap-2">
                 <Landmark className="size-4 text-blue-600" />
                 دليل الحسابات البنكية والخزائن المعتمدة (Bank Accounts Directory)
               </h3>
@@ -345,7 +345,7 @@ export function BanksHubPage() {
           {/* Section 2: Recent Bank Transfers & Operations Ledger */}
           <div className="card bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <h3 className="text-sm font-black text-slate-950 dark:text-white flex items-center gap-2">
                 <ArrowLeftRight className="size-4 text-indigo-600" />
                 سجل التحويلات البنكية وصرافة العملات الدولية (Inter-Bank Transfers & FX Ledger)
               </h3>

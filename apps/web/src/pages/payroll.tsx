@@ -531,7 +531,7 @@ export function LoansPage() {
 
                 {/* Installments Schedule */}
                 <div>
-                  <h4 className="font-bold text-slate-800 mb-2">جدول الأقساط الشهرية والاستقطاع:</h4>
+                  <h4 className="font-extrabold text-slate-950 dark:text-white mb-2">جدول الأقساط الشهرية والاستقطاع:</h4>
                   <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-lg">
                     <table className="table w-full text-xs">
                       <thead className="bg-slate-100 font-bold sticky top-0">

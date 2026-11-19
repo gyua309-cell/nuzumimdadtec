@@ -449,11 +449,11 @@ export function AutomationHubPage() {
       {/* 8-Module Interconnected Matrix */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-            <Layers className="size-4 text-indigo-600 dark:text-indigo-400" />
+          <h2 className="text-base sm:text-lg font-black text-slate-950 dark:text-white flex items-center gap-2">
+            <Layers className="size-4.5 text-indigo-600 dark:text-indigo-400" />
             <span>مصفوفة الترابط الحي وقواعد التوجيه المحاسبي الآلي بين الأقسام</span>
           </h2>
-          <Link to="/acc/posting-rules" className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">
+          <Link to="/acc/posting-rules" className="text-xs font-extrabold text-indigo-700 dark:text-indigo-400 hover:underline">
             إعدادات قواعد الترحيل المحاسبي ←
           </Link>
         </div>
@@ -469,36 +469,36 @@ export function AutomationHubPage() {
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="flex size-8 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                      <span className="flex size-8 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
                         <Icon className="size-4" />
                       </span>
-                      <span className="font-mono text-[11px] font-black text-slate-400">STEP {m.code}</span>
+                      <span className="font-mono text-[11px] font-black text-slate-700 dark:text-slate-300">STEP {m.code}</span>
                     </div>
                     <Badge color="green" dot>{m.countLabel}</Badge>
                   </div>
 
-                  <h3 className="font-black text-sm text-slate-900 dark:text-white leading-snug">
+                  <h3 className="font-black text-[15px] text-slate-950 dark:text-white leading-snug">
                     {m.title}
                   </h3>
 
-                  <div className="rounded-xl bg-slate-50 dark:bg-[#080d1a] border border-slate-200/70 dark:border-slate-800/80 p-2.5 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                    <span className="font-bold text-indigo-600 dark:text-indigo-400">القاعدة الآلية: </span>
+                  <div className="rounded-xl bg-slate-50 dark:bg-[#080d1a] border border-slate-200/85 dark:border-slate-800/80 p-2.5 text-[11.5px] font-semibold text-slate-800 dark:text-slate-200 leading-relaxed">
+                    <span className="font-extrabold text-indigo-700 dark:text-indigo-400">القاعدة الآلية: </span>
                     {m.rule}
                   </div>
 
-                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                    <ArrowLeftRight className="size-3 text-emerald-500 shrink-0" />
-                    <span>يغذي تلقائياً: <strong className="text-slate-700 dark:text-slate-200">{m.feedsInto}</strong></span>
+                  <div className="flex items-center gap-1.5 text-[11.5px] font-bold text-slate-700 dark:text-slate-300">
+                    <ArrowLeftRight className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>يغذي تلقائياً: <strong className="font-extrabold text-slate-950 dark:text-white">{m.feedsInto}</strong></span>
                   </div>
                 </div>
 
                 <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
                   <Link
                     to={m.to}
-                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1"
+                    className="text-xs font-extrabold text-indigo-700 dark:text-indigo-400 hover:underline inline-flex items-center gap-1"
                   >
                     <span>فتح القسم</span>
-                    <ArrowLeft className="size-3" />
+                    <ArrowLeft className="size-3.5" />
                   </Link>
 
                   {m.onAction && (
@@ -506,7 +506,7 @@ export function AutomationHubPage() {
                       type="button"
                       disabled={busyAction !== null}
                       onClick={m.onAction}
-                      className="btn-secondary h-7 px-2.5 text-[11px] gap-1 border-indigo-500/30 text-indigo-700 dark:text-indigo-300"
+                      className="btn-secondary h-7 px-2.5 text-[11px] gap-1 border-indigo-500/35 text-indigo-800 dark:text-indigo-300"
                     >
                       {busyAction === m.actionKey ? <Spinner className="size-3" /> : <Play className="size-3 fill-current" />}
                       <span>{m.actionLabel}</span>
@@ -524,11 +524,11 @@ export function AutomationHubPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/85 bg-slate-50/70 px-4 py-3 dark:border-slate-800 dark:bg-[#091020]">
           <div className="flex items-center gap-2">
             <Activity className="size-4 text-emerald-600 dark:text-emerald-400" />
-            <h3 className="font-black text-sm text-slate-900 dark:text-white">
+            <h3 className="font-black text-[15px] text-slate-950 dark:text-white">
               أحدث القيود المحاسبية المتولدة تلقائياً من العمليات التشغيلية
             </h3>
           </div>
-          <Link to="/acc/journals" className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline">
+          <Link to="/acc/journals" className="text-xs font-extrabold text-indigo-700 dark:text-indigo-400 hover:underline">
             عرض دفتر اليومية الكامل ({journals.length}) ←
           </Link>
         </div>

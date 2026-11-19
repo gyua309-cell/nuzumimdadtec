@@ -27,15 +27,15 @@ export const JobsCenterButton: React.FC = () => {
     <>
       <button
         type="button"
-        className={`relative flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-xs font-semibold transition-all cursor-pointer ${
+        className={`relative flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-xs font-extrabold transition-all cursor-pointer ${
           runningCount > 0
-            ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 animate-pulse'
-            : 'text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'
+            ? 'bg-indigo-50 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-500/30 animate-pulse'
+            : 'text-slate-900 dark:text-slate-100 border border-slate-200/95 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900 hover:bg-white dark:hover:bg-slate-800'
         }`}
         onClick={() => setOpen(true)}
         title="مركز المهام والتصدير الخلفي"
       >
-        <Activity className={`size-3.5 shrink-0 ${runningCount > 0 ? 'animate-spin text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'}`} />
+        <Activity className={`size-3.5 shrink-0 ${runningCount > 0 ? 'animate-spin text-indigo-600 dark:text-indigo-400' : 'text-slate-700 dark:text-slate-300'}`} />
         <span className="hidden 2xl:inline whitespace-nowrap">المهام</span>
         {runningCount > 0 ? (
           <span className="flex size-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">

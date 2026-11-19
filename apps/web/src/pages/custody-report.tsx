@@ -190,7 +190,7 @@ export function CustodyReportPage() {
 
           {/* Section 1: Spending Breakdown by Expense Category */}
           <div className="card bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden p-6">
-            <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <h3 className="text-sm font-black text-slate-950 dark:text-white mb-4 flex items-center gap-2">
               <PieChart className="size-4 text-blue-600" />
               توزيع مصروفات الفروع التشغيلية حسب التصنيف المحاسبي
             </h3>
@@ -249,7 +249,7 @@ export function CustodyReportPage() {
 
           {/* Section 2: Custodian Accountability & Balances Table */}
           <div className="card bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden p-6">
-            <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <h3 className="text-sm font-black text-slate-950 dark:text-white mb-4 flex items-center gap-2">
               <Users className="size-4 text-indigo-600" />
               كشف حساب ومسؤولية أمناء العهد في الفروع
             </h3>

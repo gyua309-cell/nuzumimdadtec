@@ -6,7 +6,7 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 
-const CHART_FONT = "'IBM Plex Sans Arabic', 'Inter', system-ui, sans-serif";
+const CHART_FONT = "'Cairo', 'IBM Plex Sans Arabic', 'Inter', system-ui, sans-serif";
 
 export const ROYAL_PALETTE = [
   '#4f46e5', // Royal Indigo
@@ -96,11 +96,11 @@ export function ExecutiveChartCard({
             </div>
           )}
           <div className="min-w-0">
-            <h3 className="text-sm font-extrabold text-slate-900 dark:text-white leading-snug truncate">
+            <h3 className="text-[15.5px] font-black text-slate-950 dark:text-white leading-snug truncate">
               {title}
             </h3>
             {subtitle && (
-              <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-0.5 truncate">
                 {subtitle}
               </p>
             )}
@@ -145,8 +145,8 @@ export function ExecutiveDonutChart({
 
   const option = useMemo(() => {
     const isEmpty = validSlices.length === 0 || total <= 0;
-    const textPrimary = isDark ? '#f8fafc' : '#0f172a';
-    const textMuted = isDark ? '#94a3b8' : '#64748b';
+    const textPrimary = isDark ? '#f8fafc' : '#020617';
+    const textMuted = isDark ? '#cbd5e1' : '#1e293b';
     const borderCol = isDark ? '#0b1224' : '#ffffff';
     const emptyCol = isDark ? '#1e293b' : '#e2e8f0';
 
@@ -176,7 +176,7 @@ export function ExecutiveDonutChart({
         itemWidth: 8,
         itemHeight: 8,
         itemGap: 12,
-        textStyle: { color: textMuted, fontFamily: CHART_FONT, fontSize: 11, fontWeight: 600 },
+        textStyle: { color: textMuted, fontFamily: CHART_FONT, fontSize: 11.5, fontWeight: 700 },
       },
       series: [
         {
@@ -277,7 +277,7 @@ export function ExecutiveBarChart({
   );
 
   const option = useMemo(() => {
-    const axisLabelColor = isDark ? '#94a3b8' : '#64748b';
+    const axisLabelColor = isDark ? '#cbd5e1' : '#1e293b';
     const splitLineColor = isDark ? 'rgba(148, 163, 184, 0.09)' : '#eef2f7';
     const axisLineColor = isDark ? '#1e293b' : '#cbd5e1';
 
@@ -289,8 +289,8 @@ export function ExecutiveBarChart({
       axisLabel: {
         color: axisLabelColor,
         fontFamily: CHART_FONT,
-        fontSize: 11,
-        fontWeight: 600,
+        fontSize: 11.5,
+        fontWeight: 700,
         interval: 0,
       },
     };
