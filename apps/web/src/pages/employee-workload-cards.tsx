@@ -115,13 +115,20 @@ export function EmployeeWorkloadCardsPage() {
 
     return employees.map((emp: any) => {
       // Find active assignments for this employee
-      const empAssignments = assignments.filter((a: any) => a.employee_id === emp.id || a.employeeId === emp.id);
+      const empAssignments = assignments.filter((a: any) => 
+        a.employee_id === emp.id || 
+        a.employeeId === emp.id || 
+        a.employeeId === emp.code || 
+        a.employeeCode === emp.code || 
+        a.employeeCode === emp.id ||
+        (emp.fullNameAr && (a.employeeName === emp.fullNameAr || a.employeeNameAr === emp.fullNameAr))
+      );
 
       let totalPct = 0;
       const formattedAssignments = empAssignments.map((a: any) => {
         const pct = parseFloat(a.allocation_pct || a.allocationPct || '0');
         totalPct += pct;
-        const proj = projMap.get(a.project_id || a.projectId);
+        const proj = projMap.get(a.project_id || a.projectId) || projects.find((p: any) => p.code === a.projectCode || p.code === a.projectId || p.id === a.projectId);
         const cl = proj ? clientMap.get(proj.client_id || proj.clientId) : null;
         const workingDays = parseFloat(a.working_days_in_month || a.workingDaysInMonth || '22');
         const days = parseFloat(a.allocated_days || a.allocatedDays || String((pct / 100) * workingDays));
@@ -130,7 +137,7 @@ export function EmployeeWorkloadCardsPage() {
           id: a.id,
           projectId: a.project_id || a.projectId,
           projectCode: proj?.code || a.projectCode || 'PRJ',
-          projectNameAr: proj?.name_ar || proj?.nameAr || a.projectNameAr || 'مشروع برمجي',
+          projectNameAr: proj?.name_ar || proj?.nameAr || a.projectNameAr || a.projectName || 'مشروع برمجي',
           clientNameAr: cl?.name_ar || cl?.nameAr || a.clientNameAr || 'عميل تعاقدي',
           allocationPct: pct,
           allocatedDays: Math.round(days * 10) / 10,

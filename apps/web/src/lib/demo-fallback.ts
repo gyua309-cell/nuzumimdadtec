@@ -26,6 +26,9 @@ import {
   computeBalanceSheet,
   computeAccountStatement,
   evaluatePeriodClosingChecks,
+  isAssignmentActiveInPeriod,
+  matchesEmployee,
+  matchesProject,
 } from './fallback-engine';
 import {
   activateAssetItem,
@@ -180,9 +183,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   const recomputeEmployeeOverAllocation = (targetEmpIdOrCode?: string) => {
     const allAsg = getEntityList<any>('assignments', []);
     if (allAsg.length === 0) return;
+    const t = new Date().toISOString().slice(0, 10);
     const empTotals = new Map<string, number>();
     for (const a of allAsg) {
-      if (a.endDate || a.effectiveTo) continue;
+      const asgEnd = a.endDate || a.effectiveTo;
+      if (asgEnd && asgEnd < t) continue;
       const key = String(a.employeeId || a.employeeCode || '');
       if (!key) continue;
       if (targetEmpIdOrCode && key !== targetEmpIdOrCode && a.employeeCode !== targetEmpIdOrCode) continue;
@@ -193,7 +198,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const updated = allAsg.map((a: any) => {
       const key = String(a.employeeId || a.employeeCode || '');
       if (targetEmpIdOrCode && key !== targetEmpIdOrCode && a.employeeCode !== targetEmpIdOrCode) return a;
-      if (a.endDate || a.effectiveTo) {
+      const asgEnd = a.endDate || a.effectiveTo;
+      if (asgEnd && asgEnd < t) {
         if (a.isOverAllocated) {
           changed = true;
           return { ...a, isOverAllocated: false, overAllocatedPct: 0 };
@@ -1919,14 +1925,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const emps = getEntityList('employees', []);
     const prjs = getEntityList('projects', []);
     const clients = getEntityList('clients', defaultClients);
-    const assignments = getEntityList('assignments', []).filter((a: any) => !a.endDate && !a.effectiveTo);
+    const targetPeriod = periodFilterId ? resolvePeriodByIdOrDate(periodFilterId, null) : undefined;
+    const assignments = getEntityList('assignments', []).filter((a: any) => isAssignmentActiveInPeriod(a, targetPeriod));
     const depts = getEntityList('departments', defaultDepartments);
     const deptMap = new Map(depts.map((d: any) => [d.id, d.nameAr]));
     const monthlyVars = getEntityList('monthly_variables', []);
     const retroAdjs = getEntityList('revenue_adjustments', []).filter((r: any) => r.status !== 'REJECTED' && (!periodFilterId || r.fiscalPeriodId === periodFilterId || r.originalPeriodId === periodFilterId));
     const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
     const overheadPolicy = getOverheadPolicy();
-    const targetPeriod = periodFilterId ? resolvePeriodByIdOrDate(periodFilterId, null) : undefined;
     const empBreakdownMap = new Map<string, ReturnType<typeof computeEmployeeCostBreakdown>>();
 
     // 1. Employee calculations (Level 1 per Business Process)
@@ -1951,7 +1957,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const totalCost = directCost + overhead;
       const targetMargin = Number(emp.targetMarginPct || emp.requiredMarginPct || 25);
 
-      const myAsgs = assignments.filter((a: any) => a.employeeId === emp.id || a.employeeId === emp.code || a.employeeCode === emp.code);
+      const myAsgs = assignments.filter((a: any) => matchesEmployee(a, emp));
       let totalAllocPct = 0;
       for (const a of myAsgs) {
         const pct = Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
@@ -1966,8 +1972,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const empProjects: any[] = [];
       for (const a of myAsgs) {
         // Section 6 & 8: Check project price override priority + default employee price + FX conversion to Base SAR
-        const override = servicePrices.find((sp: any) => (sp.employeeId === emp.id || sp.employeeId === emp.code) && (sp.projectId === a.projectId || sp.projectCode === a.projectCode))
-          || servicePrices.find((sp: any) => (sp.employeeId === emp.id || sp.employeeId === emp.code) && !sp.projectId);
+        const override = servicePrices.find((sp: any) => matchesEmployee(sp, emp) && (matchesProject(sp, a) || (a.projectId && sp.projectId === a.projectId)))
+          || servicePrices.find((sp: any) => matchesEmployee(sp, emp) && !sp.projectId);
         let rawRate = Number(a.billableRate || a.dailyRate || a.unitPrice || emp.defaultBillingRate || 0);
         let basis = a.billingBasis || emp.defaultBillingBasis || a.allocationBasis || 'DAILY';
         let rateCur = a.billingCurrency || 'SAR';
@@ -2056,15 +2062,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     // 2. Project calculations (Level 2 per Business Process)
     const projectList: any[] = [];
     for (const p of prjs) {
-      const pAsgs = assignments.filter((a: any) => a.projectId === p.id || a.projectId === p.code || a.projectCode === p.code);
+      const pAsgs = assignments.filter((a: any) => matchesProject(a, p));
       let pRev = 0;
       let pDirect = 0;
       const teamMembers: any[] = [];
 
       for (const a of pAsgs) {
-        const emp = emps.find((e: any) => e.id === a.employeeId || e.code === a.employeeId || e.code === a.employeeCode);
-        const override = servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeId === emp?.id) && (sp.projectId === p.id || sp.projectId === p.code))
-          || servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeId === emp?.id) && !sp.projectId);
+        const emp = emps.find((e: any) => matchesEmployee(a, e));
+        const override = servicePrices.find((sp: any) => matchesEmployee(sp, a) && (matchesProject(sp, p) || !sp.projectId));
         let rawRate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
         let basis = a.billingBasis || a.allocationBasis || 'DAILY';
         let rateCur = a.billingCurrency || 'SAR';
@@ -2087,7 +2092,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         pRev += asgRev;
 
         const eDirect = emp ? (empBreakdownMap.get(emp.id)?.distributableCostBase ?? 0) : 0;
-        const empAllAsgs = assignments.filter((x: any) => x.employeeId === a.employeeId || (emp && (x.employeeId === emp.id || x.employeeCode === emp.code)));
+        const empAllAsgs = assignments.filter((x: any) => matchesEmployee(x, a));
         const eTotalAlloc = empAllAsgs.reduce((acc: number, x: any) => acc + Number(x.allocationPct != null ? x.allocationPct : (x.allocationBasis === 'DAYS' ? ((Number(x.allocatedDays) || 22) / 22) * 100 : 100)), 0);
         const norm = eTotalAlloc > 100 ? (100 / eTotalAlloc) : 1;
         const thisAlloc = Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
@@ -2226,7 +2231,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const emps = getEntityList('employees', []);
     const prjs = getEntityList('projects', []);
     const clients = getEntityList('clients', defaultClients);
-    const assignments = getEntityList('assignments', []).filter((a: any) => !a.endDate && !a.effectiveTo);
+    const assignments = getEntityList('assignments', []).filter((a: any) => isAssignmentActiveInPeriod(a, period));
     const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
     const invoices = getEntityList('invoices', []).filter((i: any) => i.status !== 'CANCELLED');
     const overheadPolicy = getOverheadPolicy();
@@ -2245,9 +2250,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const empMonthlyCost = bd.distributableCostBase;
       const positionTitle = emp.positionTitle || emp.role || 'مهندس برمجيات';
 
-      const myAsgs = assignments.filter(
-        (a: any) => a.employeeId === emp.id || a.employeeId === emp.code || a.employeeCode === emp.code
-      );
+      const myAsgs = assignments.filter((a: any) => matchesEmployee(a, emp));
 
       if (myAsgs.length > 0) {
         let empAssignedDaysTotal = 0;
@@ -2258,7 +2261,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         }
 
         for (const a of myAsgs) {
-          const prj = prjs.find((p: any) => p.id === a.projectId || p.code === a.projectCode) || {
+          const prj = prjs.find((p: any) => matchesProject(a, p)) || {
             id: a.projectId,
             code: a.projectCode || 'PRJ-001',
             nameAr: a.projectName || 'مشروع تطوير منصه',
@@ -2277,9 +2280,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           const unutilizedPct = Math.max(0, Number(((unutilizedDays / monthDays) * 100).toFixed(1)));
 
           const spOverride = servicePrices.find(
-            (sp: any) => (sp.employeeId === emp.id || sp.employeeId === emp.code) && (sp.projectId === prj.id || sp.projectCode === prj.code)
-          ) || servicePrices.find(
-            (sp: any) => (sp.employeeId === emp.id || sp.employeeId === emp.code) && !sp.projectId
+            (sp: any) => matchesEmployee(sp, emp) && (matchesProject(sp, prj) || !sp.projectId)
           );
 
           const pricingBasis = spOverride?.pricingBasis || a.billingBasis || a.allocationBasis || 'DAILY';
@@ -2300,9 +2301,9 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
           const invMatch = invoices.find(
             (i: any) =>
-              (i.projectId === prj.id || i.projectId === a.projectId) &&
+              (matchesProject(i, prj) || i.projectId === a.projectId) &&
               (!periodId || i.fiscalPeriodId === periodId) &&
-              (i.lines || []).some((l: any) => l.employeeId === emp.id || l.employeeId === emp.code || l.description?.includes(emp.fullNameAr || emp.nameAr))
+              (i.lines || []).some((l: any) => matchesEmployee(l, emp) || l.description?.includes(emp.fullNameAr || emp.nameAr || ''))
           );
 
           const invoiceStatus = invMatch ? (invMatch.status || 'POSTED') : 'UNINVOICED';
@@ -2455,7 +2456,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const targetId = segments[1];
       const singleEmp = emps.find((e) => e.id === targetId || e.code === targetId || e.code?.toLowerCase() === targetId?.toLowerCase());
       const allAsg = getEntityList('assignments', []);
-      const empAsg = allAsg.filter((a) => a.employeeId === targetId || (singleEmp && (a.employeeId === singleEmp.id || a.employeeId === singleEmp.code)));
+      const empAsg = allAsg.filter((a) => matchesEmployee(a, singleEmp || { id: targetId, code: targetId }));
 
       if (singleEmp) {
         const defaultPlacement = {
@@ -2573,15 +2574,15 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
     const singleProj: any = projects.find((p: any) => path.endsWith(`/${p.id}`) || path.endsWith(`/${p.code}`) || path.includes(`/${p.id}/`) || path.includes(`/${p.code}/`));
     if (singleProj) {
-      const prjAsgs = allAsg.filter((a: any) => a.projectId === singleProj.id || a.projectId === singleProj.code || a.projectCode === singleProj.code).map((a: any) => {
-        const emp = emps.find((e: any) => e.id === a.employeeId || e.code === a.employeeId || e.code === a.employeeCode);
+      const prjAsgs = allAsg.filter((a: any) => matchesProject(a, singleProj)).map((a: any) => {
+        const emp = emps.find((e: any) => matchesEmployee(a, e));
         return {
           ...a,
           employeeName: a.employeeName || emp?.fullNameAr || emp?.nameAr || 'الموظف',
           employeeCode: a.employeeCode || emp?.code || '',
         };
       });
-      const prjPrices = allPrices.filter((sp: any) => sp.projectId === singleProj.id || sp.projectId === singleProj.code);
+      const prjPrices = allPrices.filter((sp: any) => matchesProject(sp, singleProj));
       return {
         ...singleProj,
         assignments: prjAsgs,
@@ -2594,7 +2595,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     }
 
     const enrichedProjects = projects.map((p: any) => {
-      const pCount = allAsg.filter((a: any) => a.projectId === p.id || a.projectId === p.code || a.projectCode === p.code).length;
+      const pCount = allAsg.filter((a: any) => matchesProject(a, p)).length;
       return {
         ...p,
         activeAssignmentCount: pCount,
@@ -2620,10 +2621,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const filterEmp = params.get('employeeId');
     const filterPrj = params.get('projectId');
     if (filterEmp) {
-      rows = rows.filter((a) => a.employeeId === filterEmp || a.employeeCode === filterEmp);
+      const emps = getEntityList('employees', []);
+      const matchedEmp = emps.find((e: any) => e.id === filterEmp || e.code === filterEmp);
+      rows = rows.filter((a) => (matchedEmp ? matchesEmployee(a, matchedEmp) : (a.employeeId === filterEmp || a.employeeCode === filterEmp)));
     }
     if (filterPrj) {
-      rows = rows.filter((a) => a.projectId === filterPrj || a.projectCode === filterPrj);
+      const projects = getEntityList('projects', []);
+      const matchedPrj = projects.find((p: any) => p.id === filterPrj || p.code === filterPrj);
+      rows = rows.filter((a) => (matchedPrj ? matchesProject(a, matchedPrj) : (a.projectId === filterPrj || a.projectCode === filterPrj)));
     }
     let totalDays = 0;
     let totalRevenue = 0;
@@ -3156,13 +3161,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     if (cleanP.includes('/preview')) {
       const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
       const period = resolvePeriodByIdOrDate(q.get('periodId'), null);
-      const asgs = getEntityList('assignments', []).filter((a: any) => !a.endDate && !a.effectiveTo);
+      const asgs = getEntityList('assignments', []).filter((a: any) => isAssignmentActiveInPeriod(a, period));
       const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
       const existing = runs.find((r) => r.fiscalPeriodId === period?.id && r.status === 'POSTED');
       let totalRev = 0;
       const lines = asgs.map((a: any, idx: number) => {
-        const override = servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeCode === a.employeeCode) && (sp.projectId === a.projectId || sp.projectCode === a.projectCode))
-          || servicePrices.find((sp: any) => (sp.employeeId === a.employeeId || sp.employeeCode === a.employeeCode) && !sp.projectId);
+        const override = servicePrices.find((sp: any) => matchesEmployee(sp, a) && (matchesProject(sp, a) || !sp.projectId));
         const rawRate = Number(override?.price ?? a.billableRate ?? a.dailyRate ?? a.unitPrice ?? 0);
         const rateCur = override?.currencyCode || a.billingCurrency || 'SAR';
         const basis = override?.pricingBasis || a.billingBasis || a.allocationBasis || 'DAILY';

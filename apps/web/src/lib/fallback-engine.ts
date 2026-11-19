@@ -1197,18 +1197,18 @@ export function evaluatePeriodClosingChecks(periodId: string): any {
   const assignments = getEntityList<any>('assignments', []);
   const unutilizedEmps = emps.filter((e) => {
     const tot = assignments
-      .filter((a) => (a.employeeId === e.id || a.employeeCode === e.code) && (!a.endDate || !target?.startDate || a.endDate >= target.startDate))
-      .reduce((s, a) => s + Number(a.allocationPct || 0), 0);
+      .filter((a) => matchesEmployee(a, e) && isAssignmentActiveInPeriod(a, target))
+      .reduce((s, a) => s + Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100)), 0);
     return tot < 100;
   });
 
   // CHK-07: Service Prices & Revenues check (Sec 27: الإيرادات)
   const servicePrices = getEntityList<any>('service_prices', []);
   const activeAssignsWithoutPrice = assignments.filter((a) => {
-    if (a.endDate && target?.startDate && a.endDate < target.startDate) return false;
-    const hasSp = servicePrices.some((sp) => sp.employeeId === a.employeeId && (!sp.projectId || sp.projectId === a.projectId) && (!sp.effectiveTo || !target?.startDate || sp.effectiveTo >= target.startDate));
-    const emp = emps.find((e) => e.id === a.employeeId || e.code === a.employeeCode);
-    return !hasSp && !(Number(emp?.defaultBillingRate || 0) > 0);
+    if (!isAssignmentActiveInPeriod(a, target)) return false;
+    const hasSp = servicePrices.some((sp) => matchesEmployee(sp, a) && (!sp.projectId || matchesProject(sp, a)) && (!sp.effectiveTo || !target?.startDate || sp.effectiveTo >= target.startDate));
+    const emp = emps.find((e) => matchesEmployee(a, e));
+    return !hasSp && !(Number(emp?.defaultBillingRate || 0) > 0) && !(Number(a.billableRate || 0) > 0);
   });
 
   // CHK-08: Overhead Policy & 3-Level Profitability check (Sec 27: الأوفر هيد + الربحية)
@@ -1285,4 +1285,70 @@ export function evaluatePeriodClosingChecks(periodId: string): any {
     warnings,
     results,
   };
+}
+
+/**
+ * Determines whether an assignment is active within a given fiscal period, or as of a reference date.
+ * Uses standard interval overlap: [asgStart, asgEnd] overlaps [period.startDate, period.endDate].
+ * If period has no dates, falls back to reference date or current date.
+ */
+export function isAssignmentActiveInPeriod(
+  a: any,
+  period?: { startDate?: string; endDate?: string } | null,
+  referenceDate?: string
+): boolean {
+  if (!a) return false;
+  const asgStart = a.startDate || a.effectiveFrom || '1970-01-01';
+  const asgEnd = a.endDate || a.effectiveTo || '2099-12-31';
+
+  if (period && period.startDate && period.endDate) {
+    return asgStart <= period.endDate && asgEnd >= period.startDate;
+  }
+
+  const ref = referenceDate || new Date().toISOString().slice(0, 10);
+  return asgStart <= ref && asgEnd >= ref;
+}
+
+/**
+ * Matches an assignment/entity to an employee across multiple identifier variants:
+ * id, code, full name in Arabic, and common name variations.
+ */
+export function matchesEmployee(a: any, emp: any): boolean {
+  if (!a || !emp) return false;
+  const aEmpId = String(a.employeeId || a.employee_id || '').trim();
+  const aEmpCode = String(a.employeeCode || a.employee_code || '').trim();
+  const aEmpName = String(a.employeeName || a.employeeNameAr || a.employee_name || '').trim().toLowerCase();
+
+  const eId = String(emp.id || '').trim();
+  const eCode = String(emp.code || '').trim();
+  const eName = String(emp.fullNameAr || emp.full_name_ar || emp.nameAr || emp.name || '').trim().toLowerCase();
+
+  if (aEmpId && (aEmpId === eId || aEmpId === eCode)) return true;
+  if (aEmpCode && (aEmpCode === eCode || aEmpCode === eId)) return true;
+  if (eId && (aEmpCode === eId || aEmpId === eId)) return true;
+  if (eCode && (aEmpId === eCode || aEmpCode === eCode)) return true;
+  if (eName && aEmpName && (aEmpName === eName || aEmpName.includes(eName) || eName.includes(aEmpName))) return true;
+  return false;
+}
+
+/**
+ * Matches an assignment/entity to a project across multiple identifier variants:
+ * id, code, and project name in Arabic.
+ */
+export function matchesProject(a: any, prj: any): boolean {
+  if (!a || !prj) return false;
+  const aPrjId = String(a.projectId || a.project_id || '').trim();
+  const aPrjCode = String(a.projectCode || a.project_code || '').trim();
+  const aPrjName = String(a.projectName || a.projectNameAr || a.project_name || '').trim().toLowerCase();
+
+  const pId = String(prj.id || '').trim();
+  const pCode = String(prj.code || '').trim();
+  const pName = String(prj.nameAr || prj.name_ar || prj.name || '').trim().toLowerCase();
+
+  if (aPrjId && (aPrjId === pId || aPrjId === pCode)) return true;
+  if (aPrjCode && (aPrjCode === pCode || aPrjCode === pId)) return true;
+  if (pId && (aPrjCode === pId || aPrjId === pId)) return true;
+  if (pCode && (aPrjId === pCode || aPrjCode === pCode)) return true;
+  if (pName && aPrjName && (aPrjName === pName || aPrjName.includes(pName) || pName.includes(aPrjName))) return true;
+  return false;
 }

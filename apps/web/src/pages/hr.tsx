@@ -1466,7 +1466,12 @@ function EmployeeProfitabilityTab({ employee }: { employee: any }) {
 
   const rawRows = asgQuery.data?.rows || asgQuery.data?.data || asgQuery.data || [];
   const assignments: any[] = (Array.isArray(rawRows) ? rawRows : []).filter(
-    (a: any) => a.employeeId === empId || a.employeeId === employee.code || a.employeeCode === employee.code,
+    (a: any) =>
+      a.employeeId === empId ||
+      a.employeeId === employee.code ||
+      a.employeeCode === employee.code ||
+      a.employeeCode === empId ||
+      (employee.fullNameAr && (a.employeeName === employee.fullNameAr || a.employeeNameAr === employee.fullNameAr)),
   );
   const servicePrices: any[] = (spQuery.data?.data || spQuery.data || []).filter((sp: any) => !sp.effectiveTo);
 

@@ -14,6 +14,9 @@ import {
   recordAudit,
   resolvePeriodByIdOrDate,
   sha256Hex,
+  isAssignmentActiveInPeriod,
+  matchesEmployee,
+  matchesProject,
 } from './fallback-engine';
 
 const ZATCA_SETTINGS_KEY = 'idham_prod_zatca_settings';
@@ -725,7 +728,7 @@ export function autoGenerateSalesInvoicesFromAssignments(body: any): any {
   const generatedIds: string[] = [];
 
   for (const prj of targetProjects) {
-    const prjAsgs = assignments.filter((a) => a.projectId === prj.id && !a.effectiveTo);
+    const prjAsgs = assignments.filter((a) => matchesProject(a, prj) && isAssignmentActiveInPeriod(a, period, issueDate));
     const cli = clients.find((c) => c.id === prj.clientId) || clients[0];
 
     let lines: any[] = [];
@@ -733,14 +736,15 @@ export function autoGenerateSalesInvoicesFromAssignments(body: any): any {
     // 1. Staff assignments
     if (prjAsgs.length > 0) {
       lines = prjAsgs.map((a) => {
-        const emp = employees.find((e) => e.id === a.employeeId);
-        const rate = Number(a.billableRate || 0);
+        const emp = employees.find((e) => matchesEmployee(a, e));
+        const override = servicePrices.find((sp: any) => matchesEmployee(sp, a) && (matchesProject(sp, prj) || !sp.projectId));
+        const rawRate = Number(override?.price ?? a.billableRate ?? a.dailyRate ?? a.unitPrice ?? emp?.defaultBillingRate ?? 0);
         const days = Number(a.allocatedDays || a.workingDaysInMonth || 22);
         const units = a.billingBasis === 'MONTHLY' ? 1 : a.billingBasis === 'HOURLY' ? days * 8 : days;
-        const lineRate = rate > 0 ? rate : 15000;
+        const lineRate = rawRate > 0 ? rawRate : 1500;
         return {
-          employeeId: a.employeeId,
-          description: `خدمات ${emp?.fullNameAr || 'كادر استشاري وتقني'} — مشروع ${prj.nameAr} (${units} وحدة)`,
+          employeeId: a.employeeId || emp?.id,
+          description: `خدمات برمجية — ${emp?.fullNameAr || a.employeeName || 'كادر استشاري وتقني'} (${a.roleTitle || emp?.positionTitle || 'مهندس برمجيات'}) — مشروع: ${prj.nameAr}`,
           quantity: units,
           unitPrice: lineRate,
           discountPct: 0,
