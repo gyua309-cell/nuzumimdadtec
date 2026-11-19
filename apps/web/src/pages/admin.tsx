@@ -172,7 +172,7 @@ export function UsersPage() {
         <Field label="كلمة المرور الجديدة"><input className="input" dir="ltr" type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} /></Field>
       </Modal>
       <Modal open={!!assign} onClose={() => setAssign(null)} title={`إسناد دور إلى ${assign?.fullName ?? ''}`} footer={<button className="btn-primary" disabled={!roleId} onClick={() => doAssign.mutate()}>إسناد</button>}>
-        <Field label="الدور"><select className="input" value={roleId} onChange={(e) => setRoleId(e.target.value)}><option value="">—</option>{(roles.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.nameAr} {r.isTemplate ? '(قالب)' : ''}</option>)}</select></Field>
+        <Field label="الدور"><select className="input" value={roleId} onChange={(e) => setRoleId(e.target.value)}><option value="">—</option>{(Array.isArray(roles.data) ? roles.data : ((roles.data as any)?.data ?? [])).map((r: any) => <option key={r.id} value={r.id}>{r.nameAr} {r.isTemplate ? '(قالب)' : ''}</option>)}</select></Field>
       </Modal>
     </div>
   );
@@ -186,19 +186,20 @@ export function RolesPage() {
   const toast = useToast();
   const qc = useQueryClient();
   const { me } = useAuth();
-  const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get<any[]>('/roles') });
-  const perms = useQuery({ queryKey: ['permissions'], queryFn: () => api.get<any[]>('/permissions') });
+  const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get<any>('/roles').then((r: any) => (Array.isArray(r) ? r : (r?.data ?? []))) });
+  const perms = useQuery({ queryKey: ['permissions'], queryFn: () => api.get<any>('/permissions').then((r: any) => (Array.isArray(r) ? r : (r?.data ?? []))) });
   const [form, setForm] = useState<any | null>(null);
-  const actions = useMemo(() => [...new Set((perms.data ?? []).map((p) => p.action))], [perms.data]);
+  const permItems: any[] = Array.isArray(perms.data) ? perms.data : ((perms.data as any)?.data ?? []);
+  const actions = useMemo(() => [...new Set(permItems.map((p) => p.action))], [permItems]);
   const resources = useMemo(() => {
     const m = new Map<string, any>();
-    for (const p of perms.data ?? []) {
+    for (const p of permItems) {
       const k = `${p.module}.${p.resource}`;
       if (!m.has(k)) m.set(k, { key: k, module: p.module, label: (p.descriptionAr as string).split(' — ')[0], actions: new Set<string>() });
       m.get(k).actions.add(p.action);
     }
     return [...m.values()];
-  }, [perms.data]);
+  }, [permItems]);
   const open = async (r: any | null) => {
     if (!r) return setForm({ code: '', nameAr: '', nameEn: '', description: '', permissions: new Set<string>() });
     const full = await api.get<any>(`/roles/${r.id}`);

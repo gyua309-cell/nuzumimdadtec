@@ -95,8 +95,15 @@ export function EmployeeAllocationDaysReportPage() {
   const rows = data?.rows || [];
   const summary = data?.summary;
 
+  // Deduplicate Bench metrics by employeeId so employees split across 2+ projects are never double-counted
   const benchEmployees = useMemo(() => {
-    return rows.filter((r) => Number(r.unutilizedDays || 0) > 0);
+    const byEmp = new Map<string, any>();
+    for (const r of rows) {
+      if (Number(r.unutilizedDays || 0) > 0 && !byEmp.has(r.employeeId)) {
+        byEmp.set(r.employeeId, r);
+      }
+    }
+    return Array.from(byEmp.values());
   }, [rows]);
 
   const totalBenchDays = useMemo(() => {

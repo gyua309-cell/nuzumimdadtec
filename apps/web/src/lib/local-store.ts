@@ -5,6 +5,11 @@
  */
 
 const STORAGE_PREFIX = 'idham_prod_';
+let _uidCounter = 1;
+
+export function uid(prefix = 'id'): string {
+  return `${prefix}-${Date.now()}-${(_uidCounter++).toString(36)}`;
+}
 
 export const defaultFiscalPeriodsList = [
   { id: 'fp-2026-01', name: 'يناير 2026', startDate: '2026-01-01', endDate: '2026-01-31', status: 'CLOSED', isAdjustmentPeriod: false },
@@ -89,7 +94,7 @@ export function saveEntityItem<T extends { id?: string }>(entityKey: string, ite
   } else {
     result = {
       ...item,
-      id: `${entityKey.slice(0, 3)}-${Date.now()}`,
+      id: uid(entityKey.slice(0, 3)),
       createdAt: now,
       updatedAt: now,
       rowVersion: 1,

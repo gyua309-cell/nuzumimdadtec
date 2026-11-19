@@ -4,11 +4,14 @@ import {
   Banknote, Calendar, Download, Printer, Users
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useBaseCurrency } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { Badge, EmptyState, ErrorState, Loading, PageHeader, useToast } from '../components/ui';
 
 export function MultiCurrencyPayrollReportPage() {
   const toast = useToast();
+  const base = useBaseCurrency();
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [currencyFilter, setCurrencyFilter] = useState<'ALL' | 'SAR' | 'EGP'>('ALL');
 
@@ -47,8 +50,8 @@ export function MultiCurrencyPayrollReportPage() {
   // Filter lines by payout currency if selected
   const filteredLines = useMemo(() => {
     if (currencyFilter === 'ALL') return lines;
-    return lines.filter((l: any) => (l.payoutCurrency || 'EGP').toUpperCase() === currencyFilter);
-  }, [lines, currencyFilter]);
+    return lines.filter((l: any) => (l.payoutCurrency || l.contractCurrency || base).toUpperCase() === currencyFilter);
+  }, [lines, currencyFilter, base]);
 
   // Aggregate Totals
   const totals = useMemo(() => {
@@ -59,7 +62,7 @@ export function MultiCurrencyPayrollReportPage() {
     let egpCount = 0;
 
     for (const l of lines) {
-      const pCur = (l.payoutCurrency || 'EGP').toUpperCase();
+      const pCur = (l.payoutCurrency || l.contractCurrency || base).toUpperCase();
       const pAmt = parseFloat(l.payoutAmount || l.netPayableBase || '0');
       const baseNet = parseFloat(l.netPayableBase || '0');
 
@@ -81,11 +84,11 @@ export function MultiCurrencyPayrollReportPage() {
       egpCount,
       totalCount: lines.length,
     };
-  }, [lines]);
+  }, [lines, base]);
 
   // Bank files export preview
   const handleExportBankFile = (cur: 'SAR' | 'EGP') => {
-    const list = lines.filter((l: any) => (l.payoutCurrency || 'EGP').toUpperCase() === cur);
+    const list = lines.filter((l: any) => (l.payoutCurrency || l.contractCurrency || base).toUpperCase() === cur);
     const bankName = cur === 'SAR' ? 'مصرف الراجحي / الرياض (حوالات الرواتب بالسعودية)' : 'البنك التجاري الدولي CIB / الأهلي (رواتب فرع مصر)';
 
     downloadCsv(`salary-batch-${cur}-${today()}.csv`, [
@@ -181,6 +184,9 @@ export function MultiCurrencyPayrollReportPage() {
               {runsData.status === 'POSTED' ? 'مسير معتمد ومرحل' : 'مسودة قيد المراجعة'}
             </Badge>
           )}
+          {runsData?.journalEntryId && (
+            <JournalLinkBadge entryId={runsData.journalEntryId} entryNo={runsData.journalEntryNo} labelPrefix="قيد الاستحقاق" compact />
+          )}
         </div>
 
         {/* Currency Filter Tabs */}
@@ -260,11 +266,11 @@ export function MultiCurrencyPayrollReportPage() {
               </div>
               <div className="mt-3">
                 <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
-                  {money(totals.baseNetTotal)} <span className="text-xs font-bold text-slate-500">EGP</span>
+                  {money(totals.baseNetTotal)} <span className="text-xs font-bold text-slate-500">{base}</span>
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center justify-between">
                   <span>إجمالي الكوادر: <strong className="text-slate-800 dark:text-slate-200">{totals.totalCount}</strong> موظف</span>
-                  <span>القيد: حـ/ 5100 و حـ/ 2100</span>
+                  <span>القيد: حـ/ 50101 / 50102 و حـ/ 20401</span>
                 </div>
               </div>
             </div>
@@ -297,9 +303,9 @@ export function MultiCurrencyPayrollReportPage() {
                 </thead>
                 <tbody>
                   {filteredLines.map((l: any) => {
-                    const payoutCur = (l.payoutCurrency || 'EGP').toUpperCase();
+                    const payoutCur = (l.payoutCurrency || l.contractCurrency || base).toUpperCase();
                     const isSar = payoutCur === 'SAR';
-                    const contractCur = (l.contractCurrency || 'EGP').toUpperCase();
+                    const contractCur = (l.contractCurrency || base).toUpperCase();
 
                     return (
                       <tr key={l.employeeId}>
@@ -333,7 +339,7 @@ export function MultiCurrencyPayrollReportPage() {
                           )}
                         </td>
                         <td className="py-3 px-4 text-center font-mono font-semibold">
-                          {money(l.netPayableBase)} EGP
+                          {money(l.netPayableBase)} {base}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <Badge color={isSar ? 'blue' : 'green'}>
@@ -360,7 +366,7 @@ export function MultiCurrencyPayrollReportPage() {
                       إجمالي المسير المعتمد للفترة:
                     </td>
                     <td className="py-3 px-4 text-center font-mono font-black">
-                      {money(totals.baseNetTotal)} EGP
+                      {money(totals.baseNetTotal)} {base}
                     </td>
                     <td colSpan={2} className="py-3 px-4 text-center">
                       SAR {money(totals.sarPayoutTotal)} + EGP {money(totals.egpPayoutTotal)}

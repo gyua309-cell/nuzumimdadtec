@@ -5,11 +5,15 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useBaseCurrency } from '../lib/auth';
 import { downloadCsv, money, today } from '../lib/format';
+import { SOURCE_MODULE_LABELS } from '../lib/labels';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { Badge, EmptyState, ErrorState, Loading, PageHeader, useToast } from '../components/ui';
 
 export function CashFlowReportPage() {
   const toast = useToast();
+  const base = useBaseCurrency();
   const [fromDate, setFromDate] = useState('2026-01-01');
   const [toDate, setToDate] = useState(today());
 
@@ -70,30 +74,32 @@ export function CashFlowReportPage() {
     };
   }, [accounts, custodyReport]);
 
-  // Cash flow statement lines derived dynamically from journal entries or empty if no activity
+  // Cash flow statement lines derived dynamically from journal entries (normalizing paged response)
+  const journalArr: any[] = Array.isArray(journalEntries) ? journalEntries : ((journalEntries as any)?.data ?? []);
   const cashFlowLines = useMemo(() => {
-    if (!Array.isArray(journalEntries) || journalEntries.length === 0) {
+    if (!journalArr.length) {
       return [];
     }
 
-    return journalEntries.map((je: any) => ({
+    return journalArr.map((je: any) => ({
       id: je.id,
-      title: je.narrationAr || je.narration || `قيد رقم ${je.entryNo || je.code}`,
-      category: je.sourceModule || 'تشغيلي',
-      currency: je.currencyCode || 'SAR',
-      originalAmount: Number(je.totalDebit || 0),
-      baseAmountEgp: Number(je.totalDebitBase || je.totalDebit || 0),
+      entryNo: je.entryNo,
+      title: je.description || je.narrationAr || je.narration || `قيد رقم ${je.entryNo || je.code}`,
+      category: SOURCE_MODULE_LABELS[je.sourceModule] || je.sourceModule || 'تشغيلي',
+      currency: je.currencyCode || base,
+      originalAmount: Number(je.totalDebitBase || je.totalDebit || 0),
+      baseAmount: Number(je.totalDebitBase || je.totalDebit || 0),
     }));
-  }, [journalEntries]);
+  }, [journalArr, base]);
 
   const handleExportCsv = () => {
     if (cashFlowLines.length === 0) {
       const rows = [
-        ['بيان التدفق النقدي', 'التصنيف', 'العملة الأصلية', 'المبلغ بالعملة الأصلية', 'المبلغ المعادل (EGP)'],
-        ['رصيد بنوك الرياض (SAR)', 'أصول نقدية', 'SAR', money(liquidityData.sarBankBalance), money(liquidityData.sarBankBalance * 13.15)],
-        ['رصيد بنوك مصر (EGP)', 'أصول نقدية', 'EGP', money(liquidityData.egpBankBalance), money(liquidityData.egpBankBalance)],
-        ['أرصدة العهد النقدية (EGP)', 'عهد فروع', 'EGP', money(liquidityData.custodyBalanceEgp), money(liquidityData.custodyBalanceEgp)],
-        ['صافي أرباح/خسائر فروق العملات', 'فروق عملة', 'EGP', '—', money(liquidityData.netFxGain)],
+        ['بيان التدفق النقدي', 'التصنيف', 'العملة الأصلية', 'المبلغ بالعملة الأصلية', `المبلغ المعادل (${base})`],
+        ['رصيد بنوك الرياض (SAR)', 'أصول نقدية', 'SAR', money(liquidityData.sarBankBalance), money(liquidityData.sarBankBalance)],
+        ['رصيد بنوك مصر (EGP)', 'أصول نقدية', 'EGP', money(liquidityData.egpBankBalance), money(liquidityData.egpBankBalance * 0.076)],
+        ['أرصدة العهد النقدية (EGP)', 'عهد فروع', 'EGP', money(liquidityData.custodyBalanceEgp), money(liquidityData.custodyBalanceEgp * 0.076)],
+        ['صافي أرباح/خسائر فروق العملات', 'فروق عملة', base, '—', money(liquidityData.netFxGain)],
       ];
       downloadCsv(`cash_flow_statement_${today()}.csv`, rows);
       toast.success('تم تصدير ملخص التدفقات النقدية الفعلي كملف CSV');
@@ -101,8 +107,8 @@ export function CashFlowReportPage() {
     }
 
     const rows = [
-      ['بيان التدفق النقدي', 'التصنيف', 'العملة الأصلية', 'المبلغ بالعملة الأصلية', 'المبلغ المعادل (EGP)'],
-      ...cashFlowLines.map((l) => [l.title, l.category, l.currency, money(l.originalAmount), money(l.baseAmountEgp)]),
+      ['سند القيد', 'بيان التدفق النقدي', 'التصنيف', 'العملة الأصلية', 'المبلغ بالعملة الأصلية', `المبلغ المعادل (${base})`],
+      ...cashFlowLines.map((l) => [l.entryNo || '—', l.title, l.category, l.currency, money(l.originalAmount), money(l.baseAmount)]),
     ];
     downloadCsv(`cash_flow_statement_${today()}.csv`, rows);
     toast.success('تم تصدير تقرير التدفقات النقدية كملف CSV');
@@ -170,7 +176,7 @@ export function CashFlowReportPage() {
 
         <div className="text-xs text-slate-500 flex items-center gap-2">
           <span className="inline-block size-2 rounded-full bg-emerald-500" />
-          <span>العملة المرجعية للقوائم المالية: <strong>الجنيه المصري (EGP)</strong> مع تتبع حركة الريال السعودي (SAR)</span>
+          <span>العملة الأساسية للقوائم الموحدة: <strong>الريال السعودي ({base})</strong> مع تتبع سيولة الجنيه المصري (EGP)</span>
         </div>
       </div>
 
@@ -240,7 +246,7 @@ export function CashFlowReportPage() {
               </div>
               <div className="mt-3">
                 <div className={`text-2xl font-black tracking-tight font-mono ${liquidityData.netFxGain >= 0 ? 'text-indigo-700 dark:text-indigo-300' : 'text-rose-600'}`}>
-                  {liquidityData.netFxGain >= 0 ? `+${money(liquidityData.netFxGain)}` : money(liquidityData.netFxGain)} EGP
+                  {liquidityData.netFxGain >= 0 ? `+${money(liquidityData.netFxGain)}` : money(liquidityData.netFxGain)} {base}
                 </div>
                 <div className="text-xs text-slate-500 mt-1">أرباح محققة حـ/ 4300 مقابل حـ/ 5700</div>
               </div>
@@ -266,7 +272,7 @@ export function CashFlowReportPage() {
                   </span>
                 </div>
                 <div className="mt-3 text-xl font-mono font-black text-emerald-700 dark:text-emerald-400">
-                  +{money(liquidityData.realizedFxGains)} EGP
+                  +{money(liquidityData.realizedFxGains)} {base}
                 </div>
                 <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-300/80 leading-relaxed">
                   ناتجة عن تحويل وصرف عهد الريال السعودي لفرع مصر بأسعار صرف تفضيلية أعلى من سعر الأساس الدفتري، وتحصيل إيرادات العقود بالعملة الأجنبية.
@@ -284,7 +290,7 @@ export function CashFlowReportPage() {
                   </span>
                 </div>
                 <div className="mt-3 text-xl font-mono font-black text-rose-700 dark:text-rose-400">
-                  -{money(liquidityData.realizedFxLosses)} EGP
+                  -{money(liquidityData.realizedFxLosses)} {base}
                 </div>
                 <p className="mt-2 text-xs text-rose-800 dark:text-rose-300/80 leading-relaxed">
                   ناتجة عن عمولات التحويلات البنكية الدولية وتغيرات سعر الصرف عند سداد التزامات الموردين بالعملات الأجنبية.
@@ -300,7 +306,7 @@ export function CashFlowReportPage() {
                 <Activity className="size-4 text-emerald-600" />
                 حركات وقائمة التدفقات النقدية الفعلية (Cash Flow Statement)
               </h3>
-              <Link to="/gl/entries" className="btn btn-secondary text-xs flex items-center gap-1">
+              <Link to="/acc/journals/new" className="btn btn-secondary text-xs flex items-center gap-1">
                 <Plus className="size-3" />
                 إضافة قيد محاسبي
               </Link>
@@ -311,7 +317,7 @@ export function CashFlowReportPage() {
                 <EmptyState
                   text="لا توجد حركات تدفقات نقدية مسجلة لهذه الفترة المالية حتى الآن."
                   action={
-                    <Link to="/gl/entries" className="btn-primary text-xs inline-flex items-center gap-1.5 mt-2">
+                    <Link to="/acc/journals/new" className="btn-primary text-xs inline-flex items-center gap-1.5 mt-2">
                       <Plus className="size-3.5" />
                       تسجيل حركة نقدية أو قيد يومية
                     </Link>
@@ -320,26 +326,28 @@ export function CashFlowReportPage() {
               </div>
             ) : (
               <table className="table w-full text-right text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-300">
+                <thead>
                   <tr>
-                    <th className="py-2.5 px-4">بيان التدفق النقدي</th>
-                    <th className="py-2.5 px-4 text-center">التصنيف</th>
-                    <th className="py-2.5 px-4 text-center">المبلغ بالعملة الأصلية</th>
-                    <th className="py-2.5 px-4 text-center font-bold">المبلغ المعادل (EGP)</th>
+                    <th>سند القيد</th>
+                    <th>بيان التدفق النقدي</th>
+                    <th className="text-center">التصنيف</th>
+                    <th className="text-center">المبلغ بالعملة الأصلية</th>
+                    <th className="text-center font-bold">المبلغ المعادل ({base})</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                <tbody>
                   {cashFlowLines.map((row) => (
                     <tr key={row.id}>
-                      <td className="py-2.5 px-4 font-medium">{row.title}</td>
-                      <td className="py-2.5 px-4 text-center">
-                        <Badge color={row.category === 'تشغيلي' ? 'cyan' : 'amber'}>{row.category}</Badge>
+                      <td><JournalLinkBadge entryId={row.id} entryNo={row.entryNo} compact /></td>
+                      <td className="font-medium">{row.title}</td>
+                      <td className="text-center">
+                        <Badge color="cyan">{row.category}</Badge>
                       </td>
-                      <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
+                      <td className="text-center font-mono font-bold text-slate-800 dark:text-slate-200">
                         {money(row.originalAmount)} {row.currency}
                       </td>
-                      <td className="py-2.5 px-4 text-center font-mono font-bold text-emerald-600">
-                        +{money(row.baseAmountEgp)} EGP
+                      <td className="text-center font-mono font-bold text-emerald-600">
+                        {money(row.baseAmount)} {base}
                       </td>
                     </tr>
                   ))}

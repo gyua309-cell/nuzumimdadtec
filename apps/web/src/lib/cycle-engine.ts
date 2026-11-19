@@ -1,7 +1,8 @@
 import { getStoredCompany } from './storage-company';
-import { getEntityList, saveEntityItem } from './local-store';
+import { getEntityList, saveEntityItem, uid } from './local-store';
 import {
   assertPeriodOpen,
+  computeAssignmentEconomics,
   computeBalanceSheet,
   computeIncomeStatement,
   convertToBase,
@@ -298,7 +299,7 @@ export function transmitZatcaInvoice(invId: string): any {
   saveEntityItem('invoices', updated);
 
   saveEntityItem('zatca_submissions', {
-    id: `sub-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+    id: uid('sub'),
     invoiceId: updated.id,
     invoiceNo: updated.invoiceNo,
     submissionType: isSimplified ? 'REPORTING' : 'CLEARANCE',
@@ -449,7 +450,7 @@ export function createSalesInvoice(body: any): any {
   const fxTot = convertToBase(calc.totalAmount, currencyCode, issueDate).amountBase;
 
   let inv: any = {
-    id: body.id || `inv-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+    id: body.id || uid('inv'),
     invoiceNo: body.invoiceNo || `INV-${issueDate.slice(0, 4)}-${String(invCount).padStart(4, '0')}`,
     invoiceType: body.invoiceType || 'TAX_INVOICE',
     invoiceSubType: body.invoiceSubType || 'STANDARD',
@@ -609,7 +610,7 @@ export function recordSalesInvoicePayment(invId: string, body: any): any {
   });
 
   const paymentRecord = {
-    id: `pay-${Date.now()}`,
+    id: uid('pay'),
     paymentDate,
     amount: amount.toFixed(2),
     method: body?.method || 'BANK_TRANSFER',
@@ -651,7 +652,7 @@ export function createCreditNoteAndPost(body: any): any {
 
   const cnt = getEntityList<any>('credit_notes', []).length + 1;
   let note: any = {
-    id: `crn-${Date.now()}`,
+    id: uid('crn'),
     invoiceNo: `CRN-${issueDate.slice(0, 4)}-${String(cnt).padStart(4, '0')}`,
     invoiceType: 'CREDIT_NOTE',
     invoiceSubType: orig.invoiceSubType || 'STANDARD',
@@ -725,27 +726,46 @@ export function autoGenerateSalesInvoicesFromAssignments(body: any): any {
 
   let count = 0;
   let totalAmount = 0;
+  let subtotalAmount = 0;
   const generatedIds: string[] = [];
+  const existingInvoices = getEntityList<any>('invoices', []).filter(
+    (inv) => inv.status !== 'CANCELLED' && inv.invoiceType !== 'CREDIT_NOTE',
+  );
 
   for (const prj of targetProjects) {
+    // Prevent duplicate auto-invoicing for the same project & fiscal period unless explicitly forced
+    if (!body?.force && period?.id) {
+      const alreadyInvoiced = existingInvoices.find(
+        (inv) => matchesProject(inv, prj) && inv.fiscalPeriodId === period.id,
+      );
+      if (alreadyInvoiced && !body?.projectId) {
+        continue;
+      }
+    }
+
     const prjAsgs = assignments.filter((a) => matchesProject(a, prj) && isAssignmentActiveInPeriod(a, period, issueDate));
     const cli = clients.find((c) => c.id === prj.clientId) || clients[0];
 
     let lines: any[] = [];
 
-    // 1. Staff assignments
+    // 1. Staff assignments — 100% aligned with computeAssignmentEconomics
     if (prjAsgs.length > 0) {
       lines = prjAsgs.map((a) => {
         const emp = employees.find((e) => matchesEmployee(a, e));
-        const override = servicePrices.find((sp: any) => matchesEmployee(sp, a) && (matchesProject(sp, prj) || !sp.projectId));
-        const rawRate = Number(override?.price ?? a.billableRate ?? a.dailyRate ?? a.unitPrice ?? emp?.defaultBillingRate ?? 0);
-        const days = Number(a.allocatedDays || a.workingDaysInMonth || 22);
-        const units = a.billingBasis === 'MONTHLY' ? 1 : a.billingBasis === 'HOURLY' ? days * 8 : days;
-        const lineRate = rawRate > 0 ? rawRate : 1500;
+        const econ = computeAssignmentEconomics({
+          assignment: a,
+          employee: emp,
+          project: prj,
+          servicePrices,
+          period,
+        });
+        const lineRate = econ.unitPriceBase > 0 ? econ.unitPriceBase : 1500;
+        const basisAr = econ.pricingBasis === 'MONTHLY' ? 'شهري' : econ.pricingBasis === 'HOURLY' ? 'ساعة' : 'يوم عمل';
         return {
           employeeId: a.employeeId || emp?.id,
-          description: `خدمات برمجية — ${emp?.fullNameAr || a.employeeName || 'كادر استشاري وتقني'} (${a.roleTitle || emp?.positionTitle || 'مهندس برمجيات'}) — مشروع: ${prj.nameAr}`,
-          quantity: units,
+          pricingBasis: econ.pricingBasis,
+          description: `خدمات برمجية — ${emp?.fullNameAr || a.employeeName || 'كادر استشاري وتقني'} (${a.roleTitle || emp?.positionTitle || 'مهندس برمجيات'}) — ${econ.billingUnits} ${basisAr} — مشروع: ${prj.nameAr}`,
+          quantity: econ.billingUnits,
           unitPrice: lineRate,
           discountPct: 0,
           vatRate: 15,
@@ -811,10 +831,11 @@ export function autoGenerateSalesInvoicesFromAssignments(body: any): any {
 
     generatedIds.push(created.id);
     count++;
+    subtotalAmount += Number(created.subtotalBase || created.subtotal || 0);
     totalAmount += Number(created.totalAmount || 0);
   }
 
-  return { success: true, count, totalAmount: round2(totalAmount), generatedIds };
+  return { success: true, count, subtotalAmount: round2(subtotalAmount), totalAmount: round2(totalAmount), generatedIds };
 }
 
 // ============================================================================
@@ -858,7 +879,7 @@ export function createPurchaseInvoiceItem(body: any): any {
 
   const tot = round2(st + vt);
   const item = {
-    id: body.id || `pinv-${Date.now()}`,
+    id: body.id || uid('pinv'),
     invoiceNo: body.invoiceNo || `PINV-${issueDate.slice(0, 4)}-${String(cnt).padStart(4, '0')}`,
     invoiceType: 'PURCHASE_INVOICE',
     vendorId: body.vendorId,
@@ -1010,7 +1031,7 @@ export function payPurchaseInvoiceItem(invId: string, body: any): any {
   });
 
   const payRecord = {
-    id: `ppay-${Date.now()}`,
+    id: uid('ppay'),
     paymentDate,
     amount: amount.toFixed(2),
     bankAccountId: body?.bankAccountId || null,
@@ -1106,7 +1127,7 @@ export function createDebitNoteAndPost(body: any): any {
   });
 
   const note = {
-    id: `dbn-${Date.now()}`,
+    id: uid('dbn'),
     invoiceNo: noteNo,
     invoiceType: 'DEBIT_NOTE',
     originalInvoiceId: orig.id,
@@ -1161,7 +1182,7 @@ export function createAssetItem(body: any): any {
   const usefulLifeMonths = Number(body.usefulLifeMonths || cat?.defaultUsefulLifeMonths || 36);
 
   const asset = {
-    id: body.id || `ast-${Date.now()}`,
+    id: body.id || uid('ast'),
     assetNo: body.assetNo || `AST-${String(getEntityList('assets', []).length + 1).padStart(4, '0')}`,
     name: body.name || 'أصل تقني',
     categoryId: body.categoryId || cat?.id,
@@ -1188,7 +1209,7 @@ export function createAssetItem(body: any): any {
     custodianEmployeeId: emp?.id || null,
     custodianName: emp?.fullNameAr || '—',
     custodies: emp ? [{
-      id: `cst-${Date.now()}`,
+      id: uid('cst'),
       employeeId: emp.id,
       employeeCode: emp.code,
       employeeName: emp.fullNameAr,
@@ -1281,7 +1302,7 @@ export function assignAssetCustody(assetId: string, body: any): any {
   const emp = emps.find((e) => e.id === body.employeeId);
 
   const cust = {
-    id: `acust-${Date.now()}`,
+    id: uid('acust'),
     employeeId: body.employeeId,
     employeeCode: emp?.code || '',
     employeeName: emp?.fullNameAr || 'موظف',
@@ -1471,7 +1492,7 @@ export function executeDepreciationRun(body: any): any {
 
   const existingRuns = getEntityList<any>('depreciation_runs', []);
   const run = {
-    id: `dep-${Date.now()}`,
+    id: uid('dep'),
     runNo: existingRuns.length + 1,
     runCode: preview.runCode,
     fiscalPeriodId: period?.id,
@@ -1533,7 +1554,14 @@ export function cancelDepreciationRunItem(runId: string, reason?: string): any {
 
 function computeCustodyMetrics(c: any): any {
   const lines = Array.isArray(c.lines) ? c.lines : [];
-  const totalSettled = lines.filter((l: any) => l.status === 'SETTLED').reduce((s: number, l: any) => s + Number(l.total_amount || 0), 0);
+  const settlements = Array.isArray(c.settlements) ? c.settlements : [];
+  const linesSettled = lines
+    .filter((l: any) => l.status === 'SETTLED')
+    .reduce((s: number, l: any) => s + Number(l.total_amount || 0), 0);
+  const cashReturnedInSettlements = settlements
+    .filter((st: any) => st.status === 'POSTED')
+    .reduce((s: number, st: any) => s + Number(st.returned_cash_egp || 0), 0);
+  const totalSettled = round2(linesSettled + cashReturnedInSettlements);
   const convertedTarget = Number(c.converted_amount_target || c.disbursed_amount || 0);
   const remaining = c.status === 'CLOSED' ? 0 : Math.max(0, round2(convertedTarget - totalSettled));
   const ratio = convertedTarget > 0 ? Math.round((remaining / convertedTarget) * 100) : 100;
@@ -1554,7 +1582,7 @@ export function createCustodyItem(body: any): any {
   const cnt = getEntityList<any>('custodies', []).length + 1;
 
   const item = computeCustodyMetrics({
-    id: body.id || `cst-${Date.now()}`,
+    id: body.id || uid('cst'),
     company_id: 'cmp-01',
     custody_no: `CST-${new Date().getFullYear()}-${String(cnt).padStart(4, '0')}`,
     employee_id: emp?.id || body.employeeId,
@@ -1712,7 +1740,7 @@ export function convertCustodyItem(custId: string, body: any): any {
   c.transfers = [
     ...(Array.isArray(c.transfers) ? c.transfers : []),
     {
-      id: `trf-${Date.now()}`,
+      id: uid('trf'),
       transfer_date: cDate,
       amount_source: srcAmt.toFixed(2),
       exchange_rate: String(rate),
@@ -1723,6 +1751,92 @@ export function convertCustodyItem(custId: string, body: any): any {
       saJournalEntryNo: convJe?.entryNo || c.disbursementEntryNo || null,
       status: 'COMPLETED',
       notes: c.conversion_notes,
+    },
+  ];
+
+  const updated = computeCustodyMetrics(c);
+  saveEntityItem('custodies', updated);
+  return updated;
+}
+
+export function topUpCustodyTransfer(custId: string, body: any): any {
+  const list = getEntityList<any>('custodies', []);
+  const c = list.find((x) => x.id === custId || x.custody_no === custId);
+  if (!c) throw new Error('العهدة غير موجودة');
+
+  const tDate = (body?.transferDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  assertPeriodOpen(tDate, `تحويل تعزيز سيولة العهدة ${c.custody_no}`);
+
+  const srcAmt = round2(Number(body?.amountSar || body?.amountSource || body?.convertedAmountSource || 0));
+  if (srcAmt <= 0) throw new Error('مبلغ التحويل يجب أن يكون أكبر من صفر');
+
+  const rate = Math.max(0.01, Number(body?.exchangeRate || body?.conversionRate || c.conversion_rate || 13.15));
+  const tgtAmt = round2(body?.amountTarget != null ? Number(body.amountTarget) : srcAmt * rate);
+  const feeSar = round2(Number(body?.bankFeeSar || 0));
+  const bankGl = resolveBankGlCode(body?.bankAccountId || c.disbursed_from_account_id, '10201');
+  const custodyGl = (c.target_currency || 'EGP') === 'EGP' ? '1310' : '1320';
+
+  const jeLines: any[] = [
+    { accountCode: custodyGl, debit: srcAmt, credit: 0, employeeId: c.employee_id, currencyCode: 'SAR', description: `تعزيز عهدة ${c.employeeNameAr} (${c.custody_no})` },
+  ];
+  if (feeSar > 0) {
+    jeLines.push({ accountCode: '50402', debit: feeSar, credit: 0, employeeId: c.employee_id, currencyCode: 'SAR', description: `عمولة تحويل بنكي للعهدة ${c.custody_no}` });
+  }
+  jeLines.push({
+    accountCode: bankGl,
+    debit: 0,
+    credit: round2(srcAmt + feeSar),
+    employeeId: c.employee_id,
+    currencyCode: 'SAR',
+    description: `صرف حوالة تعزيز عهدة ${c.custody_no}`,
+  });
+
+  const je = createAutoPostedJournalEntry({
+    entryDate: tDate,
+    fiscalPeriodId: resolvePeriodByIdOrDate(undefined, tDate)?.id,
+    journalType: 'TRANSFER',
+    sourceModule: 'TREASURY',
+    sourceType: 'CUSTODY_TRANSFER',
+    postingEvent: 'CUSTODY_TRANSFERRED',
+    reference: body?.bankReference || `WIRE-${c.custody_no}`,
+    description: `سند تحويل وتعزيز العهدة النقدية ${c.custody_no} — ${c.employeeNameAr}`,
+    lines: jeLines,
+  });
+
+  const prevDisbBase = Number(c.disbursed_amount_base || c.disbursed_amount || 0);
+  const prevConvSrc = Number(c.converted_amount_source || prevDisbBase || 0);
+  const prevConvTgt = Number(c.converted_amount_target || 0);
+  const nextSrc = round2(prevConvSrc + srcAmt);
+  const nextTgt = round2(prevConvTgt + tgtAmt);
+  const weightedRate = nextSrc > 0 ? round2(nextTgt / nextSrc) : rate;
+
+  c.disbursed_amount = round2(Number(c.disbursed_amount || 0) + srcAmt).toFixed(2);
+  c.disbursed_amount_base = round2(prevDisbBase + srcAmt).toFixed(2);
+  c.disbursed_at = c.disbursed_at || tDate;
+  c.disbursement_journal_entry_id = c.disbursement_journal_entry_id || je.id;
+  c.disbursementEntryNo = c.disbursementEntryNo || je.entryNo;
+  c.converted_amount_source = nextSrc.toFixed(2);
+  c.converted_amount_target = nextTgt.toFixed(2);
+  c.conversion_rate = String(weightedRate);
+  c.converted_at = tDate;
+  if (c.status === 'DRAFT' || c.status === 'DISBURSED' || c.status === 'SETTLED') {
+    c.status = 'CONVERTED';
+  }
+
+  c.transfers = [
+    ...(Array.isArray(c.transfers) ? c.transfers : []),
+    {
+      id: uid('trf'),
+      transfer_date: tDate,
+      amount_source: srcAmt.toFixed(2),
+      exchange_rate: String(rate),
+      amount_target: tgtAmt.toFixed(2),
+      bank_fee_sar: feeSar.toFixed(2),
+      bank_reference: body?.bankReference || null,
+      sa_journal_entry_id: je.id,
+      saJournalEntryNo: je.entryNo,
+      status: 'COMPLETED',
+      notes: body?.notes || null,
     },
   ];
 
@@ -1745,7 +1859,7 @@ export function addCustodyExpenseLine(custId: string, body: any): any {
 
   const lines = Array.isArray(c.lines) ? c.lines : [];
   const line = {
-    id: `cl-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+    id: uid('cl'),
     company_id: c.company_id,
     custody_id: c.id,
     line_no: lines.length + 1,
@@ -1790,28 +1904,34 @@ export function settleCustodyExpenses(custId: string, body: any): any {
 
   const lines = Array.isArray(c.lines) ? c.lines : [];
   const pendingLines = lines.filter((l: any) => l.status !== 'SETTLED');
-  if (pendingLines.length === 0 && !Number(body?.totalAmountEgp || 0)) {
-    throw new Error('لا توجد إيصالات مصروفات جديدة بانتظار التسوية');
+  const returnedCashEgp = round2(Number(body?.returnedCashEgp || 0));
+  if (pendingLines.length === 0 && !Number(body?.totalAmountEgp || 0) && returnedCashEgp <= 0) {
+    throw new Error('لا توجد إيصالات مصروفات جديدة أو مبالغ نقدية مرتجعة بانتظار التسوية');
   }
 
   const sDate = (body?.settlementDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
   assertPeriodOpen(sDate, `تسوية مصروفات العهدة ${c.custody_no}`);
 
-  const rate = Math.max(0.01, Number(c.conversion_rate || 13.15));
-  const toSarBase = (amt: number, cur: string) =>
-    cur === 'SAR' ? round2(amt) : round2(amt / rate);
+  const bookRate = Math.max(0.01, Number(c.conversion_rate || 13.15));
+  const settleRate = Math.max(0.01, Number(body?.exchangeRate || bookRate));
+  const toSarAtSettle = (amt: number, cur: string) =>
+    cur === 'SAR' ? round2(amt) : round2(amt / settleRate);
+  const toSarAtBook = (amt: number, cur: string) =>
+    cur === 'SAR' ? round2(amt) : round2(amt / bookRate);
 
   const jeLines: any[] = [];
   let totalTarget = 0;
-  let totalSarBase = 0;
+  let custodyCreditBookBase = 0;
 
   if (pendingLines.length > 0) {
     let vatBaseSum = 0;
     for (const l of pendingLines) {
-      const subBase = toSarBase(Number(l.subtotal || 0), l.currency_code || c.target_currency);
-      const vatBase = toSarBase(Number(l.vat_amount || 0), l.currency_code || c.target_currency);
-      totalTarget += Number(l.total_amount || 0);
-      totalSarBase += subBase + vatBase;
+      const cur = l.currency_code || c.target_currency || 'EGP';
+      const subBase = toSarAtSettle(Number(l.subtotal || 0), cur);
+      const vatBase = toSarAtSettle(Number(l.vat_amount || 0), cur);
+      const lineTot = Number(l.total_amount || 0);
+      totalTarget += lineTot;
+      custodyCreditBookBase += toSarAtBook(lineTot, cur);
       vatBaseSum += vatBase;
 
       if (subBase > 0) {
@@ -1837,12 +1957,13 @@ export function settleCustodyExpenses(custId: string, body: any): any {
         description: `ضريبة مدخلات إيصالات العهدة ${c.custody_no}`,
       });
     }
-  } else {
+  } else if (Number(body?.totalAmountEgp || 0) > 0) {
     totalTarget = Number(body?.totalAmountEgp || 0);
-    totalSarBase = toSarBase(totalTarget, c.target_currency);
+    const expSar = toSarAtSettle(totalTarget, c.target_currency || 'EGP');
+    custodyCreditBookBase += toSarAtBook(totalTarget, c.target_currency || 'EGP');
     jeLines.push({
       accountCode: '50401',
-      debit: totalSarBase,
+      debit: expSar,
       credit: 0,
       employeeId: c.employee_id,
       currencyCode: 'SAR',
@@ -1850,12 +1971,50 @@ export function settleCustodyExpenses(custId: string, body: any): any {
     });
   }
 
+  if (returnedCashEgp > 0) {
+    const retDebitBase = toSarAtSettle(returnedCashEgp, c.target_currency || 'EGP');
+    custodyCreditBookBase += toSarAtBook(returnedCashEgp, c.target_currency || 'EGP');
+    const refundBankGl = resolveBankGlCode(body?.refundBankAccountId, '10201');
+    jeLines.push({
+      accountCode: refundBankGl,
+      debit: retDebitBase,
+      credit: 0,
+      employeeId: c.employee_id,
+      currencyCode: 'SAR',
+      description: `إيداع نقدي مرتجع من العهدة ${c.custody_no}`,
+    });
+  }
+
+  custodyCreditBookBase = round2(custodyCreditBookBase);
   const totalDebitBase = round2(jeLines.reduce((s, x) => s + x.debit, 0));
+  const fxDiff = round2(custodyCreditBookBase - totalDebitBase); // positive => loss (5700), negative => gain (4300)
+  if (Math.abs(fxDiff) >= 0.01) {
+    if (fxDiff > 0) {
+      jeLines.push({
+        accountCode: '5700',
+        debit: fxDiff,
+        credit: 0,
+        employeeId: c.employee_id,
+        currencyCode: 'SAR',
+        description: `خسائر فروق عملة محققة عند تسوية العهدة ${c.custody_no}`,
+      });
+    } else {
+      jeLines.push({
+        accountCode: '4300',
+        debit: 0,
+        credit: Math.abs(fxDiff),
+        employeeId: c.employee_id,
+        currencyCode: 'SAR',
+        description: `أرباح فروق عملة محققة عند تسوية العهدة ${c.custody_no}`,
+      });
+    }
+  }
+
   const custodyGl = c.target_currency === 'EGP' ? '1310' : '1320';
   jeLines.push({
     accountCode: custodyGl,
     debit: 0,
-    credit: totalDebitBase,
+    credit: custodyCreditBookBase,
     employeeId: c.employee_id,
     currencyCode: 'SAR',
     description: `تخفيض عهدة ${c.employeeNameAr} (${c.custody_no})`,
@@ -1874,13 +2033,13 @@ export function settleCustodyExpenses(custId: string, body: any): any {
   });
 
   const settlement = {
-    id: `cset-${Date.now()}`,
+    id: uid('cset'),
     settlement_no: `STL-${c.custody_no}-${(c.settlements?.length || 0) + 1}`,
     settlement_date: sDate,
     total_amount_egp: totalTarget.toFixed(2),
-    total_amount_sar_base: totalDebitBase.toFixed(2),
-    returned_cash_egp: Number(body?.returnedCashEgp || 0).toFixed(2),
-    realized_fx_gain_loss: '0.00',
+    total_amount_sar_base: custodyCreditBookBase.toFixed(2),
+    returned_cash_egp: returnedCashEgp.toFixed(2),
+    realized_fx_gain_loss: (-fxDiff).toFixed(2),
     journal_entry_id: je.id,
     journalEntryNo: je.entryNo,
     status: 'POSTED',
@@ -1901,30 +2060,91 @@ export function closeCustodyItem(custId: string, body: any): any {
   if (!c) throw new Error('العهدة غير موجودة');
 
   const closeDate = (body?.closureDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
-  const refundAmt = Number(body?.refundAmount || 0);
   assertPeriodOpen(closeDate, `إقفال العهدة ${c.custody_no}`);
 
-  if (refundAmt > 0) {
-    const rate = Math.max(0.01, Number(c.conversion_rate || 13.15));
-    const refundBase = c.target_currency === 'SAR' ? round2(refundAmt) : round2(refundAmt / rate);
-    const refundBankGl = resolveBankGlCode(body?.refundToAccountId, '10202');
+  const preClose = computeCustodyMetrics(c);
+  const rate = Math.max(0.01, Number(c.conversion_rate || 13.15));
+  const settledSarSum = (Array.isArray(c.settlements) ? c.settlements : [])
+    .filter((st: any) => st.status === 'POSTED')
+    .reduce((s: number, st: any) => s + Number(st.total_amount_sar_base || 0), 0);
+  const remainingBookSar = Math.max(
+    0,
+    round2(Number(c.disbursed_amount_base || c.disbursed_amount || 0) - settledSarSum),
+  );
+
+  let refundBase = remainingBookSar;
+  if (body?.returnedAmountSar != null && body.returnedAmountSar !== '') {
+    refundBase = round2(Number(body.returnedAmountSar));
+  } else if (body?.refundAmount != null && body.refundAmount !== '') {
+    const rawRefund = Number(body.refundAmount);
+    refundBase = c.target_currency === 'SAR' ? round2(rawRefund) : round2(rawRefund / rate);
+  } else if (Number(preClose.remaining_balance_target || 0) > 0) {
+    const remTarget = Number(preClose.remaining_balance_target);
+    refundBase = c.target_currency === 'SAR' ? round2(remTarget) : round2(remTarget / rate);
+  }
+
+  const creditBook = Math.max(remainingBookSar, refundBase);
+  if (creditBook > 0) {
+    const refundBankGl = resolveBankGlCode(body?.refundToAccountId || body?.returnToAccountId, '10201');
     const custodyGl = c.target_currency === 'EGP' ? '1310' : '1320';
-    const je = createAutoPostedJournalEntry({
-      entryDate: closeDate,
-      fiscalPeriodId: resolvePeriodByIdOrDate(undefined, closeDate)?.id,
-      journalType: 'RECEIPT',
-      sourceModule: 'TREASURY',
-      sourceType: 'CUSTODY_CLOSURE',
-      postingEvent: 'CUSTODY_CLOSED',
-      reference: c.custody_no,
-      description: `إقفال واسترداد فائض العهدة ${c.custody_no} — ${c.employeeNameAr}`,
-      lines: [
-        { accountCode: refundBankGl, debit: refundBase, credit: 0, employeeId: c.employee_id, description: `رد متبقي العهدة ${c.custody_no}` },
-        { accountCode: custodyGl, debit: 0, credit: refundBase, employeeId: c.employee_id, description: `تصفير عهدة ${c.employeeNameAr}` },
-      ],
-    });
-    c.closure_journal_entry_id = je.id;
-    c.closureEntryNo = je.entryNo;
+    const jeLines: any[] = [];
+    if (refundBase > 0) {
+      jeLines.push({
+        accountCode: refundBankGl,
+        debit: refundBase,
+        credit: 0,
+        employeeId: c.employee_id,
+        currencyCode: 'SAR',
+        description: `رد متبقي العهدة ${c.custody_no}`,
+      });
+    }
+    const diff = round2(remainingBookSar - refundBase);
+    if (Math.abs(diff) >= 0.01) {
+      if (diff > 0) {
+        jeLines.push({
+          accountCode: '5700',
+          debit: diff,
+          credit: 0,
+          employeeId: c.employee_id,
+          currencyCode: 'SAR',
+          description: `فروق تسوية وإقفال العهدة ${c.custody_no}`,
+        });
+      } else {
+        jeLines.push({
+          accountCode: '4300',
+          debit: 0,
+          credit: Math.abs(diff),
+          employeeId: c.employee_id,
+          currencyCode: 'SAR',
+          description: `فروق عملة دائنة عند إقفال العهدة ${c.custody_no}`,
+        });
+      }
+    }
+    if (remainingBookSar > 0) {
+      jeLines.push({
+        accountCode: custodyGl,
+        debit: 0,
+        credit: remainingBookSar,
+        employeeId: c.employee_id,
+        currencyCode: 'SAR',
+        description: `تصفير وإقفال عهدة ${c.employeeNameAr} (${c.custody_no})`,
+      });
+    }
+    if (jeLines.length >= 2) {
+      const je = createAutoPostedJournalEntry({
+        entryDate: closeDate,
+        fiscalPeriodId: resolvePeriodByIdOrDate(undefined, closeDate)?.id,
+        journalType: 'RECEIPT',
+        sourceModule: 'TREASURY',
+        sourceType: 'CUSTODY_CLOSURE',
+        postingEvent: 'CUSTODY_CLOSED',
+        reference: c.custody_no,
+        description: `إقفال واسترداد فائض العهدة ${c.custody_no} — ${c.employeeNameAr}`,
+        lines: jeLines,
+      });
+      c.closure_journal_entry_id = je.id;
+      c.closureEntryNo = je.entryNo;
+    }
   }
 
   c.status = 'CLOSED';
@@ -2043,17 +2263,20 @@ export function computeVatReturnSummary(periodId?: string | null): any {
   let stdPurchases = 0;
   let inVat = 0;
   for (const p of purchases) {
-    stdPurchases += Number(p.subtotal || 0);
-    inVat += Number(p.vatAmount || 0);
+    const sign = p.invoiceType === 'DEBIT_NOTE' ? -1 : 1;
+    stdPurchases += sign * Number(p.subtotalBase || p.subtotal || 0);
+    inVat += sign * Number(p.vatAmountBase || p.vatAmount || 0);
   }
 
+  const netVatFormatted = round2(outVat - inVat).toFixed(2);
   return {
     period: period?.name || 'الفترة الضريبية الحالية',
     standardRatedSales: round2(stdSales).toFixed(2),
     outputVat: round2(outVat).toFixed(2),
     standardRatedPurchases: round2(stdPurchases).toFixed(2),
     inputVat: round2(inVat).toFixed(2),
-    netVatDue: round2(outVat - inVat).toFixed(2),
+    netVatDue: netVatFormatted,
+    netVatPayable: netVatFormatted,
     status: 'OPEN',
   };
 }
@@ -2227,7 +2450,7 @@ export function saveZakatReturnDraft(body: any): any {
   const calc = computeZakatSummary(body);
   const cnt = getEntityList<any>('zakat_returns', []).length + 1;
   const item = {
-    id: `zak-${Date.now()}`,
+    id: uid('zak'),
     returnNo: `ZKT-${calc.periodTo.slice(0, 4)}-${String(cnt).padStart(3, '0')}`,
     ...calc,
     notes: body?.notes || null,
@@ -2390,7 +2613,7 @@ export function executeInterBankTransfer(body: any): any {
   });
 
   const record = saveEntityItem('bank_transfers', {
-    id: `trf-${Date.now()}`,
+    id: uid('trf'),
     transferDate,
     sourceBankId: sourceBank.id,
     sourceBankName: sourceBank.name,
@@ -2516,7 +2739,7 @@ export function postEosbSettlementJournal(body: any): any {
   });
 
   const saved = saveEntityItem('eosb_settlements', {
-    id: `eosb-${Date.now()}`,
+    id: uid('eosb'),
     refNo,
     employeeId: emp?.id || body?.employeeId || null,
     employeeName: empName,
@@ -2605,7 +2828,7 @@ export function settleVatReturnPeriod(body: any): any {
   });
 
   const saved = saveEntityItem('vat_settlements', {
-    id: `vatset-${Date.now()}`,
+    id: uid('vatset'),
     refNo,
     fiscalPeriodId: period?.id || null,
     periodName: period?.name || 'الفترة الحالية',

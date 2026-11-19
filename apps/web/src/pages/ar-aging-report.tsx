@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Calendar, Download, Printer, RefreshCw, Search
+  Calendar, Download, Printer, RefreshCw, Search, Wallet
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useBaseCurrency } from '../lib/auth';
 import { downloadCsv, money, today } from '../lib/format';
+import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
 import { Badge, EmptyState, ErrorState, Loading, PageHeader, useToast } from '../components/ui';
 
 export interface AgingBucketRow {
@@ -25,9 +28,12 @@ export interface AgingBucketRow {
 
 export function AccountsReceivableAgingReportPage() {
   const toast = useToast();
+  const qc = useQueryClient();
+  const base = useBaseCurrency();
   const [asOfDate, setAsOfDate] = useState(today());
   const [riskFilter, setRiskFilter] = useState<'ALL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('ALL');
   const [search, setSearch] = useState('');
+  const [collectingInv, setCollectingInv] = useState<any | null>(null);
 
   // Queries: Clients and Invoices
   const { data: clients = [], isLoading: isClientsLoading, error: clientsError, refetch } = useQuery({
@@ -46,17 +52,22 @@ export function AccountsReceivableAgingReportPage() {
 
     return clients.map((cl: any, idx: number) => {
       const clientInvoices = invoices.filter(
-        (inv: any) => (inv.clientId === cl.id || inv.client_id === cl.id) && inv.status !== 'CANCELLED' && inv.status !== 'DRAFT'
+        (inv: any) => (inv.clientId === cl.id || inv.client_id === cl.id || inv.clientName === cl.nameAr) && inv.status !== 'CANCELLED' && inv.status !== 'DRAFT'
       );
 
       let current0to30 = 0;
       let days31to60 = 0;
       let days61to90 = 0;
       let over90 = 0;
+      let creditNotesDeduction = 0;
       let latestDate = '—';
 
       for (const inv of clientInvoices) {
-        const total = Number(inv.totalAmount || inv.total_amount || 0);
+        if (inv.invoiceType === 'CREDIT_NOTE') {
+          creditNotesDeduction += Number(inv.totalAmountBase || inv.totalAmount || 0);
+          continue;
+        }
+        const total = Number(inv.totalAmountBase || inv.totalAmount || inv.total_amount || 0);
         const paid = Number(inv.paidAmount || inv.paid_amount || 0);
         const unpaid = Math.max(0, total - paid);
         if (unpaid <= 0) continue;
@@ -69,6 +80,17 @@ export function AccountsReceivableAgingReportPage() {
         else if (diffDays <= 60) days31to60 += unpaid;
         else if (diffDays <= 90) days61to90 += unpaid;
         else over90 += unpaid;
+      }
+
+      // Apply credit notes against oldest buckets first
+      let remCr = creditNotesDeduction;
+      for (const apply of [
+        () => { const d = Math.min(over90, remCr); over90 -= d; remCr -= d; },
+        () => { const d = Math.min(days61to90, remCr); days61to90 -= d; remCr -= d; },
+        () => { const d = Math.min(days31to60, remCr); days31to60 -= d; remCr -= d; },
+        () => { const d = Math.min(current0to30, remCr); current0to30 -= d; remCr -= d; },
+      ]) {
+        if (remCr > 0) apply();
       }
 
       const baseReceivable = current0to30 + days31to60 + days61to90 + over90;
@@ -185,60 +207,60 @@ export function AccountsReceivableAgingReportPage() {
       {/* KPI Cards Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {/* Total Outstanding */}
-        <div className="card p-4 bg-white border border-slate-200 shadow-sm rounded-xl">
+        <div className="card p-4">
           <div className="text-xs font-semibold text-slate-500">إجمالي مستحقات العملاء</div>
-          <div className="text-xl font-black text-slate-900 tracking-tight font-mono mt-2">
-            {money(totals.total)} EGP
+          <div className="text-xl font-black text-slate-900 dark:text-white tracking-tight font-mono mt-2">
+            {money(totals.total)} {base}
           </div>
-          <div className="text-[11px] text-blue-700 font-semibold mt-1">كافة الفواتير غير المحصلة</div>
+          <div className="text-[11px] text-blue-700 dark:text-blue-400 font-semibold mt-1">كافة الفواتير غير المحصلة</div>
         </div>
 
         {/* Current 0-30 */}
-        <div className="card p-4 bg-emerald-50/50 border border-emerald-200 shadow-sm rounded-xl">
-          <div className="text-xs font-semibold text-emerald-800">حالي (0 - 30 يوماً)</div>
-          <div className="text-xl font-black text-emerald-900 tracking-tight font-mono mt-2">
-            {money(totals.b0)} EGP
+        <div className="card p-4 border-emerald-200 dark:border-emerald-900/50">
+          <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">حالي (0 - 30 يوماً)</div>
+          <div className="text-xl font-black text-emerald-900 dark:text-emerald-300 tracking-tight font-mono mt-2">
+            {money(totals.b0)} {base}
           </div>
-          <div className="text-[11px] text-emerald-700 mt-1">
+          <div className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">
             {totals.total > 0 ? Math.round((totals.b0 / totals.total) * 100) : 0}% من إجمالي المستحقات
           </div>
         </div>
 
         {/* 31-60 days */}
-        <div className="card p-4 bg-blue-50/50 border border-blue-200 shadow-sm rounded-xl">
-          <div className="text-xs font-semibold text-blue-800">متأخر (31 - 60 يوماً)</div>
-          <div className="text-xl font-black text-blue-900 tracking-tight font-mono mt-2">
-            {money(totals.b30)} EGP
+        <div className="card p-4 border-blue-200 dark:border-blue-900/50">
+          <div className="text-xs font-semibold text-blue-700 dark:text-blue-400">متأخر (31 - 60 يوماً)</div>
+          <div className="text-xl font-black text-blue-900 dark:text-blue-300 tracking-tight font-mono mt-2">
+            {money(totals.b30)} {base}
           </div>
-          <div className="text-[11px] text-blue-700 mt-1">
+          <div className="text-[11px] text-blue-700 dark:text-blue-400 mt-1">
             {totals.total > 0 ? Math.round((totals.b30 / totals.total) * 100) : 0}% قيد المتابعة والتحصيل
           </div>
         </div>
 
         {/* 61-90 days */}
-        <div className="card p-4 bg-amber-50/50 border border-amber-200 shadow-sm rounded-xl">
-          <div className="text-xs font-semibold text-amber-800">متأخر (61 - 90 يوماً)</div>
-          <div className="text-xl font-black text-amber-900 tracking-tight font-mono mt-2">
-            {money(totals.b60)} EGP
+        <div className="card p-4 border-amber-200 dark:border-amber-900/50">
+          <div className="text-xs font-semibold text-amber-700 dark:text-amber-400">متأخر (61 - 90 يوماً)</div>
+          <div className="text-xl font-black text-amber-900 dark:text-amber-300 tracking-tight font-mono mt-2">
+            {money(totals.b60)} {base}
           </div>
-          <div className="text-[11px] text-amber-700 mt-1">يتطلب إشعار مطالبة رسمي</div>
+          <div className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">يتطلب إشعار مطالبة رسمي</div>
         </div>
 
         {/* Over 90 days */}
-        <div className="card p-4 bg-rose-50/50 border border-rose-200 shadow-sm rounded-xl">
-          <div className="text-xs font-semibold text-rose-800">متعثر (+90 يوماً)</div>
-          <div className="text-xl font-black text-rose-900 tracking-tight font-mono mt-2">
-            {money(totals.b90)} EGP
+        <div className="card p-4 border-rose-200 dark:border-rose-900/50">
+          <div className="text-xs font-semibold text-rose-700 dark:text-rose-400">متعثر (+90 يوماً)</div>
+          <div className="text-xl font-black text-rose-900 dark:text-rose-300 tracking-tight font-mono mt-2">
+            {money(totals.b90)} {base}
           </div>
-          <div className="text-[11px] text-rose-700 mt-1 font-bold">مخاطر تعثر عالية وتجميد خدمات</div>
+          <div className="text-[11px] text-rose-700 dark:text-rose-400 mt-1 font-bold">مخاطر تعثر عالية وتجميد خدمات</div>
         </div>
       </div>
 
       {/* Filter and Date Strip */}
-      <div className="card p-4 bg-white border border-slate-200 shadow-sm rounded-xl flex flex-wrap items-center justify-between gap-4">
+      <div className="card p-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Calendar className="size-4 text-slate-500" />
-          <span className="text-xs font-bold text-slate-800">تاريخ احتساب الاستحقاق (As of Date):</span>
+          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">تاريخ احتساب الاستحقاق (As of Date):</span>
           <input
             type="date"
             className="input text-xs py-1.5 w-36 font-mono"
@@ -292,87 +314,133 @@ export function AccountsReceivableAgingReportPage() {
       ) : clientsError ? (
         <div className="p-8"><ErrorState error={clientsError} /></div>
       ) : filteredRows.length === 0 ? (
-        <div className="p-12 text-center card bg-white border border-slate-200 shadow-sm rounded-xl">
+        <div className="p-12 text-center card">
           <EmptyState text="لا توجد بيانات مستحقات أو ديون مطابقة للفلاتر المحددة." />
         </div>
       ) : (
-        <div className="card bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden p-6">
+        <div className="card overflow-hidden">
           <div className="overflow-x-auto custom-scrollbar">
             <table className="table w-full text-right text-xs">
-              <thead className="bg-slate-50/80 border-b border-slate-200 font-bold text-slate-700">
+              <thead>
                 <tr>
-                  <th className="py-3 px-4">كود</th>
-                  <th className="py-3 px-4">اسم العميل ومسؤول الحساب</th>
-                  <th className="py-3 px-4 text-center">المشاريع</th>
-                  <th className="py-3 px-4 text-center font-black">إجمالي المستحق</th>
-                  <th className="py-3 px-4 text-center text-emerald-800 bg-emerald-50/40">حالي (0 - 30)</th>
-                  <th className="py-3 px-4 text-center text-blue-800 bg-blue-50/40">متأخر (31 - 60)</th>
-                  <th className="py-3 px-4 text-center text-amber-800 bg-amber-50/40">متأخر (61 - 90)</th>
-                  <th className="py-3 px-4 text-center text-rose-800 bg-rose-50/40 font-bold">متعثر (+90 يوم)</th>
-                  <th className="py-3 px-4 text-center">مستوى المخاطرة</th>
+                  <th>كود</th>
+                  <th>اسم العميل ومسؤول الحساب</th>
+                  <th className="text-center">المشاريع</th>
+                  <th className="text-center font-black">إجمالي المستحق</th>
+                  <th className="text-center">حالي (0 - 30)</th>
+                  <th className="text-center">متأخر (31 - 60)</th>
+                  <th className="text-center">متأخر (61 - 90)</th>
+                  <th className="text-center font-bold">متعثر (+90 يوم)</th>
+                  <th className="text-center">مستوى المخاطرة</th>
+                  <th className="text-end">التحصيل</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredRows.map((row) => (
-                  <tr key={row.clientId} className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-mono font-bold text-slate-600">{row.clientCode}</td>
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-slate-900">{row.clientNameAr}</div>
-                      <div className="text-[11px] text-slate-500 font-medium">
-                        {row.contactPerson} • {row.phone}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-center font-mono font-bold">{row.projectCount}</td>
-                    <td className="py-3 px-4 text-center font-mono font-black text-slate-950 text-sm">
-                      {money(row.totalReceivable)} EGP
-                    </td>
-                    <td className="py-3 px-4 text-center font-mono font-bold text-emerald-700 bg-emerald-50/20">
-                      {row.current0to30 > 0 ? `${money(row.current0to30)}` : '—'}
-                    </td>
-                    <td className="py-3 px-4 text-center font-mono font-bold text-blue-700 bg-blue-50/20">
-                      {row.days31to60 > 0 ? `${money(row.days31to60)}` : '—'}
-                    </td>
-                    <td className="py-3 px-4 text-center font-mono font-bold text-amber-600 bg-amber-50/20">
-                      {row.days61to90 > 0 ? `${money(row.days61to90)}` : '—'}
-                    </td>
-                    <td className="py-3 px-4 text-center font-mono font-black text-rose-600 bg-rose-50/30">
-                      {row.over90 > 0 ? `${money(row.over90)}` : '—'}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      {row.riskLevel === 'LOW' && <Badge color="green">منتظم</Badge>}
-                      {row.riskLevel === 'MEDIUM' && <Badge color="blue">متوسط</Badge>}
-                      {row.riskLevel === 'HIGH' && <Badge color="amber">مخاطر عالية</Badge>}
-                      {row.riskLevel === 'CRITICAL' && <Badge color="red">شديد التعثر</Badge>}
-                    </td>
-                  </tr>
-                ))}
+              <tbody>
+                {filteredRows.map((row) => {
+                  const firstUnpaidInv = invoices.find(
+                    (inv: any) =>
+                      (inv.clientId === row.clientId || inv.clientName === row.clientNameAr) &&
+                      inv.status === 'POSTED' &&
+                      inv.invoiceType !== 'CREDIT_NOTE' &&
+                      Number(inv.totalAmount || 0) > Number(inv.paidAmount || 0),
+                  );
+                  return (
+                    <tr key={row.clientId}>
+                      <td className="font-mono font-bold text-slate-600 dark:text-slate-300">{row.clientCode}</td>
+                      <td>
+                        <div className="font-bold text-slate-900 dark:text-white">{row.clientNameAr}</div>
+                        <div className="text-[11px] text-slate-500 font-medium">
+                          {row.contactPerson} • {row.phone}
+                        </div>
+                      </td>
+                      <td className="text-center font-mono font-bold">{row.projectCount}</td>
+                      <td className="text-center font-mono font-black text-slate-950 dark:text-white text-sm">
+                        {money(row.totalReceivable)} {base}
+                      </td>
+                      <td className="text-center font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                        {row.current0to30 > 0 ? `${money(row.current0to30)}` : '—'}
+                      </td>
+                      <td className="text-center font-mono font-bold text-blue-700 dark:text-blue-400">
+                        {row.days31to60 > 0 ? `${money(row.days31to60)}` : '—'}
+                      </td>
+                      <td className="text-center font-mono font-bold text-amber-600 dark:text-amber-400">
+                        {row.days61to90 > 0 ? `${money(row.days61to90)}` : '—'}
+                      </td>
+                      <td className="text-center font-mono font-black text-rose-600 dark:text-rose-400">
+                        {row.over90 > 0 ? `${money(row.over90)}` : '—'}
+                      </td>
+                      <td className="text-center">
+                        {row.riskLevel === 'LOW' && <Badge color="green">منتظم</Badge>}
+                        {row.riskLevel === 'MEDIUM' && <Badge color="blue">متوسط</Badge>}
+                        {row.riskLevel === 'HIGH' && <Badge color="amber">مخاطر عالية</Badge>}
+                        {row.riskLevel === 'CRITICAL' && <Badge color="red">شديد التعثر</Badge>}
+                      </td>
+                      <td className="text-end">
+                        {firstUnpaidInv ? (
+                          <button
+                            type="button"
+                            onClick={() => setCollectingInv(firstUnpaidInv)}
+                            className="btn-primary h-7 px-2.5 text-[11px] gap-1"
+                            title={`سند قبض وتوليد قيد تحصيل للفاتورة ${firstUnpaidInv.invoiceNo}`}
+                          >
+                            <Wallet className="size-3" /> تحصيل
+                          </button>
+                        ) : (
+                          <Link to="/sal/invoices" className="text-[11px] font-bold text-indigo-600 hover:underline">
+                            الفواتير
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
-              <tfoot className="bg-slate-100/90 border-t-2 border-slate-900 font-bold text-xs">
+              <tfoot>
                 <tr>
-                  <td colSpan={3} className="py-3 px-4 text-left font-bold text-slate-900">
-                    الإجمالي العام لمستحقات وأعمار ديون العملاء:
+                  <td colSpan={3} className="text-start font-bold">
+                    الإجمالي العام لمستحقات وأعمار ديون العملاء ({base}):
                   </td>
-                  <td className="py-3 px-4 text-center font-mono font-black text-slate-950 text-sm">
-                    {money(totals.total)} EGP
+                  <td className="text-center font-mono font-black text-sm">
+                    {money(totals.total)} {base}
                   </td>
-                  <td className="py-3 px-4 text-center font-mono font-black text-emerald-800">
-                    {money(totals.b0)} EGP
+                  <td className="text-center font-mono font-black text-emerald-700 dark:text-emerald-400">
+                    {money(totals.b0)} {base}
                   </td>
-                  <td className="py-3 px-4 text-center font-mono font-black text-blue-800">
-                    {money(totals.b30)} EGP
+                  <td className="text-center font-mono font-black text-blue-700 dark:text-blue-400">
+                    {money(totals.b30)} {base}
                   </td>
-                  <td className="py-3 px-4 text-center font-mono font-black text-amber-800">
-                    {money(totals.b60)} EGP
+                  <td className="text-center font-mono font-black text-amber-700 dark:text-amber-400">
+                    {money(totals.b60)} {base}
                   </td>
-                  <td className="py-3 px-4 text-center font-mono font-black text-rose-700">
-                    {money(totals.b90)} EGP
+                  <td className="text-center font-mono font-black text-rose-700 dark:text-rose-400">
+                    {money(totals.b90)} {base}
                   </td>
-                  <td className="py-3 px-4 text-center text-slate-500 font-mono">100%</td>
+                  <td colSpan={2} className="text-center text-slate-500 font-mono">100%</td>
                 </tr>
               </tfoot>
             </table>
           </div>
         </div>
+      )}
+
+      {collectingInv && (
+        <TreasuryPaymentModal
+          open={Boolean(collectingInv)}
+          mode="RECEIPT"
+          invoiceId={collectingInv.id}
+          invoiceNo={collectingInv.invoiceNo}
+          partyName={collectingInv.clientName}
+          totalAmount={Number(collectingInv.totalAmount || 0)}
+          paidAmount={Number(collectingInv.paidAmount || 0)}
+          currencyCode={collectingInv.currencyCode || base}
+          onClose={() => setCollectingInv(null)}
+          onSuccess={() => {
+            setCollectingInv(null);
+            refetch();
+            qc.invalidateQueries({ queryKey: ['/invoices'] });
+            qc.invalidateQueries({ queryKey: ['journals'] });
+          }}
+        />
       )}
     </div>
   );

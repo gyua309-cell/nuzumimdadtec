@@ -77,7 +77,9 @@ export function ZatcaHubPage() {
     { key: 'xml', ok: true, labelAr: 'توليد ملفات UBL 2.1 القياسية', hintAr: 'مطابقة لمخطط XSD والختم المشفر' },
     { key: 'qr', ok: true, labelAr: 'توليد رمز TLV المدمج', hintAr: 'مطابق للمرحلة الأولى والثانية' },
   ];
-  const submissions = submissionsQuery.data || [];
+  const submissions = Array.isArray(submissionsQuery.data)
+    ? submissionsQuery.data
+    : ((submissionsQuery.data as any)?.data ?? []);
   const csidMeta = CSID_LABEL[st.csidStatus] ?? { label: st.csidStatus ?? 'PRODUCTION', color: 'green' };
   const okChecksCount = checklist.filter((c: any) => c.ok).length;
   const totalChecks = checklist.length;

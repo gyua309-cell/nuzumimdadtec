@@ -306,8 +306,8 @@ function RatesModal({ taxCode, onClose }: { taxCode: any; onClose: () => void })
         <table className="table mb-4">
           <thead><tr><th>النسبة %</th><th>من</th><th>إلى</th></tr></thead>
           <tbody>
-            {(q.data ?? []).map((r) => <tr key={r.id}><td className="num">{r.ratePct}</td><td>{date(r.effectiveFrom)}</td><td>{date(r.effectiveTo)}</td></tr>)}
-            {q.data?.length === 0 && <tr><td colSpan={3} className="text-center text-slate-500">لا توجد نسب بعد</td></tr>}
+            {(Array.isArray(q.data) ? q.data : ((q.data as any)?.data ?? [])).map((r: any) => <tr key={r.id}><td className="num">{r.ratePct}</td><td>{date(r.effectiveFrom)}</td><td>{date(r.effectiveTo)}</td></tr>)}
+            {(Array.isArray(q.data) ? q.data : ((q.data as any)?.data ?? [])).length === 0 && <tr><td colSpan={3} className="text-center text-slate-500">لا توجد نسب بعد</td></tr>}
           </tbody>
         </table>
       )}
@@ -363,8 +363,8 @@ function HolidaysModal({ cal, onClose }: { cal: any; onClose: () => void }) {
         <table className="table mb-4">
           <thead><tr><th>التاريخ</th><th>الاسم</th><th /></tr></thead>
           <tbody>
-            {(q.data ?? []).map((h) => <tr key={h.id}><td>{date(h.holidayDate)}</td><td>{h.name}</td><td><button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => del.mutate(h.id)}><Trash2 className="size-3.5" /></button></td></tr>)}
-            {q.data?.length === 0 && <tr><td colSpan={3} className="text-center text-slate-500">لا توجد عطلات مسجلة</td></tr>}
+            {(Array.isArray(q.data) ? q.data : ((q.data as any)?.data ?? [])).map((h: any) => <tr key={h.id}><td>{date(h.holidayDate)}</td><td>{h.name}</td><td><button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => del.mutate(h.id)}><Trash2 className="size-3.5" /></button></td></tr>)}
+            {(Array.isArray(q.data) ? q.data : ((q.data as any)?.data ?? [])).length === 0 && <tr><td colSpan={3} className="text-center text-slate-500">لا توجد عطلات مسجلة</td></tr>}
           </tbody>
         </table>
       )}
@@ -406,8 +406,8 @@ export function CalendarsPage() {
 export function CurrenciesPage() {
   const toast = useToast();
   const qc = useQueryClient();
-  const all = useQuery({ queryKey: ['currencies'], queryFn: () => api.get<any[]>('/currencies') });
-  const mine = useQuery({ queryKey: ['company-currencies'], queryFn: () => api.get<any[]>('/company-currencies') });
+  const all = useQuery<any[]>({ queryKey: ['currencies'], queryFn: () => api.get<any>('/currencies').then((r: any) => (Array.isArray(r) ? r : (r?.data ?? [])) as any[]) });
+  const mine = useQuery<any[]>({ queryKey: ['company-currencies'], queryFn: () => api.get<any>('/company-currencies').then((r: any) => (Array.isArray(r) ? r : (r?.data ?? [])) as any[]) });
   const [filter, setFilter] = useState({ fromCurrency: '', toCurrency: '' });
   const rates = useQuery({ queryKey: ['exchange-rates', filter], queryFn: () => api.get<any>('/exchange-rates', { ...filter, pageSize: 100 }) });
   const [addCur, setAddCur] = useState('');
@@ -522,13 +522,13 @@ export const PERIOD_STATUS: Record<string, { label: string; color: 'green' | 're
 export function FiscalPage() {
   const toast = useToast();
   const qc = useQueryClient();
-  const years = useQuery({ queryKey: ['fiscal-years'], queryFn: () => api.get<any[]>('/fiscal-years') });
+  const years = useQuery<any[]>({ queryKey: ['fiscal-years'], queryFn: () => api.get<any>('/fiscal-years').then((r: any) => (Array.isArray(r) ? r : (r?.data ?? [])) as any[]) });
   const [sel, setSel] = useState<string | null>(null);
   const yearId = sel ?? years.data?.[0]?.id ?? null;
   const year = useQuery({ queryKey: ['fiscal-year', yearId], enabled: !!yearId, queryFn: () => api.get<any>(`/fiscal-years/${yearId}`) });
   const [newYear, setNewYear] = useState<{ code: string; startDate: string } | null>(null);
   const [hist, setHist] = useState<any | null>(null);
-  const history = useQuery({ queryKey: ['period-history', hist?.id], enabled: !!hist, queryFn: () => api.get<any[]>(`/fiscal-periods/${hist.id}/history`) });
+  const history = useQuery<any[]>({ queryKey: ['period-history', hist?.id], enabled: !!hist, queryFn: () => api.get<any>(`/fiscal-periods/${hist.id}/history`).then((r: any) => (Array.isArray(r) ? r : (r?.data ?? [])) as any[]) });
   const [errs, setErrs] = useState<Record<string, string>>({});
   const create = useMutation({
     mutationFn: () => api.post<any>('/fiscal-years', newYear),

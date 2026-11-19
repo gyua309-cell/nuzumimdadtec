@@ -1,5 +1,5 @@
 import { getStoredCompany } from './storage-company';
-import { defaultFiscalPeriodsList, getEntityList, saveEntityItem } from './local-store';
+import { defaultFiscalPeriodsList, getEntityList, saveEntityItem, uid } from './local-store';
 
 export { defaultFiscalPeriodsList };
 
@@ -775,7 +775,7 @@ export function createAutoPostedJournalEntry(opts: {
       const dBase = Math.round(dTx * fx * 100) / 100;
       const cBase = Math.round(cTx * fx * 100) / 100;
       return {
-        id: `jl-${Date.now()}-${idx + 1}`,
+        id: uid('jl'),
         lineNo: idx + 1,
         accountId: acc?.id || l.accountCode,
         accountCode: acc?.code || l.accountCode,
@@ -797,7 +797,7 @@ export function createAutoPostedJournalEntry(opts: {
   const now = new Date().toISOString();
 
   const je = {
-    id: `je-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    id: uid('je'),
     entryNo: `JE-${year}-${String(seq).padStart(4, '0')}`,
     entryDate,
     periodId: p?.id || 'fp-2026-11',
@@ -835,7 +835,7 @@ export function createReversalJournalEntry(origId: string, reason: string, rever
   const seq = jes.filter((x) => x.status === 'POSTED').length + 1;
   const p = resolvePeriodByIdOrDate(null, revDate);
   const now = new Date().toISOString();
-  const revId = `je-rev-${Date.now()}`;
+  const revId = uid('je-rev');
   const revLines = orig.lines.map((l: any, i: number) => ({
     ...l,
     id: `jl-rev-${i + 1}`,
@@ -1355,4 +1355,172 @@ export function matchesProject(a: any, prj: any): boolean {
   if (pCode && (aPrjId === pCode || aPrjCode === pCode)) return true;
   if (pName && aPrjName && (aPrjName === pName || aPrjName.includes(pName) || pName.includes(aPrjName))) return true;
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// 8. Canonical Assignment & Project Economics Engine (Single Source of Truth)
+// ---------------------------------------------------------------------------
+export function normalizePricingBasis(...candidates: Array<string | null | undefined>): 'DAILY' | 'MONTHLY' | 'HOURLY' {
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const u = String(raw).trim().toUpperCase();
+    if (u === 'MONTHLY' || u === 'MONTH') return 'MONTHLY';
+    if (u === 'HOURLY' || u === 'HOURS' || u === 'HOUR') return 'HOURLY';
+    if (u === 'DAILY' || u === 'DAYS' || u === 'DAY') return 'DAILY';
+    // Note: 'PERCENTAGE' is an allocationBasis, never a pricingBasis — skip it!
+  }
+  return 'DAILY';
+}
+
+export interface AssignmentEconomicsResult {
+  workingDays: number;
+  allocationBasis: 'DAYS' | 'PERCENTAGE';
+  allocationPct: number;
+  allocatedDays: number;
+  allocatedHours: number;
+  pricingBasis: 'DAILY' | 'MONTHLY' | 'HOURLY';
+  rawUnitPrice: number;
+  rateCurrency: string;
+  unitPriceBase: number;
+  billingUnits: number;
+  revenueBase: number;
+  employeeDirectCostBase: number;
+  directCostShareBase: number;
+  overheadShareBase: number;
+  totalCostShareBase: number;
+  grossProfitBase: number;
+  netProfitBase: number;
+  grossMarginPct: number;
+  netMarginPct: number;
+  priceSource: 'PROJECT_OVERRIDE' | 'ASSIGNMENT_RATE' | 'EMPLOYEE_SERVICE_PRICE' | 'EMPLOYEE_DEFAULT';
+}
+
+export function computeAssignmentEconomics(params: {
+  assignment: any;
+  employee?: any | null;
+  project?: any | null;
+  servicePrices?: any[];
+  period?: { id?: string; startDate?: string; endDate?: string } | null;
+  totalEmployeeAllocPct?: number;
+  overheadPolicy?: { method: string; rate: string };
+}): AssignmentEconomicsResult {
+  const a = params.assignment || {};
+  const emp = params.employee || null;
+  const prj = params.project || null;
+  const spList = (params.servicePrices || []).filter((sp: any) => !sp.effectiveTo || !params.period?.startDate || sp.effectiveTo >= params.period.startDate);
+
+  const workingDays = Math.max(1, Number(a.workingDaysInMonth || a.working_days_in_month || 22));
+  const isDaysBasis = String(a.allocationBasis || '').toUpperCase() === 'DAYS';
+
+  let allocatedDays = workingDays;
+  let allocationPct = 100;
+  if (isDaysBasis) {
+    allocatedDays = a.allocatedDays != null && a.allocatedDays !== '' ? Number(a.allocatedDays) : workingDays;
+    allocationPct = Number(((allocatedDays / workingDays) * 100).toFixed(2));
+  } else {
+    allocationPct = a.allocationPct != null && a.allocationPct !== ''
+      ? Number(a.allocationPct)
+      : (a.allocatedDays != null && a.allocatedDays !== '' ? Number(((Number(a.allocatedDays) / workingDays) * 100).toFixed(2)) : 100);
+    allocatedDays = Number(((allocationPct / 100) * workingDays).toFixed(2));
+  }
+  const allocatedHours = Number(a.allocatedHours || (allocatedDays * 8));
+
+  // 4-Tier Price Resolution:
+  // 1) Project-specific Service Price Override (sp.projectId matches project)
+  // 2) Explicit Assignment Contractual Rate (a.billableRate > 0)
+  // 3) Global Employee Service Price (sp.projectId == null)
+  // 4) Employee Master defaultBillingRate
+  const targetForEmp = emp || a;
+  const targetForPrj = prj || a;
+  const projectOverride = spList.find((sp: any) => Boolean(sp.projectId) && matchesEmployee(sp, targetForEmp) && matchesProject(sp, targetForPrj));
+  const globalSp = spList.find((sp: any) => !sp.projectId && matchesEmployee(sp, targetForEmp));
+  const explicitAsgRate = Number(a.billableRate ?? a.dailyRate ?? a.unitPrice ?? 0);
+  const empDefaultRate = Number(emp?.defaultBillingRate ?? 0);
+
+  let rawUnitPrice = 0;
+  let rateCurrency = a.billingCurrency || prj?.currencyCode || 'SAR';
+  let pricingBasis: 'DAILY' | 'MONTHLY' | 'HOURLY' = 'DAILY';
+  let priceSource: AssignmentEconomicsResult['priceSource'] = 'EMPLOYEE_DEFAULT';
+
+  if (projectOverride && Number(projectOverride.price || 0) > 0) {
+    rawUnitPrice = Number(projectOverride.price);
+    rateCurrency = projectOverride.currencyCode || rateCurrency;
+    pricingBasis = normalizePricingBasis(projectOverride.pricingBasis, a.billingBasis, emp?.defaultBillingBasis);
+    priceSource = 'PROJECT_OVERRIDE';
+  } else if (explicitAsgRate > 0) {
+    rawUnitPrice = explicitAsgRate;
+    rateCurrency = a.billingCurrency || rateCurrency;
+    pricingBasis = normalizePricingBasis(a.billingBasis, a.pricingBasis, globalSp?.pricingBasis, emp?.defaultBillingBasis);
+    priceSource = 'ASSIGNMENT_RATE';
+  } else if (globalSp && Number(globalSp.price || 0) > 0) {
+    rawUnitPrice = Number(globalSp.price);
+    rateCurrency = globalSp.currencyCode || rateCurrency;
+    pricingBasis = normalizePricingBasis(globalSp.pricingBasis, a.billingBasis, emp?.defaultBillingBasis);
+    priceSource = 'EMPLOYEE_SERVICE_PRICE';
+  } else {
+    rawUnitPrice = empDefaultRate;
+    rateCurrency = emp?.salaryCurrency || rateCurrency;
+    pricingBasis = normalizePricingBasis(a.billingBasis, emp?.defaultBillingBasis);
+    priceSource = 'EMPLOYEE_DEFAULT';
+  }
+
+  const unitPriceBase = convertToBase(rawUnitPrice, rateCurrency, params.period?.endDate).amountBase;
+
+  let billingUnits = allocatedDays;
+  let revenueBase = 0;
+  if (pricingBasis === 'DAILY') {
+    billingUnits = allocatedDays;
+    revenueBase = Math.round(allocatedDays * unitPriceBase * 100) / 100;
+  } else if (pricingBasis === 'HOURLY') {
+    billingUnits = allocatedHours;
+    revenueBase = Math.round(allocatedHours * unitPriceBase * 100) / 100;
+  } else {
+    billingUnits = Number((allocationPct / 100).toFixed(4));
+    revenueBase = Math.round((allocationPct / 100) * unitPriceBase * 100) / 100;
+  }
+
+  const policy = params.overheadPolicy || getOverheadPolicy();
+  const empDirectCostBase = emp
+    ? computeEmployeeCostBreakdown(emp, params.period, policy).distributableCostBase
+    : Number(a.employeeMonthlyCost || a.allocatedCost || 0);
+
+  const totalEmpPct = params.totalEmployeeAllocPct != null ? params.totalEmployeeAllocPct : allocationPct;
+  const normRatio = totalEmpPct > 100 ? (100 / totalEmpPct) : 1;
+  const directCostShareBase = Math.round(empDirectCostBase * (allocationPct / 100) * normRatio * 100) / 100;
+
+  let overheadShareBase = 0;
+  if (policy.method === 'PERCENTAGE') {
+    overheadShareBase = Math.round(directCostShareBase * (Number(policy.rate || 0) / 100) * 100) / 100;
+  } else if (policy.method === 'FIXED_PER_EMPLOYEE') {
+    overheadShareBase = Math.round(Number(policy.rate || 0) * (allocationPct / 100) * normRatio * 100) / 100;
+  }
+
+  const totalCostShareBase = Math.round((directCostShareBase + overheadShareBase) * 100) / 100;
+  const grossProfitBase = Math.round((revenueBase - directCostShareBase) * 100) / 100;
+  const netProfitBase = Math.round((revenueBase - totalCostShareBase) * 100) / 100;
+  const grossMarginPct = revenueBase > 0 ? Number(((grossProfitBase / revenueBase) * 100).toFixed(1)) : 0;
+  const netMarginPct = revenueBase > 0 ? Number(((netProfitBase / revenueBase) * 100).toFixed(1)) : 0;
+
+  return {
+    workingDays,
+    allocationBasis: isDaysBasis ? 'DAYS' : 'PERCENTAGE',
+    allocationPct,
+    allocatedDays,
+    allocatedHours,
+    pricingBasis,
+    rawUnitPrice,
+    rateCurrency,
+    unitPriceBase,
+    billingUnits,
+    revenueBase,
+    employeeDirectCostBase: empDirectCostBase,
+    directCostShareBase,
+    overheadShareBase,
+    totalCostShareBase,
+    grossProfitBase,
+    netProfitBase,
+    grossMarginPct,
+    netMarginPct,
+    priceSource,
+  };
 }

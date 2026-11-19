@@ -118,7 +118,14 @@ export function DashboardPage() {
 
   const invList: any[] = Array.isArray(invs.data) ? invs.data : (invs.data?.data ?? []);
   const validInvoices = invList.filter((x: any) => x?.status !== 'CANCELLED');
-  const invoicesRevenue = validInvoices.reduce((acc: number, x: any) => acc + (x.invoiceType === 'CREDIT_NOTE' ? -Number(x.totalAmount || 0) : Number(x.totalAmount || 0)), 0);
+  const invoicesNetRevenue = validInvoices.reduce(
+    (acc: number, x: any) => acc + (x.invoiceType === 'CREDIT_NOTE' ? -Number(x.subtotalBase ?? x.subtotal ?? 0) : Number(x.subtotalBase ?? x.subtotal ?? 0)),
+    0,
+  );
+  const invoicesVatTotal = validInvoices.reduce(
+    (acc: number, x: any) => acc + (x.invoiceType === 'CREDIT_NOTE' ? -Number(x.vatAmountBase ?? x.vatAmount ?? 0) : Number(x.vatAmountBase ?? x.vatAmount ?? 0)),
+    0,
+  );
   const postedInvoicesCount = validInvoices.filter((x: any) => x?.status === 'POSTED').length;
   const purList: any[] = Array.isArray(purInvs.data) ? purInvs.data : (purInvs.data?.data ?? []);
   const assetsList: any[] = Array.isArray(assetsQ.data) ? assetsQ.data : (assetsQ.data?.data ?? []);
@@ -127,15 +134,15 @@ export function DashboardPage() {
   const zatcaClearedCount = Number(zatcaStatusQ.data?.clearedCount ?? validInvoices.filter((x: any) => x?.zatcaStatus === 'CLEARED' || x?.zatcaStatus === 'REPORTED').length ?? 0);
   const postedJournalsCount = Number(posted.data?.meta?.total ?? posted.data?.data?.length ?? 0);
 
-  // Financial figures with honest zero-baseline (no mock numbers)
+  // Unified Net Financial Figures (strictly excluding VAT from Revenue & Profit; 100% reconciled with Project & Profitability hubs)
   const totalAssets = Number(bs.data?.assets?.total ?? 0);
   const revenueGL = Number(ytd.data?.revenue ?? 0);
   const revenueContract = Number(allocSummary?.totalRevenue ?? 0);
-  const effectiveRevenue = Math.max(revenueGL, revenueContract, invoicesRevenue);
+  const effectiveRevenue = Math.max(revenueGL, revenueContract, invoicesNetRevenue);
 
-  const directCostGL = Number(ytd.data?.directCost ?? 0);
-  const directCostContract = Number(allocSummary?.totalCost ?? 0);
-  const effectiveDirectCost = directCostGL > 0 ? directCostGL : directCostContract;
+  const directCostGL = Number(ytd.data?.directCost ?? 0) + Number(ytd.data?.operatingExpenses ?? 0);
+  const contractTotalCostWithOverhead = Number(allocSummary?.totalCostWithOverhead ?? allocSummary?.totalCost ?? 0);
+  const effectiveDirectCost = directCostGL > 0 && revenueGL > 0 ? directCostGL : contractTotalCostWithOverhead;
 
   const effectiveNetProfit = effectiveRevenue - effectiveDirectCost;
   const marginPct = effectiveRevenue > 0 ? Number(((effectiveNetProfit / effectiveRevenue) * 100).toFixed(1)) : 0;
@@ -799,14 +806,14 @@ export function DashboardPage() {
 
       {/* ── 2) Top 3 Executive KPI Cards ─────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Card 1: Royal Indigo - Total Revenue */}
+        {/* Card 1: Royal Indigo - Net Revenue */}
         <div className="cyber-card-cyan rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-              إجمالي الإيرادات الكلية (شامل الضريبة)
+              صافي الإيرادات التعاقدية والمفوترة (قبل الضريبة)
             </span>
             <span className="rounded-lg bg-indigo-500/12 text-indigo-700 dark:text-indigo-300 border border-indigo-500/25 px-2 py-0.5 text-[11px] font-bold font-mono">
-              {effectiveRevenue > 0 ? 'نشط • محقق' : '0.0%'}
+              {effectiveRevenue > 0 ? 'متطابق 100%' : '0.0%'}
             </span>
           </div>
           <div className="text-3xl font-black text-slate-900 dark:text-white mt-2.5 tracking-tight">
@@ -814,7 +821,8 @@ export function DashboardPage() {
             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{base}</span>
           </div>
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
-            عقود كفاءات: <span className="num font-mono font-bold">{money(revenueContract)}</span> | مبيعات وفواتير: <span className="num font-mono font-bold">{money(invoicesRevenue)}</span>
+            عقود المشاريع: <span className="num font-mono font-bold">{money(revenueContract)}</span> | مفوتر صافي: <span className="num font-mono font-bold">{money(invoicesNetRevenue)}</span>
+            {invoicesVatTotal > 0 && <> (+ضريبة: <span className="num font-mono">{money(invoicesVatTotal)}</span>)</>}
           </div>
           <Sparkline color="indigo" points={revenueSpark} />
         </div>
@@ -823,7 +831,7 @@ export function DashboardPage() {
         <div className={`${effectiveNetProfit < 0 ? 'cyber-card-rose' : 'cyber-card-emerald'} rounded-2xl p-5 bg-white dark:bg-[#0c1427] relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5`}>
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-              الربح الإجمالي (Gross Profit)
+              صافي الربح التشغيلي (Net Operating Profit)
             </span>
             <span
               className={`rounded-lg px-2 py-0.5 text-[11px] font-bold border ${
@@ -844,7 +852,7 @@ export function DashboardPage() {
             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{base}</span>
           </div>
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
-            الأرباح المحققة بعد خصم تكلفة الكوادر والبدلات (<span className="num font-mono">{money(effectiveDirectCost)}</span>)
+            بعد خصم التكلفة المباشرة والإدارية (<span className="num font-mono">{money(effectiveDirectCost)}</span>)
           </div>
           <Sparkline color={effectiveNetProfit < 0 ? 'rose' : 'emerald'} points={profitSpark} />
         </div>

@@ -7,30 +7,32 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
+import { PeriodSelect } from '../components/forms';
 import { Badge, Loading, PageHeader, useToast } from '../components/ui';
 
 export function EmployeeProfitabilityReportPage() {
   const toast = useToast();
+  const [periodId, setPeriodId] = useState('');
   const [activeTab, setActiveTab] = useState<'employees' | 'projects' | 'clients'>('employees');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'TOP_PERFORMER' | 'PROFITABLE' | 'LOSS_MAKER'>('ALL');
   const [search, setSearch] = useState('');
 
   // 1. Employees Profitability Query (Level 1)
   const empQ = useQuery({
-    queryKey: ['/profitability/employees'],
-    queryFn: () => api.get<any>('/profitability/employees').then((r: any) => r?.data || r || {}),
+    queryKey: ['/profitability/employees', periodId],
+    queryFn: () => api.get<any>('/profitability/employees', periodId ? { periodId } : {}).then((r: any) => r?.data || r || {}),
   });
 
   // 2. Projects Profitability Query (Level 2)
   const prjQ = useQuery({
-    queryKey: ['/profitability/projects'],
-    queryFn: () => api.get<any[]>('/profitability/projects').then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
+    queryKey: ['/profitability/projects', periodId],
+    queryFn: () => api.get<any[]>('/profitability/projects', periodId ? { periodId } : {}).then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
   });
 
   // 3. Clients Profitability Query (Level 3)
   const cliQ = useQuery({
-    queryKey: ['/profitability/clients'],
-    queryFn: () => api.get<any[]>('/profitability/clients').then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
+    queryKey: ['/profitability/clients', periodId],
+    queryFn: () => api.get<any[]>('/profitability/clients', periodId ? { periodId } : {}).then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
   });
 
   const isLoading = empQ.isLoading || prjQ.isLoading || cliQ.isLoading;
@@ -221,7 +223,8 @@ export function EmployeeProfitabilityReportPage() {
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <PeriodSelect value={periodId} onChange={setPeriodId} className="w-48 h-8 text-xs" />
           <div className="relative w-64">
             <Search className="absolute start-3 top-2.5 size-3.5 text-slate-400" />
             <input

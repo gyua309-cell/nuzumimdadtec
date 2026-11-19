@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Eye, FileText, Layers, Pencil, Plus, Printer, Search, Trash2, Upload, Users } from 'lucide-react';
+import { ArrowRight, Download, Eye, FileText, Layers, Pencil, Plus, Printer, Search, Sparkles, Trash2, Upload, Users } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date, downloadCsv, money, today } from '../lib/format';
+import { normalizePricingBasis } from '../lib/fallback-engine';
 import { opts, PRICING_BASIS, PROJECT_STATUS } from '../lib/labels';
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Stat, useToast } from '../components/ui';
@@ -160,7 +162,8 @@ export function ProjectsPage() {
                   <thead>
                     <tr>
                       <th>الرمز</th><th>المشروع</th><th>العميل</th><th>المدير</th>
-                      <th>البداية</th><th>النهاية</th><th>الهامش المستهدف</th><th>الحالة</th>
+                      <th className="num">الإيراد الشهري</th><th className="num">صافي الربح</th>
+                      <th>البداية</th><th>الهامش المستهدف</th><th>الحالة</th>
                       <th className="w-24 text-end">الإجراءات</th>
                     </tr>
                   </thead>
@@ -178,8 +181,11 @@ export function ProjectsPage() {
                           </span>
                         </td>
                         <td><span className="text-xs text-slate-600 dark:text-slate-400 font-medium">{p.managerName ?? '—'}</span></td>
+                        <td className="num font-mono font-bold text-emerald-700 dark:text-emerald-400">{money(p.monthlyRevenueBase ?? 0)}</td>
+                        <td className={`num font-mono font-bold ${Number(p.grossProfitBase ?? 0) >= 0 ? 'text-indigo-700 dark:text-indigo-300' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {money(p.grossProfitBase ?? 0)}
+                        </td>
                         <td className="text-xs font-mono">{p.startDate ? date(p.startDate) : '—'}</td>
-                        <td className="text-xs font-mono">{p.endDate ? date(p.endDate) : '—'}</td>
                         <td className="num">
                           {p.requiredMarginPct != null ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300 font-mono font-bold text-xs">
@@ -269,15 +275,23 @@ export function ProjectDetailPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
-  const [tab, setTab] = useState<'profitability' | 'assignments' | 'info' | 'prices' | 'history'>('profitability');
+  const [tab, setTab] = useState<'profitability' | 'assignments' | 'financials' | 'info' | 'prices' | 'history'>('profitability');
   const [modal, setModal] = useState<string | null>(null);
   const [editProjectModal, setEditProjectModal] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [invoicingBusy, setInvoicingBusy] = useState(false);
   const key = ['project', id];
   const q = useQuery({ queryKey: key, queryFn: () => api.get<any>(`/projects/${id}`) });
-  const refresh = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ['/projects'] }); };
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: key });
+    qc.invalidateQueries({ queryKey: ['/projects'] });
+    qc.invalidateQueries({ queryKey: ['/assignments/employee-days-report'] });
+    qc.invalidateQueries({ queryKey: ['/profitability/projects'] });
+    qc.invalidateQueries({ queryKey: ['/profitability/employees'] });
+    qc.invalidateQueries({ queryKey: ['/profitability/clients'] });
+  };
 
   // Assignment & price forms
   const [addAssign, setAddAssign] = useState(false);
@@ -289,44 +303,77 @@ export function ProjectDetailPage() {
   const assignments = Array.isArray(p?.assignments) ? p.assignments : [];
   const servicePrices = Array.isArray(p?.servicePrices) ? p.servicePrices : (Array.isArray(p?.prices) ? p.prices : []);
   const statusHistory = Array.isArray(p?.statusHistory) ? p.statusHistory : (Array.isArray(p?.history) ? p.history : []);
+  const projectInvoices = Array.isArray(p?.invoices) ? p.invoices : [];
+  const projectJournals = Array.isArray(p?.journalEntries) ? p.journalEntries : [];
   const transitions = STATUS_TRANSITIONS[p?.status] ?? [];
+  const overheadRatePct = Number(p?.overheadPolicy?.rate ?? 10);
 
-  // Real-time Profitability calculations (Level 2: Project Profitability per Business Process)
-  let projectRevenue = 0;
-  let projectDirectCost = 0;
+  // Unified Real-Time Project Profitability (100% identical to Dashboard, Allocation Report & Profitability Engine)
+  let fallbackRev = 0;
+  let fallbackDirectCost = 0;
   const teamRows = assignments.map((a: any) => {
     const rate = Number(a.billableRate || a.dailyRate || a.unitPrice || 0);
-    let asgRev = 0;
-    if (a.allocationBasis === 'DAYS') {
-      asgRev = (Number(a.allocatedDays) || 22) * rate;
-    } else if (a.allocationBasis === 'HOURLY') {
-      asgRev = (Number(a.allocatedHours) || 160) * rate;
-    } else {
-      const pct = Number(a.allocationPct != null ? a.allocationPct : 100);
-      asgRev = rate * (pct / 100);
-    }
-    projectRevenue += asgRev;
+    const workingDays = Math.max(1, Number(a.workingDaysInMonth || 22));
+    const isDays = String(a.allocationBasis || '').toUpperCase() === 'DAYS';
+    const pct = isDays
+      ? Number((((Number(a.allocatedDays ?? workingDays)) / workingDays) * 100).toFixed(2))
+      : Number(a.allocationPct != null ? a.allocationPct : 100);
+    const days = isDays
+      ? Number(a.allocatedDays ?? workingDays)
+      : Number(((pct / 100) * workingDays).toFixed(2));
+    const pricingBasis = normalizePricingBasis(a.billingBasis, a.pricingBasis, 'DAILY');
 
-    const loadedCost = Number(a.allocatedCost || a.directCost || Math.round(asgRev * 0.55));
-    projectDirectCost += loadedCost;
+    let asgRev = Number(a.monthlyRevenue ?? 0);
+    if (!(asgRev > 0) && rate > 0) {
+      if (pricingBasis === 'DAILY') asgRev = days * rate;
+      else if (pricingBasis === 'HOURLY') asgRev = (Number(a.allocatedHours) || days * 8) * rate;
+      else asgRev = (pct / 100) * rate;
+    }
+    fallbackRev += asgRev;
+
+    const loadedCost = Number(a.allocatedCost ?? a.directCost ?? 0);
+    fallbackDirectCost += loadedCost;
 
     const rowMargin = asgRev > 0 ? Number((((asgRev - loadedCost) / asgRev) * 100).toFixed(1)) : 0;
 
     return {
       ...a,
+      allocatedDays: days,
+      allocationPct: pct,
+      pricingBasis,
       asgRev,
       loadedCost,
       rowMargin,
     };
   });
 
-  const projectOverhead = Math.round(projectDirectCost * 0.10);
-  const projectTotalCost = projectDirectCost + projectOverhead;
-  const projectGrossProfit = projectRevenue - projectTotalCost;
+  const prof = p?.profitability;
+  const projectRevenue = prof?.revenueBase != null ? Number(prof.revenueBase) : fallbackRev;
+  const projectDirectCost = prof?.directCostBase != null ? Number(prof.directCostBase) : fallbackDirectCost;
+  const projectOverhead = prof?.overheadBase != null ? Number(prof.overheadBase) : Math.round(projectDirectCost * (overheadRatePct / 100));
+  const projectTotalCost = prof?.totalCostBase != null ? Number(prof.totalCostBase) : (projectDirectCost + projectOverhead);
+  const projectGrossProfit = prof?.grossProfitBase != null ? Number(prof.grossProfitBase) : (projectRevenue - projectTotalCost);
   const projectMarginPct = projectRevenue > 0 ? Number(((projectGrossProfit / projectRevenue) * 100).toFixed(1)) : 0;
   const targetMarginPct = Number(p.requiredMarginPct || 25);
   const deltaMarginPct = Number((projectMarginPct - targetMarginPct).toFixed(1));
-  const isTargetAchieved = projectMarginPct >= targetMarginPct;
+  const isTargetAchieved = projectRevenue > 0 && projectMarginPct >= targetMarginPct;
+
+  const handleGenerateProjectInvoice = async () => {
+    setInvoicingBusy(true);
+    try {
+      const res: any = await api.post('/invoices/auto-generate', {
+        projectId: p.id,
+        autoPost: true,
+        force: true,
+      });
+      toast.success(`تم توليد وترحيل الفاتورة الضريبية للمشروع بقيد محاسبي متوازن (${money(res.subtotalAmount || projectRevenue)} SAR قبل الضريبة)`);
+      qc.invalidateQueries();
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      setInvoicingBusy(false);
+    }
+  };
 
   const changeStatus = async () => {
     if (!newStatus) return;
@@ -357,15 +404,27 @@ export function ProjectDetailPage() {
     { name: 'allocatedDays', label: 'عدد أيام العمل المخصصة', type: 'decimal', default: 22, hint: 'مثال: 18 يوم بالمشروع الحالي و 3 أيام بمشروع آخر' },
     { name: 'workingDaysInMonth', label: 'أيام العمل الشهرية للمقارنة', type: 'number', default: 22, hint: 'الافتراضي 22 يوم' },
     { name: 'allocationPct', label: 'نسبة التخصيص %', type: 'decimal', default: '100', hint: 'إن تُركت فارغة تُحسب آلياً: (الأيام / أيام الشهر × 100)' },
-    { name: 'billableRate', label: 'سعر المحاسبة للعميل (SAR)', type: 'decimal', default: 1500, required: true, hint: 'السعر اليومي أو الشهري' },
-    { name: 'startDate', label: 'من تاريخ', type: 'date', required: true },
+    {
+      name: 'billingBasis',
+      label: 'أساس سعر الفوترة للعميل *',
+      type: 'select',
+      options: [
+        { value: 'DAILY', label: 'سعر يومي للعميل (Daily Rate × أيام العمل)' },
+        { value: 'MONTHLY', label: 'مبلغ شهري مقطوع (Monthly Rate × نسبة التخصيص)' },
+        { value: 'HOURLY', label: 'سعر بالساعة (Hourly Rate × الساعات)' },
+      ],
+      default: 'DAILY',
+      required: true,
+    },
+    { name: 'billableRate', label: 'سعر المحاسبة للعميل (SAR)', type: 'decimal', default: 1500, required: true, hint: 'يضرب تلقائياً في عدد الأيام أو النسبة حسب أساس الفوترة' },
+    { name: 'startDate', label: 'من تاريخ', type: 'date', required: true, default: today() },
     { name: 'endDate', label: 'إلى تاريخ', type: 'date' },
     { name: 'notes', label: 'ملاحظات وتفاصيل التكليف', type: 'textarea' },
   ];
 
   const priceFields: FieldDef[] = [
     { name: 'employeeId', label: 'الموظف', type: 'ref', ref: REF.employee, required: true },
-    { name: 'pricingBasis', label: 'أساس التسعير', type: 'select', options: opts(PRICING_BASIS), required: true, default: 'MONTHLY' },
+    { name: 'pricingBasis', label: 'أساس التسعير', type: 'select', options: opts(PRICING_BASIS), required: true, default: 'DAILY' },
     { name: 'price', label: 'السعر', type: 'decimal', required: true },
     { name: 'currencyCode', label: 'العملة', type: 'ref', ref: REF.currency, required: true, default: 'SAR' },
     { name: 'effectiveFrom', label: 'من تاريخ', type: 'date', required: true, default: today() },
@@ -395,6 +454,16 @@ export function ProjectDetailPage() {
             </button>
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAddAssign(true)} title="إسناد كادر">
               <Plus className="size-3.5" /> إسناد كادر
+            </button>
+            <button
+              type="button"
+              disabled={invoicingBusy}
+              onClick={handleGenerateProjectInvoice}
+              className="btn-primary bg-emerald-600 hover:bg-emerald-700 border-emerald-700 text-xs flex items-center gap-1.5"
+              title="توليد فاتورة مبيعات ضريبية ZATCA وترحيل القيد المحاسبي لهذا المشروع"
+            >
+              <Sparkles className="size-3.5" />
+              <span>{invoicingBusy ? 'جارٍ التوليد...' : 'توليد فاتورة المشروع'}</span>
             </button>
             <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
               <Printer className="size-3.5" /> طباعة
@@ -464,18 +533,19 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
-        {(['profitability', 'assignments', 'info', 'prices', 'history'] as const).map((t) => {
+      <div className="flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800">
+        {(['profitability', 'assignments', 'financials', 'info', 'prices', 'history'] as const).map((t) => {
           const labels: Record<string, string> = {
             profitability: 'ربحية وتكلفة المشروع',
-            assignments: 'فريق العمل والتخصيصات',
+            assignments: `فريق العمل (${assignments.length})`,
+            financials: `الفواتير والقيود (${projectInvoices.length + projectJournals.length})`,
             info: 'معلومات العقد',
             prices: 'أسعار الخدمات (Override)',
             history: 'سجل الحالات',
           };
           return (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === t ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition cursor-pointer ${tab === t ? 'border-brand-600 text-brand-600 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-200'}`}>
               {labels[t]}
             </button>
           );
@@ -486,22 +556,22 @@ export function ProjectDetailPage() {
       {tab === 'profitability' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Stat label="إيرادات المشروع الشهرية" value={money(projectRevenue)} tone="green" hint="المفوترة من تخصيصات الكوادر" />
-            <Stat label="التكلفة المباشرة للفريق" value={money(projectDirectCost)} tone="slate" hint="رواتب وبدلات الكوادر المحملة" />
-            <Stat label="المصروفات الإدارية (10%)" value={money(projectOverhead)} tone="slate" hint="حصة المشروع من الـ Overhead" />
-            <Stat label="إجمالي تكلفة المشروع" value={money(projectTotalCost)} tone="amber" hint="المباشرة + الإدارية" />
+            <Stat label="إيرادات المشروع الشهرية (قبل الضريبة)" value={money(projectRevenue)} tone="green" hint="إجمالي التعاقد الفعلي للكوادر المسندة" />
+            <Stat label="التكلفة المباشرة للفريق" value={money(projectDirectCost)} tone="slate" hint="الراتب + التأمينات + الطبي + الإهلاك" />
+            <Stat label={`المصروفات الإدارية (${overheadRatePct}%)`} value={money(projectOverhead)} tone="slate" hint="حصة المشروع وفق سياسة الأوفر هيد" />
+            <Stat label="إجمالي تكلفة المشروع" value={money(projectTotalCost)} tone="amber" hint="التكلفة المباشرة + الإدارية" />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="card p-4 flex flex-col justify-between">
               <div>
-                <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">صافي الربح الإجمالي (Gross Profit)</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">صافي الربح بعد المصروفات الإدارية (Net Project Profit)</div>
                 <div className={`text-2xl font-bold font-mono mt-2 ${projectGrossProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                  {money(projectGrossProfit)}
+                  {money(projectGrossProfit)} <span className="text-xs font-sans text-slate-400">{p.currencyCode || 'SAR'}</span>
                 </div>
               </div>
               <div className="mt-3 text-xs text-slate-500">
-                الأرباح المحققة بعد خصم التكاليف المحملة من إجمالي إيرادات الفريق التعاقدية.
+                مجمل الربح قبل الإدارية: <strong className="font-mono text-slate-800 dark:text-slate-200">{money(projectRevenue - projectDirectCost)}</strong> • صافي الربح بعد الأوفر هيد: <strong className="font-mono text-slate-800 dark:text-slate-200">{money(projectGrossProfit)}</strong>
               </div>
             </div>
 
@@ -509,12 +579,12 @@ export function ProjectDetailPage() {
               <div>
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">هامش الربحية المحقق vs المستهدف</div>
-                  <Badge color={isTargetAchieved ? 'green' : 'amber'}>
-                    {isTargetAchieved ? 'محقق للمستهدف' : 'أقل من المستهدف'}
+                  <Badge color={isTargetAchieved ? 'green' : projectGrossProfit >= 0 ? 'amber' : 'red'}>
+                    {isTargetAchieved ? 'محقق للمستهدف ✓' : projectGrossProfit >= 0 ? 'رابح دون المستهدف' : 'خسارة تشغيلية'}
                   </Badge>
                 </div>
                 <div className="flex items-baseline gap-3 mt-2">
-                  <span className="text-2xl font-bold font-mono text-brand-600">{projectMarginPct}%</span>
+                  <span className={`text-2xl font-bold font-mono ${projectMarginPct >= 0 ? 'text-brand-600' : 'text-rose-600'}`}>{projectMarginPct}%</span>
                   <span className="text-xs text-slate-500 font-mono">المستهدف: {targetMarginPct}%</span>
                   <span className={`text-xs font-mono font-bold ${deltaMarginPct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {deltaMarginPct >= 0 ? `+${deltaMarginPct}%` : `${deltaMarginPct}%`}
@@ -522,7 +592,9 @@ export function ProjectDetailPage() {
                 </div>
               </div>
               <div className="mt-3 text-xs text-slate-500">
-                الفارق الإيجابي يعني تحقيق عائد أعلى من سياسة التسعير المعتمدة للشركة.
+                {deltaMarginPct >= 0
+                  ? 'عائد المشروع يتجاوز أو يطابق سياسة التسعير المستهدفة للشركة.'
+                  : 'هامش المشروع أقل من المستهدف؛ راجع سعر الخدمة اليومي أو نسبة تخصيص الفريق.'}
               </div>
             </div>
           </div>
@@ -569,9 +641,11 @@ export function ProjectDetailPage() {
                         </span>
                       </td>
                       <td className="num font-mono">
-                        {r.allocationBasis === 'DAYS' ? `${r.allocatedDays || 22} يوم` : `${r.allocationPct}%`}
+                        {r.allocatedDays} يوم ({r.allocationPct}%)
                       </td>
-                      <td className="num font-mono">{money(r.billableRate || 0)}</td>
+                      <td className="num font-mono">
+                        {money(r.unitPriceBase || r.billableRate || 0)} <span className="text-[10px] text-slate-400">/{r.pricingBasis === 'MONTHLY' ? 'شهر' : r.pricingBasis === 'HOURLY' ? 'ساعة' : 'يوم'}</span>
+                      </td>
                       <td className="num font-mono font-bold text-emerald-600">{money(r.asgRev)}</td>
                       <td className="num font-mono text-slate-700 dark:text-slate-300">{money(r.loadedCost)}</td>
                       <td className="num font-mono font-bold">
@@ -579,6 +653,101 @@ export function ProjectDetailPage() {
                           {r.rowMargin}%
                         </span>
                       </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Financials & Auto-Journals tab */}
+      {tab === 'financials' && (
+        <div className="space-y-4">
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
+              <h3 className="font-bold text-sm">فواتير المبيعات الضريبية المرتبطة بالمشروع (ZATCA)</h3>
+              <button
+                type="button"
+                disabled={invoicingBusy}
+                onClick={handleGenerateProjectInvoice}
+                className="btn-primary h-8 text-xs flex items-center gap-1.5"
+              >
+                <Sparkles className="size-3.5" /> توليد فاتورة جديدة للمشروع
+              </button>
+            </div>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>رقم الفاتورة</th>
+                  <th>تاريخ الإصدار</th>
+                  <th className="num">صافي قبل الضريبة</th>
+                  <th className="num">ضريبة 15%</th>
+                  <th className="num">الإجمالي</th>
+                  <th>القيد المحاسبي الآلي</th>
+                  <th>حالة التحصيل</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projectInvoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-6 text-center text-xs text-slate-500">
+                      لا توجد فواتير مصدرة لهذا المشروع بعد — اضغط «توليد فاتورة جديدة للمشروع» لإصدارها وترحيل قيدها فوراً.
+                    </td>
+                  </tr>
+                ) : (
+                  projectInvoices.map((inv: any) => (
+                    <tr key={inv.id}>
+                      <td>
+                        <Link to={`/sal/invoices/${inv.id}`} className="font-mono font-bold text-indigo-600 hover:underline">
+                          {inv.invoiceNo}
+                        </Link>
+                      </td>
+                      <td className="font-mono text-xs">{date(inv.issueDate)}</td>
+                      <td className="num font-mono">{money(inv.subtotal)}</td>
+                      <td className="num font-mono text-amber-600">{money(inv.vatAmount)}</td>
+                      <td className="num font-mono font-bold text-emerald-700 dark:text-emerald-400">{money(inv.totalAmount)}</td>
+                      <td><JournalLinkBadge entryId={inv.journalEntryId} entryNo={inv.journalEntryNo} compact /></td>
+                      <td>
+                        <Badge color={inv.paymentStatus === 'PAID' ? 'green' : inv.paymentStatus === 'PARTIALLY_PAID' ? 'amber' : 'slate'}>
+                          {inv.paymentStatus === 'PAID' ? 'محصلة بالكامل' : inv.paymentStatus === 'PARTIALLY_PAID' ? 'محصلة جزئياً' : 'بانتظار التحصيل'}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="card overflow-hidden">
+            <div className="border-b border-slate-200 px-4 py-2.5 font-bold text-sm dark:border-slate-800">
+              القيود المحاسبية المرحلة على هذا المشروع في الأستاذ العام
+            </div>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>سند القيد</th>
+                  <th>التاريخ</th>
+                  <th>البيان</th>
+                  <th className="num">المبلغ (SAR)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projectJournals.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-6 text-center text-xs text-slate-500">
+                      لا توجد قيود يومية مرتبطة بهذا المشروع بعد.
+                    </td>
+                  </tr>
+                ) : (
+                  projectJournals.map((je: any) => (
+                    <tr key={je.id}>
+                      <td><JournalLinkBadge entryId={je.id} entryNo={je.entryNo} compact /></td>
+                      <td className="font-mono text-xs">{date(je.entryDate)}</td>
+                      <td className="text-xs">{je.description}</td>
+                      <td className="num font-mono font-bold">{money(je.totalDebitBase)}</td>
                     </tr>
                   ))
                 )}
@@ -1100,7 +1269,7 @@ export function ServicePricesPage() {
   const fields: FieldDef[] = [
     { name: 'employeeId', label: 'الموظف', type: 'ref', ref: REF.employee, required: true },
     { name: 'projectId', label: 'المشروع (اختياري - Override)', type: 'ref', ref: REF.project, hint: 'اتركه فارغًا ليكون السعر الافتراضي العام للموظف، أو حدد مشروعًا ليكون سعرًا خاصًا (Override)' },
-    { name: 'pricingBasis', label: 'أساس التسعير', type: 'select', options: opts(PRICING_BASIS), required: true, default: 'MONTHLY' },
+    { name: 'pricingBasis', label: 'أساس التسعير', type: 'select', options: opts(PRICING_BASIS), required: true, default: 'DAILY' },
     { name: 'price', label: 'السعر', type: 'decimal', required: true },
     { name: 'currencyCode', label: 'العملة', type: 'ref', ref: REF.currency, required: true, default: 'SAR' },
     { name: 'effectiveFrom', label: 'من تاريخ', type: 'date', required: true, default: today() },

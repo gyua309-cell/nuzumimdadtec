@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { isAssignmentActiveInPeriod } from '../lib/fallback-engine';
 import { downloadCsv, money, today } from '../lib/format';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
@@ -98,11 +99,17 @@ export function EmployeeWorkloadCardsPage() {
     queryFn: () => api.get<any>('/departments', { pageSize: '200' }),
   });
 
+  const { data: costSheetData } = useQuery({
+    queryKey: ['workload-cost-sheet'],
+    queryFn: () => api.get<any>('/cost-sheet'),
+  });
+
   const employees = useMemo(() => safeArray(rawEmployees), [rawEmployees]);
   const assignments = useMemo(() => safeArray(rawAssignments), [rawAssignments]);
   const projects = useMemo(() => safeArray(rawProjects), [rawProjects]);
   const clients = useMemo(() => safeArray(rawClients), [rawClients]);
   const departments = useMemo(() => safeArray(rawDepartments), [rawDepartments]);
+  const costRows = useMemo<any[]>(() => (Array.isArray(costSheetData?.rows) ? costSheetData.rows : []), [costSheetData]);
 
   // Combined Loading state to prevent premature rendering before assignments arrive
   const isLoading = isEmpsLoading || isAssignmentsLoading || isProjectsLoading;
@@ -114,14 +121,16 @@ export function EmployeeWorkloadCardsPage() {
     const deptMap = new Map<string, any>(departments.map((d: any) => [d.id, d]));
 
     return employees.map((emp: any) => {
-      // Find active assignments for this employee
-      const empAssignments = assignments.filter((a: any) => 
-        a.employee_id === emp.id || 
-        a.employeeId === emp.id || 
-        a.employeeId === emp.code || 
-        a.employeeCode === emp.code || 
-        a.employeeCode === emp.id ||
-        (emp.fullNameAr && (a.employeeName === emp.fullNameAr || a.employeeNameAr === emp.fullNameAr))
+      // Find active assignments for this employee (filtering ended assignments)
+      const empAssignments = assignments.filter((a: any) =>
+        isAssignmentActiveInPeriod(a) && (
+          a.employee_id === emp.id ||
+          a.employeeId === emp.id ||
+          a.employeeId === emp.code ||
+          a.employeeCode === emp.code ||
+          a.employeeCode === emp.id ||
+          (emp.fullNameAr && (a.employeeName === emp.fullNameAr || a.employeeNameAr === emp.fullNameAr))
+        )
       );
 
       let totalPct = 0;
@@ -157,8 +166,13 @@ export function EmployeeWorkloadCardsPage() {
       const branchCountry: 'SA' | 'EG' = isSaudi ? 'SA' : 'EG';
       const currency = emp.salaryCurrency || (isSaudi ? 'SAR' : 'EGP');
 
-      // Cost estimations derived strictly from employee contract
-      const monthlyCost = Number(emp.basicSalary || emp.basic_salary || emp.base_salary || 0);
+      // Full loaded monthly cost from Cost Engine (Basic + GOSI + Medical + Asset Depr)
+      const costRow = costRows.find((cr: any) => cr.employeeId === emp.id || cr.code === emp.code);
+      const loadedSarCost = costRow ? Number(costRow.distributableCostBase || 0) : 0;
+      const rawContractSalary = Number(emp.basicSalary || emp.basic_salary || emp.base_salary || 0);
+      const monthlyCost = loadedSarCost > 0
+        ? (currency === 'SAR' ? loadedSarCost : Math.round(loadedSarCost * SAR_TO_EGP))
+        : rawContractSalary;
       const dailyCost = monthlyCost > 0 ? Math.round(monthlyCost / 22) : 0;
       const hourlyCost = monthlyCost > 0 ? Math.round(monthlyCost / 176) : 0;
       const unutilizedCost = monthlyCost > 0 ? Math.round((freeCapacityPct / 100) * monthlyCost) : 0;
@@ -170,16 +184,16 @@ export function EmployeeWorkloadCardsPage() {
       let unutilizedCostEgp = unutilizedCost;
 
       if (currency === 'SAR') {
-        monthlyCostSar = monthlyCost;
-        monthlyCostEgp = Math.round(monthlyCost * SAR_TO_EGP);
-        unutilizedCostSar = unutilizedCost;
-        unutilizedCostEgp = Math.round(unutilizedCost * SAR_TO_EGP);
+        monthlyCostSar = loadedSarCost > 0 ? loadedSarCost : monthlyCost;
+        monthlyCostEgp = Math.round(monthlyCostSar * SAR_TO_EGP);
+        unutilizedCostSar = Math.round((freeCapacityPct / 100) * monthlyCostSar * 100) / 100;
+        unutilizedCostEgp = Math.round(unutilizedCostSar * SAR_TO_EGP);
       } else {
         // EGP native
         monthlyCostEgp = monthlyCost;
-        monthlyCostSar = Math.round((monthlyCost * EGP_TO_SAR) * 100) / 100;
+        monthlyCostSar = loadedSarCost > 0 ? loadedSarCost : Math.round((monthlyCost * EGP_TO_SAR) * 100) / 100;
         unutilizedCostEgp = unutilizedCost;
-        unutilizedCostSar = Math.round((unutilizedCost * EGP_TO_SAR) * 100) / 100;
+        unutilizedCostSar = Math.round((freeCapacityPct / 100) * monthlyCostSar * 100) / 100;
       }
 
       let status: 'BENCH' | 'PARTIAL' | 'FULL' | 'OVERALLOCATED' = 'FULL';
@@ -219,7 +233,7 @@ export function EmployeeWorkloadCardsPage() {
         assignments: formattedAssignments,
       };
     });
-  }, [employees, assignments, projects, clients, departments]);
+  }, [employees, assignments, projects, clients, departments, costRows]);
 
   // Filtered Cards
   const filteredCards = useMemo(() => {

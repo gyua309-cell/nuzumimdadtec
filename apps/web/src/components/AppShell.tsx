@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { api, getApiBaseUrl, getCustomApiUrl, resetApiOfflineCache, setCustomApiUrl } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { defaultAccountsList } from '../lib/fallback-engine';
+import { getEntityList } from '../lib/local-store';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JobsCenterButton } from './JobsCenterModal';
 import { Modal } from './ui';
@@ -646,6 +648,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const branches: Array<{ id: string; code: string; nameAr: string; countryCode?: string; functionalCurrency?: string }> = useMemo(() => {
     const raw = branchesQ.data;
     if (Array.isArray(raw)) return raw;
+    if (raw && Array.isArray(raw.data)) return raw.data;
     if (raw && Array.isArray(raw.items)) return raw.items;
     return [];
   }, [branchesQ.data]);
@@ -704,18 +707,108 @@ export function AppShell({ children }: { children?: ReactNode }) {
     }).filter(Boolean) as NavGroup[];
   }, [navFilter]);
 
-  // Command palette matches
+  // Command palette matches (Screens + Live Entities: Employees, Projects, Invoices, Journals, Accounts)
   const cmdMatches = useMemo(() => {
+    const quickActions = [
+      { label: '⚡ مركز الأتمتة الشاملة والترحيل الذكي', sectionLabel: 'إجراء سريع', groupLabel: 'الأتمتة والربط', to: '/automation/hub', icon: Zap, color: 'indigo' as SectionColor },
+      { label: '➕ تعيين موظف جديد', sectionLabel: 'إجراء سريع', groupLabel: 'الموارد البشرية', to: '/hr/employees', icon: Users, color: 'blue' as SectionColor },
+      { label: '➕ إنشاء فاتورة مبيعات ضريبية', sectionLabel: 'إجراء سريع', groupLabel: 'المبيعات والفوترة', to: '/sal/invoices/new', icon: FileText, color: 'emerald' as SectionColor },
+      { label: '➕ قيد يومية محاسبي جديد', sectionLabel: 'إجراء سريع', groupLabel: 'المحاسبة العامة', to: '/acc/journals/new', icon: BookOpen, color: 'sky' as any },
+    ].map((x) => ({ ...x, color: (COLOR_CLASSES[x.color as SectionColor] ? x.color : 'indigo') as SectionColor }));
+
     const q = cmdQuery.trim().toLowerCase();
-    if (!q) return ALL_SEARCH_ENTRIES.slice(0, 14);
-    return ALL_SEARCH_ENTRIES.filter(
+    if (!q) {
+      return [...quickActions, ...ALL_SEARCH_ENTRIES.slice(0, 12)];
+    }
+
+    const screenMatches = ALL_SEARCH_ENTRIES.filter(
       (e) =>
         e.label.toLowerCase().includes(q) ||
         e.sectionLabel.toLowerCase().includes(q) ||
         e.groupLabel.toLowerCase().includes(q) ||
         e.to.toLowerCase().includes(q),
-    ).slice(0, 18);
-  }, [cmdQuery]);
+    );
+
+    const liveEntities: typeof ALL_SEARCH_ENTRIES = [];
+    if (cmdOpen) {
+      const emps = getEntityList<any>('employees', []);
+      for (const e of emps) {
+        const hay = `${e.code || ''} ${e.fullNameAr || ''} ${e.fullNameEn || ''} ${e.positionTitle || ''}`.toLowerCase();
+        if (hay.includes(q)) {
+          liveEntities.push({
+            label: `👤 ${e.code || ''} — ${e.fullNameAr || e.fullNameEn || 'موظف'}`,
+            sectionLabel: e.positionTitle || 'ملف موظف',
+            groupLabel: 'سجل الكوادر الحية',
+            to: `/hr/employees/${e.id}`,
+            icon: Users,
+            color: 'blue',
+          });
+        }
+      }
+
+      const prjs = getEntityList<any>('projects', []);
+      for (const p of prjs) {
+        const hay = `${p.code || ''} ${p.nameAr || ''} ${p.nameEn || ''} ${p.clientName || ''}`.toLowerCase();
+        if (hay.includes(q)) {
+          liveEntities.push({
+            label: `💼 ${p.code || ''} — ${p.nameAr || 'مشروع'}`,
+            sectionLabel: p.clientName || 'بطاقة مشروع 360°',
+            groupLabel: 'المشاريع التعاقدية',
+            to: `/prj/projects/${p.id}`,
+            icon: Briefcase,
+            color: 'indigo',
+          });
+        }
+      }
+
+      const invs = getEntityList<any>('invoices', []);
+      for (const inv of invs) {
+        const hay = `${inv.invoiceNo || ''} ${inv.clientName || ''} ${inv.projectName || ''}`.toLowerCase();
+        if (hay.includes(q)) {
+          liveEntities.push({
+            label: `🧾 فاتورة ${inv.invoiceNo} — ${inv.clientName || ''}`,
+            sectionLabel: `${inv.totalAmount || '0.00'} ${inv.currencyCode || 'SAR'}`,
+            groupLabel: 'فواتير المبيعات',
+            to: `/sal/invoices/${inv.id}`,
+            icon: FileText,
+            color: 'emerald',
+          });
+        }
+      }
+
+      const jes = getEntityList<any>('journal_entries', []);
+      for (const je of jes) {
+        const hay = `${je.entryNo || ''} ${je.description || ''} ${je.reference || ''}`.toLowerCase();
+        if (hay.includes(q)) {
+          liveEntities.push({
+            label: `📘 قيد ${je.entryNo || je.id} — ${je.description || ''}`,
+            sectionLabel: `مدين/دائن: ${je.totalDebitBase || '0.00'} SAR`,
+            groupLabel: 'دفتر اليومية العام',
+            to: `/acc/journals/${je.id}`,
+            icon: BookOpen,
+            color: 'violet',
+          });
+        }
+      }
+
+      const accs = getEntityList<any>('accounts', defaultAccountsList);
+      for (const acc of accs) {
+        const hay = `${acc.code || ''} ${acc.nameAr || ''}`.toLowerCase();
+        if (hay.includes(q)) {
+          liveEntities.push({
+            label: `🏦 حساب ${acc.code} — ${acc.nameAr}`,
+            sectionLabel: 'كشف حساب الأستاذ العام',
+            groupLabel: 'شجرة الحسابات',
+            to: `/reports/account-statement?accountId=${acc.id}`,
+            icon: Landmark,
+            color: 'teal',
+          });
+        }
+      }
+    }
+
+    return [...liveEntities.slice(0, 10), ...screenMatches].slice(0, 20);
+  }, [cmdQuery, cmdOpen]);
 
   // Active route breadcrumb resolution
   const activeBreadcrumb = useMemo(() => {
@@ -1180,7 +1273,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
                     setCmdOpen(false);
                   }
                 }}
-                placeholder="انتقل فوراً لأي شاشة أو تقرير... (مثال: فواتير، رواتب، ميزان المراجعة، ZATCA)"
+                placeholder="ابحث فوراً عن موظف، مشروع، فاتورة، قيد، حساب، أو شاشة... (مثال: محمد، 001، INV، 10301)"
                 className="flex-1 bg-transparent text-sm font-bold text-slate-900 placeholder:text-slate-400 outline-none dark:text-white"
               />
               <button

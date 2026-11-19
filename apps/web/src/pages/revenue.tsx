@@ -336,7 +336,10 @@ export function ProfitabilityPage() {
   });
 
   // Filtered lists
-  const filteredProjects = (projectProf.data ?? []).filter((p) =>
+  const rawProjects: any[] = Array.isArray(projectProf.data)
+    ? projectProf.data
+    : ((projectProf.data as any)?.data ?? []);
+  const filteredProjects = rawProjects.filter((p) =>
     !projectSearch || p.projectName?.toLowerCase().includes(projectSearch.toLowerCase()) || p.projectCode?.toLowerCase().includes(projectSearch.toLowerCase())
   );
 

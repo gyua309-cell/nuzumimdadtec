@@ -28,6 +28,7 @@ import {
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, money, today } from '../lib/format';
+import { normalizePricingBasis } from '../lib/fallback-engine';
 import { DOC_TYPE, EMPLOYEE_STATUS, EMPLOYMENT_TYPE, opts } from '../lib/labels';
 import { ActiveBadge, cleanPayload, CrudPage, CsvImportModal, EntityForm, FieldDef, fieldErrors, validateFormFields } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
@@ -373,6 +374,7 @@ export function EmployeesPage() {
                   <th>تاريخ التعيين</th>
                   <th>الراتب الأساسي</th>
                   <th>سعر الفوترة</th>
+                  <th>المشروع المسند</th>
                   <th>ملف التكلفة</th>
                   <th>الحالة</th>
                   <th className="w-32 text-end">الإجراءات</th>
@@ -421,6 +423,27 @@ export function EmployeesPage() {
                       </td>
                       <td className="num text-xs font-semibold text-brand-700 dark:text-brand-300">
                         {e.defaultBillingRate ? `${money(e.defaultBillingRate)} ${e.salaryCurrency || 'SAR'}` : '—'}
+                      </td>
+                      <td onClick={(evt) => evt.stopPropagation()}>
+                        {e.primaryProjectName ? (
+                          <Link
+                            to={e.primaryProjectId ? `/prj/projects/${e.primaryProjectId}` : '/prj/assignments'}
+                            className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-300"
+                          >
+                            <span>{e.primaryProjectCode ? `${e.primaryProjectCode} — ` : ''}{e.primaryProjectName}</span>
+                            {e.totalAllocationPct ? <span className="font-mono text-[10px]">({e.totalAllocationPct}%)</span> : null}
+                            {Number(e.activeAssignmentsCount || 0) > 1 ? <span className="font-mono text-[10px]">+{e.activeAssignmentsCount - 1}</span> : null}
+                          </Link>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setAssignModalEmp(e)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-300 cursor-pointer"
+                            title="انقر لتسكين الموظف على مشروع"
+                          >
+                            <span>متفرغ (Bench) • تسكين +</span>
+                          </button>
+                        )}
                       </td>
                       <td>
                         {e.costProfileName ? (
@@ -1239,35 +1262,54 @@ function EmployeeAssignmentsTab({
     queryFn: () => api.get<any>('/assignments', { employeeId: empId }),
   });
 
+  const costQuery = useQuery({
+    queryKey: ['employee-cost', empId],
+    queryFn: () => api.get<any>(`/employees/${empId}/cost`),
+  });
+
   const rawRows = asgQuery.data?.rows || asgQuery.data?.data || asgQuery.data || [];
   const assignments: any[] = Array.isArray(rawRows) ? rawRows : [];
 
-  // Active assignments calculations
+  // Active assignments calculations (100% aligned with computeAssignmentEconomics)
   const t = today();
-  const activeAssignments = assignments.filter((a) => !a.effectiveTo || a.effectiveTo >= t);
+  const activeAssignments = assignments.filter((a) => (!a.endDate && !a.effectiveTo) || (a.effectiveTo || a.endDate) >= t);
 
   let totalAllocPct = 0;
   let totalRevenue = 0;
 
   for (const a of activeAssignments) {
-    totalAllocPct += Number(a.allocationPct || 0);
-    const rate = Number(a.billableRate || employee.defaultBillingRate || 1500);
-    const days = Number(a.allocatedDays || 22);
-    if (a.billingBasis === 'DAILY') {
+    const workingDays = Math.max(1, Number(a.workingDaysInMonth || 22));
+    const isDays = String(a.allocationBasis || '').toUpperCase() === 'DAYS';
+    const allocPct = isDays
+      ? Number((((Number(a.allocatedDays ?? workingDays)) / workingDays) * 100).toFixed(2))
+      : Number(a.allocationPct ?? 100);
+    const days = isDays
+      ? Number(a.allocatedDays ?? workingDays)
+      : Number(((allocPct / 100) * workingDays).toFixed(2));
+    totalAllocPct += allocPct;
+    const rate = Number(a.unitPriceBase ?? a.billableRate ?? employee.defaultBillingRate ?? 1500);
+    const basis = normalizePricingBasis(a.billingBasis, a.pricingBasis, employee.defaultBillingBasis, 'DAILY');
+    if (a.monthlyRevenue != null && Number(a.monthlyRevenue) > 0) {
+      totalRevenue += Number(a.monthlyRevenue);
+    } else if (basis === 'DAILY') {
       totalRevenue += days * rate;
-    } else if (a.billingBasis === 'MONTHLY') {
-      totalRevenue += (Number(a.allocationPct || 100) / 100) * rate;
+    } else if (basis === 'MONTHLY') {
+      totalRevenue += (allocPct / 100) * rate;
     } else {
-      totalRevenue += days * 8 * rate;
+      totalRevenue += (Number(a.allocatedHours) || days * 8) * rate;
     }
   }
 
   const unutilizedPct = Math.max(0, 100 - totalAllocPct);
   const overAllocPct = Math.max(0, totalAllocPct - 100);
+  const normRatio = totalAllocPct > 100 ? (100 / totalAllocPct) : 1;
 
-  // Employee direct cost from salary
+  // Full Loaded Direct Cost from Cost Engine (Basic + GOSI + Medical + Asset Depr)
   const basicSalary = Number(employee.basicSalary || employee.compensations?.[0]?.basicSalary || 0);
-  const unutilizedCost = (unutilizedPct / 100) * basicSalary;
+  const directLoadedCost = costQuery.data?.distributableCostBase != null
+    ? Number(costQuery.data.distributableCostBase)
+    : basicSalary;
+  const unutilizedCost = Math.round((unutilizedPct / 100) * directLoadedCost * 100) / 100;
 
   const handleDeleteAssignment = async (asgId: string) => {
     if (confirm('هل أنت متأكد من إلغاء إسناد الموظف لهذا المشروع؟')) {
@@ -1369,15 +1411,26 @@ function EmployeeAssignmentsTab({
               </thead>
               <tbody>
                 {assignments.map((a: any) => {
-                  const rate = Number(a.billableRate || employee.defaultBillingRate || 1500);
-                  const days = Number(a.allocatedDays || 22);
-                  const allocPct = Number(a.allocationPct || 100);
-                  let lineRev = 0;
-                  if (a.billingBasis === 'DAILY') lineRev = days * rate;
-                  else if (a.billingBasis === 'MONTHLY') lineRev = (allocPct / 100) * rate;
-                  else lineRev = days * 8 * rate;
+                  const workingDays = Math.max(1, Number(a.workingDaysInMonth || 22));
+                  const isDays = String(a.allocationBasis || '').toUpperCase() === 'DAYS';
+                  const allocPct = isDays
+                    ? Number((((Number(a.allocatedDays ?? workingDays)) / workingDays) * 100).toFixed(2))
+                    : Number(a.allocationPct ?? 100);
+                  const days = isDays
+                    ? Number(a.allocatedDays ?? workingDays)
+                    : Number(((allocPct / 100) * workingDays).toFixed(2));
+                  const rate = Number(a.unitPriceBase ?? a.billableRate ?? employee.defaultBillingRate ?? 1500);
+                  const basis = normalizePricingBasis(a.billingBasis, a.pricingBasis, employee.defaultBillingBasis, 'DAILY');
+                  let lineRev = Number(a.monthlyRevenue ?? 0);
+                  if (!(lineRev > 0)) {
+                    if (basis === 'DAILY') lineRev = days * rate;
+                    else if (basis === 'MONTHLY') lineRev = (allocPct / 100) * rate;
+                    else lineRev = (Number(a.allocatedHours) || days * 8) * rate;
+                  }
 
-                  const lineCost = (allocPct / 100) * basicSalary;
+                  const lineCost = a.allocatedCost != null
+                    ? Number(a.allocatedCost)
+                    : Math.round(directLoadedCost * (allocPct / 100) * normRatio * 100) / 100;
                   const lineMargin = lineRev > 0 ? (((lineRev - lineCost) / lineRev) * 100).toFixed(1) : '0';
 
                   return (
@@ -1409,7 +1462,7 @@ function EmployeeAssignmentsTab({
                       <td className="num">{days} يوم</td>
                       <td className="num font-semibold">
                         {money(rate)} {a.billingCurrency || 'SAR'}
-                        <span className="text-[10px] text-slate-400">/{a.billingBasis === 'DAILY' ? 'يوم' : a.billingBasis === 'MONTHLY' ? 'شهر' : 'ساعة'}</span>
+                        <span className="text-[10px] text-slate-400">/{basis === 'DAILY' ? 'يوم' : basis === 'MONTHLY' ? 'شهر' : 'ساعة'}</span>
                       </td>
                       <td className="num font-bold text-emerald-600">
                         {money(lineRev)} SAR
@@ -1495,13 +1548,16 @@ function EmployeeProfitabilityTab({ employee }: { employee: any }) {
   const activeAssignments = assignments.filter((a) => (!a.endDate && !a.effectiveTo) || (a.effectiveTo || a.endDate) >= t);
 
   const resolveAssignmentRev = (a: any) => {
-    const override = servicePrices.find((sp: any) => (sp.employeeId === empId || sp.employeeCode === employee.code) && (sp.projectId === a.projectId || sp.projectCode === a.projectCode))
-      || servicePrices.find((sp: any) => (sp.employeeId === empId || sp.employeeCode === employee.code) && !sp.projectId);
-    const rate = Number(override?.price ?? a.billableRate ?? employee.defaultBillingRate ?? 1500);
-    const basis = override?.pricingBasis || a.billingBasis || employee.defaultBillingBasis || 'DAILY';
-    const allocPct = Number(a.allocationPct ?? (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
-    const days = Number(a.allocatedDays || (allocPct / 100) * 22);
-    if (basis === 'DAILY' || basis === 'DAYS') return days * rate;
+    if (a.monthlyRevenue != null && Number(a.monthlyRevenue) > 0) return Number(a.monthlyRevenue);
+    const projectOverride = servicePrices.find((sp: any) => Boolean(sp.projectId) && (sp.employeeId === empId || sp.employeeCode === employee.code) && (sp.projectId === a.projectId || sp.projectCode === a.projectCode));
+    const globalSp = servicePrices.find((sp: any) => !sp.projectId && (sp.employeeId === empId || sp.employeeCode === employee.code));
+    const rate = Number(projectOverride?.price ?? a.billableRate ?? globalSp?.price ?? employee.defaultBillingRate ?? 1500);
+    const basis = normalizePricingBasis(projectOverride?.pricingBasis, a.billingBasis, a.pricingBasis, globalSp?.pricingBasis, employee.defaultBillingBasis, 'DAILY');
+    const workingDays = Math.max(1, Number(a.workingDaysInMonth || 22));
+    const isDays = String(a.allocationBasis || '').toUpperCase() === 'DAYS';
+    const allocPct = isDays ? ((Number(a.allocatedDays ?? workingDays) / workingDays) * 100) : Number(a.allocationPct ?? 100);
+    const days = isDays ? Number(a.allocatedDays ?? workingDays) : (allocPct / 100) * workingDays;
+    if (basis === 'DAILY') return days * rate;
     if (basis === 'MONTHLY') return (allocPct / 100) * rate;
     return (Number(a.allocatedHours) || days * 8) * rate;
   };

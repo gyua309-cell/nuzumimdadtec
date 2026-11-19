@@ -27,7 +27,10 @@ export function useAccounts(postingOnly = false) {
     queryKey: ['accounts', postingOnly],
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    queryFn: () => api.get<Account[]>('/accounts', postingOnly ? { postingOnly: 'true', activeOnly: 'true' } : {}),
+    queryFn: () =>
+      api
+        .get<any>('/accounts', postingOnly ? { postingOnly: 'true', activeOnly: 'true' } : {})
+        .then((r: any) => (Array.isArray(r) ? r : (r?.data ?? [])) as Account[]),
   });
 }
 
@@ -35,8 +38,9 @@ export function useAccounts(postingOnly = false) {
 export function AccountSelect({ value, onChange, accounts, className = '' }: { value: string; onChange: (id: string) => void; accounts: Account[]; className?: string }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
-  const sel = accounts.find((a) => a.id === value);
-  const list = useMemo(() => accounts.filter((a) => !q || a.code.includes(q) || a.nameAr.includes(q) || (a.nameEn ?? '').toLowerCase().includes(q.toLowerCase())).slice(0, 60), [accounts, q]);
+  const safeAccounts: Account[] = Array.isArray(accounts) ? accounts : ((accounts as any)?.data ?? []);
+  const sel = safeAccounts.find((a) => a.id === value || a.code === value);
+  const list = useMemo(() => safeAccounts.filter((a) => !q || a.code.includes(q) || a.nameAr.includes(q) || (a.nameEn ?? '').toLowerCase().includes(q.toLowerCase())).slice(0, 60), [safeAccounts, q]);
   return (
     <div className={`relative ${className}`}>
       <button type="button" className="input flex items-center justify-between text-start" onClick={() => setOpen(!open)}>
@@ -943,14 +947,16 @@ interface RuleLineForm { lineNo: number; side: 'DEBIT' | 'CREDIT'; accountSource
 export function PostingRulesPage() {
   const toast = useToast();
   const qc = useQueryClient();
-  const events = useQuery({ queryKey: ['posting-events'], queryFn: () => api.get<any[]>('/posting-events') });
-  const rules = useQuery({ queryKey: ['posting-rules'], queryFn: () => api.get<any[]>('/posting-rules') });
+  const events = useQuery({ queryKey: ['posting-events'], queryFn: () => api.get<any>('/posting-events').then((r: any) => (Array.isArray(r) ? r : (r?.data ?? []))) });
+  const rules = useQuery({ queryKey: ['posting-rules'], queryFn: () => api.get<any>('/posting-rules').then((r: any) => (Array.isArray(r) ? r : (r?.data ?? []))) });
   const accounts = useAccounts(true);
   const [form, setForm] = useState<any | null>(null);
   const [condText, setCondText] = useState('{}');
   const [sim, setSim] = useState<any | null>(null);
   const [simResult, setSimResult] = useState<any | null>(null);
-  const ev = events.data?.find((x) => x.code === form?.eventCode);
+  const eventList: any[] = Array.isArray(events.data) ? events.data : ((events.data as any)?.data ?? []);
+  const ruleList: any[] = Array.isArray(rules.data) ? rules.data : ((rules.data as any)?.data ?? []);
+  const ev = eventList.find((x) => x.code === form?.eventCode);
 
   const save = useMutation({
     mutationFn: () => {
@@ -967,15 +973,13 @@ export function PostingRulesPage() {
   const simulate = useMutation({ mutationFn: () => api.post<any>('/posting-rules/simulate', { eventCode: sim.eventCode, entryDate: sim.entryDate, currencyCode: sim.currencyCode, context: {}, items: sim.items.filter((i: any) => i.amount).map((i: any) => ({ key: i.key, amount: i.amount, refs: i.ref ? { [i.refKey]: i.ref } : undefined })) }), onSuccess: setSimResult, onError: (e) => toast.error(e) });
   const base = useBaseCurrency();
 
-  const openNew = () => { setCondText('{}'); setForm({ eventCode: events.data?.[0]?.code ?? '', name: '', ledger: 'FINANCIAL', priority: 100, effectiveFrom: `${today().slice(0, 4)}-01-01`, effectiveTo: '', isActive: true, lines: [{ lineNo: 1, side: 'DEBIT', accountSource: 'FIXED', accountId: '', amountKey: 'AMOUNT', dimensionPolicy: 'INHERIT_ALL', descriptionTemplate: '' }, { lineNo: 2, side: 'CREDIT', accountSource: 'FIXED', accountId: '', amountKey: 'AMOUNT', dimensionPolicy: 'INHERIT_ALL', descriptionTemplate: '' }] }); };
+  const openNew = () => { setCondText('{}'); setForm({ eventCode: eventList[0]?.code ?? '', name: '', ledger: 'FINANCIAL', priority: 100, effectiveFrom: `${today().slice(0, 4)}-01-01`, effectiveTo: '', isActive: true, lines: [{ lineNo: 1, side: 'DEBIT', accountSource: 'FIXED', accountId: '', amountKey: 'AMOUNT', dimensionPolicy: 'INHERIT_ALL', descriptionTemplate: '' }, { lineNo: 2, side: 'CREDIT', accountSource: 'FIXED', accountId: '', amountKey: 'AMOUNT', dimensionPolicy: 'INHERIT_ALL', descriptionTemplate: '' }] }); };
   const updLine = (i: number, patch: Partial<RuleLineForm>) => setForm({ ...form, lines: form.lines.map((l: RuleLineForm, j: number) => (j === i ? { ...l, ...patch } : l)) });
 
   if (events.isLoading || rules.isLoading) return <Loading />;
   if (rules.error) return <ErrorState error={rules.error} />;
-  const rawEvents: any = events.data;
-  const eventList: any[] = Array.isArray(rawEvents) ? rawEvents : (rawEvents?.data ?? []);
   const byEvent = new Map<string, any[]>();
-  for (const r of rules.data ?? []) byEvent.set(r.eventCode, [...(byEvent.get(r.eventCode) ?? []), r]);
+  for (const r of ruleList) byEvent.set(r.eventCode, [...(byEvent.get(r.eventCode) ?? []), r]);
 
   return (
     <div>

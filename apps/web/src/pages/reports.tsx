@@ -14,6 +14,7 @@ import { date, dateTime, downloadCsv, money, monthStart, today, yearStart } from
 import { ACCOUNT_CLASS, CHECK_STATUS } from '../lib/labels';
 import { PeriodSelect } from '../components/forms';
 import { ExportMenu } from '../components/ExportMenu';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { AccountSelect, useAccounts, useQueryParam } from './accounting';
 import { PERIOD_STATUS } from './org';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, Stat, useToast } from '../components/ui';
@@ -204,7 +205,11 @@ export function AccountStatementPage() {
                   <tbody>
                     {statementRows.map((l: any, i: number) => (
                       <tr key={i} className="cursor-pointer" onClick={() => nav(`/acc/journals/${l.entryId}`)}>
-                        <td>{date(l.entryDate)}</td><td className="num text-start">{l.entryNo}</td><td className="max-w-sm truncate">{l.lineDescription ?? l.description}</td>
+                        <td>{date(l.entryDate)}</td>
+                        <td className="num text-start" onClick={(e) => e.stopPropagation()}>
+                          <JournalLinkBadge entryId={l.entryId} entryNo={l.entryNo} compact />
+                        </td>
+                        <td className="max-w-sm truncate">{l.lineDescription ?? l.description}</td>
                         <td>{l.currencyCode}</td><td className="num">{money(l.debitTx)}</td><td className="num">{money(l.creditTx)}</td>
                         <td className="num">{money(l.debitBase)}</td><td className="num">{money(l.creditBase)}</td><td className="num font-medium">{money(l.runningBalance)}</td>
                       </tr>
@@ -396,9 +401,14 @@ export function BalanceSheetPage() {
 export function ClosingPage() {
   const toast = useToast();
   const qc = useQueryClient();
-  const periods = useQuery({ queryKey: ['periods'], queryFn: () => api.get<any[]>('/fiscal-periods') });
+  const periods = useQuery({
+    queryKey: ['periods'],
+    queryFn: () => api.get<any>('/fiscal-periods').then((r: any) => (Array.isArray(r) ? r : (r?.data ?? []))),
+  });
   const [sel, setSel] = useState<string>('');
-  const firstOpen = periods.data?.find((p) => p.status === 'OPEN' && !p.isAdjustmentPeriod);
+  const rawPeriods: any = periods.data;
+  const periodItems: any[] = Array.isArray(rawPeriods) ? rawPeriods : (rawPeriods?.data ?? []);
+  const firstOpen = periodItems.find((p) => p.status === 'OPEN' && !p.isAdjustmentPeriod);
   const periodId = sel || firstOpen?.id || '';
   const checks = useQuery({ queryKey: ['close-checks', periodId], enabled: !!periodId, queryFn: () => api.get<any>(`/closing/periods/${periodId}/checks`) });
   const [reopen, setReopen] = useState(false);
@@ -407,8 +417,6 @@ export function ClosingPage() {
   const close = useMutation({ mutationFn: () => api.post(`/closing/periods/${periodId}/close`, {}), onSuccess: () => { toast.success('تم إقفال الفترة وحفظ اللقطة'); setConfirmClose(false); refresh(); }, onError: (e) => toast.error(e) });
   if (periods.isLoading) return <Loading />;
   if (periods.error) return <ErrorState error={periods.error} />;
-  const rawPeriods: any = periods.data;
-  const periodItems: any[] = Array.isArray(rawPeriods) ? rawPeriods : (rawPeriods?.data ?? []);
   const p = periodItems.find((x) => x.id === periodId);
   return (
     <div>

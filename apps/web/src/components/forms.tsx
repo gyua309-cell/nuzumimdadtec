@@ -138,7 +138,10 @@ export function usePeriods(enabled = true) {
     enabled,
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    queryFn: () => api.get<PeriodOption[]>('/fiscal-periods'),
+    queryFn: () =>
+      api
+        .get<any>('/fiscal-periods')
+        .then((r: any) => (Array.isArray(r) ? r : (r?.data ?? [])) as PeriodOption[]),
   });
 }
 
