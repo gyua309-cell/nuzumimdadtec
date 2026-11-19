@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, isValidElement, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -717,7 +717,7 @@ export function Stat({
             <div
               className={`flex size-9.5 shrink-0 items-center justify-center rounded-xl border ${theme.iconBox} transition-transform duration-200 group-hover:scale-110`}
             >
-              <Icon className="size-4.5" />
+              {isValidElement(Icon) ? Icon : <Icon className="size-4.5" />}
             </div>
           )}
         </div>

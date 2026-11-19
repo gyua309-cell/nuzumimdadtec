@@ -3,21 +3,24 @@ import { DbModule } from '../../infrastructure/db/db.module';
 import { AccountingModule } from '../accounting/accounting.module';
 import { CoreModule } from '../core/core.module';
 import { ProjectsModule } from '../projects/projects.module';
+import { TaxModule } from '../tax/tax.module';
 import { InvoicesService } from './application/invoices.service';
 import { ServicesCatalogService } from './application/services-catalog.service';
 import {
   CreditNotesController,
   InvoicesController,
+  SalesDebitNotesController,
   SalServicesAliasController,
   ServicesCatalogController,
 } from './presentation/sales.controllers';
 
 @Module({
-  imports: [DbModule, AccountingModule, CoreModule, ProjectsModule],
+  imports: [DbModule, AccountingModule, CoreModule, ProjectsModule, TaxModule],
   providers: [InvoicesService, ServicesCatalogService],
   controllers: [
     InvoicesController,
     CreditNotesController,
+    SalesDebitNotesController,
     ServicesCatalogController,
     SalServicesAliasController,
   ],

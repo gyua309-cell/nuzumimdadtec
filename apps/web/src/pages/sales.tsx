@@ -309,7 +309,8 @@ export function InvoicesPage() {
             <option value="">جميع الأنواع</option>
             <option value="TAX_INVOICE">فاتورة ضريبية قياسية (B2B)</option>
             <option value="SIMPLIFIED">فاتورة ضريبية مبسطة (B2C)</option>
-            <option value="CREDIT_NOTE">إشعار دائن (مردودات)</option>
+            <option value="CREDIT_NOTE">إشعار دائن (381 — مردودات)</option>
+            <option value="DEBIT_NOTE">إشعار مدين (383 — إضافات)</option>
           </select>
           <select
             className="input h-8 text-xs py-1 px-2.5 w-36"
@@ -1413,7 +1414,9 @@ export function InvoiceDetailPage() {
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [creditNoteOpen, setCreditNoteOpen] = useState(false);
+  const [debitNoteOpen, setDebitNoteOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [sendingZatca, setSendingZatca] = useState(false);
   const [copiedIban, setCopiedIban] = useState(false);
   const [printMode, setPrintMode] = useState<'A4' | 'THERMAL_80MM'>('A4');
 
@@ -1426,13 +1429,34 @@ export function InvoiceDetailPage() {
   const inv = invoice.data;
 
   const doPost = async () => {
-    if (!inv || !confirm('ترحيل هذه الفاتورة وتثبيت القيد المحاسبي؟ (الإرسال لهيئة الزكاة منفصل ولم يُفعَّل بعد)')) return;
+    if (!inv || !confirm('ترحيل هذه الفاتورة وتثبيت القيد المحاسبي؟ (سيتم إرسالها لهيئة الزكاة تلقائياً إذا كان الإرسال التلقائي مفعلاً أو يمكنك إرسالها يدوياً بعد الترحيل)')) return;
     try {
       await api.post(`/invoices/${inv.id}/post`);
       toast.success('تم ترحيل الفاتورة وتوليد القيد المحاسبي');
       qc.invalidateQueries({ queryKey: ['/invoices', id] });
+      qc.invalidateQueries({ queryKey: ['zatca-status'] });
     } catch (e) {
       toast.error(e);
+    }
+  };
+
+  const doTransmitZatca = async () => {
+    if (!inv) return;
+    setSendingZatca(true);
+    try {
+      const res: any = await api.post(`/zatca/invoices/${inv.id}/transmit`, {});
+      if (res.success) {
+        toast.success(`تم اعتماد الفاتورة لدى هيئة الزكاة بحالة (${res.zatcaStatus})`);
+      } else {
+        toast.error(new Error(res.responseMessage || 'رفضت هيئة الزكاة الفاتورة — راجع ملف ZATCA'));
+      }
+      qc.invalidateQueries({ queryKey: ['/invoices', id] });
+      qc.invalidateQueries({ queryKey: ['zatca-status'] });
+      qc.invalidateQueries({ queryKey: ['zatca-invoices'] });
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setSendingZatca(false);
     }
   };
 
@@ -1492,7 +1516,18 @@ export function InvoiceDetailPage() {
                 inv.status === 'POSTED' ? 'green' : inv.status === 'CANCELLED' ? 'red' : 'slate'
               }
             >
-              {inv.status === 'POSTED' ? 'مرحّلة ومعتمدة لدى الزكاة' : inv.status === 'CANCELLED' ? 'ملغاة' : 'مسودة'}
+              {inv.status === 'POSTED' ? 'مرحّلة محاسبياً' : inv.status === 'CANCELLED' ? 'ملغاة' : 'مسودة'}
+            </Badge>
+            <Badge
+              color={
+                inv.zatcaStatus === 'CLEARED' || inv.zatcaStatus === 'REPORTED'
+                  ? 'green'
+                  : inv.zatcaStatus === 'REJECTED'
+                    ? 'red'
+                    : 'amber'
+              }
+            >
+              ZATCA: {inv.zatcaStatus === 'CLEARED' ? 'مُخلَّصة' : inv.zatcaStatus === 'REPORTED' ? 'مُبلَّغ عنها' : inv.zatcaStatus === 'REJECTED' ? 'مرفوضة' : 'بانتظار الإرسال'}
             </Badge>
             {inv.journalEntryId && (
               <Link
@@ -1506,6 +1541,23 @@ export function InvoiceDetailPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to={`/zatca/invoices/${inv.id}`}
+            className="btn-secondary flex items-center gap-1.5 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300"
+          >
+            <ShieldCheck className="size-3.5" /> ملف ZATCA (7 تبويبات)
+          </Link>
+
+          {inv.status === 'POSTED' && !['CLEARED', 'REPORTED'].includes(inv.zatcaStatus || '') && (
+            <button
+              className="btn-primary bg-teal-600 hover:bg-teal-700 text-white flex items-center gap-1.5 text-xs shadow-sm"
+              disabled={sendingZatca}
+              onClick={doTransmitZatca}
+            >
+              <ShieldCheck className="size-3.5" /> {sendingZatca ? 'جارٍ الإرسال للهيئة...' : 'إرسال لهيئة الزكاة (ZATCA)'}
+            </button>
+          )}
+
           {inv.status === 'DRAFT' && (
             <button
               className="btn-primary bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 text-xs shadow-sm"
@@ -1534,12 +1586,20 @@ export function InvoiceDetailPage() {
           )}
 
           {inv.status === 'POSTED' && !isCreditNote && (
-            <button
-              className="btn-secondary flex items-center gap-1.5 text-xs"
-              onClick={() => setCreditNoteOpen(true)}
-            >
-              <RotateCcw className="size-3.5" /> إصدار إشعار دائن (مردود)
-            </button>
+            <>
+              <button
+                className="btn-secondary flex items-center gap-1.5 text-xs"
+                onClick={() => setCreditNoteOpen(true)}
+              >
+                <RotateCcw className="size-3.5" /> إصدار إشعار دائن (381)
+              </button>
+              <button
+                className="btn-secondary flex items-center gap-1.5 text-xs"
+                onClick={() => setDebitNoteOpen(true)}
+              >
+                <Plus className="size-3.5" /> إصدار إشعار مدين (383)
+              </button>
+            </>
           )}
 
           {/* Print Format Switcher */}
@@ -1665,6 +1725,18 @@ export function InvoiceDetailPage() {
         onSuccess={() => {
           qc.invalidateQueries({ queryKey: ['/invoices', id] });
           qc.invalidateQueries({ queryKey: ['/invoices'] });
+        }}
+      />
+
+      {/* Sales Debit Note Modal (ZATCA Type 383) */}
+      <CreateSalesDebitNoteModal
+        open={debitNoteOpen}
+        invoice={inv}
+        onClose={() => setDebitNoteOpen(false)}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['/invoices', id] });
+          qc.invalidateQueries({ queryKey: ['/invoices'] });
+          qc.invalidateQueries({ queryKey: ['zatca-invoices'] });
         }}
       />
 
@@ -1866,5 +1938,126 @@ export function CreditNotesPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ============================================================================
+// Create Sales Debit Note Modal (ZATCA UBL Type 383)
+// ============================================================================
+function CreateSalesDebitNoteModal({
+  open,
+  invoice,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  invoice: InvoiceDetail;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const toast = useToast();
+  const [returnReason, setReturnReason] = useState('إضافة خدمات أو فروقات أسعار متفق عليها');
+  const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
+  const [description, setDescription] = useState(`فروقات / إضافات مرتبطة بالفاتورة ${invoice.invoiceNo}`);
+  const [quantity, setQuantity] = useState('1');
+  const [unitPrice, setUnitPrice] = useState('1000');
+  const [vatRate, setVatRate] = useState('15');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const sub = Number(quantity || 0) * Number(unitPrice || 0);
+  const vat = sub * (Number(vatRate || 0) / 100);
+  const total = sub + vat;
+
+  const handleCreate = async () => {
+    if (!returnReason.trim() || !description.trim() || Number(unitPrice) <= 0) {
+      toast.error(new Error('يرجى إدخال سبب الإشعار والوصف والمبلغ بشكل صحيح'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const res: any = await api.post('/invoices/debit-notes', {
+        originalInvoiceId: invoice.id,
+        returnReason: returnReason.trim(),
+        issueDate,
+        notes: notes || undefined,
+        lines: [
+          {
+            description: description.trim(),
+            quantity: Number(quantity || 1),
+            unitPrice: Number(unitPrice || 0),
+            discountPct: 0,
+            vatRate: Number(vatRate || 15),
+            vatCategory: Number(vatRate) > 0 ? 'S' : 'Z',
+          },
+        ],
+      });
+      toast.success(`تم إصدار الإشعار المدين برقم ${res.invoiceNo} بنجاح`);
+      onSuccess();
+      onClose();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      saving={busy}
+      title={`إصدار إشعار مدين (Debit Note 383) للفاتورة ${invoice.invoiceNo}`}
+      footer={
+        <>
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
+            إلغاء
+          </button>
+          <button type="button" className="btn-primary" onClick={handleCreate} disabled={busy}>
+            {busy ? 'جارٍ الإصدار...' : 'إصدار الإشعار المدين'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 text-xs font-bold text-indigo-900">
+          يُربط الإشعار المدين (نوع UBL 383) تلقائياً بالفاتورة الأصلية {invoice.invoiceNo} وفق متطلبات هيئة الزكاة (BR-KSA-56 & BR-KSA-17).
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="سبب الإشعار المدين (إلزامي لهيئة الزكاة)" required>
+            <input className="input" value={returnReason} onChange={(e) => setReturnReason(e.target.value)} />
+          </Field>
+          <Field label="تاريخ الإشعار" required>
+            <input type="date" className="input" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="وصف البند الإضافي" required>
+          <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Field label="الكمية" required>
+            <input type="number" min="0.01" step="0.01" className="input font-mono" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+          </Field>
+          <Field label="سعر الوحدة (قبل الضريبة)" required>
+            <input type="number" min="0.01" step="0.01" className="input font-mono" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
+          </Field>
+          <Field label="نسبة الضريبة %">
+            <select className="input font-mono" value={vatRate} onChange={(e) => setVatRate(e.target.value)}>
+              <option value="15">15% (قياسي S)</option>
+              <option value="0">0% (نسبة صفرية Z)</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="ملاحظات إضافية">
+          <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </Field>
+        <div className="rounded-xl bg-slate-50 dark:bg-slate-900/60 p-3.5 flex flex-wrap justify-between text-xs font-mono font-bold">
+          <span>الصافي: {money(sub)} SAR</span>
+          <span>الضريبة: {money(vat)} SAR</span>
+          <span className="text-indigo-700 dark:text-indigo-300">الإجمالي: {money(total)} SAR</span>
+        </div>
+      </div>
+    </Modal>
   );
 }

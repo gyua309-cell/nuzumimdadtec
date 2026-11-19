@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { z } from 'zod';
 import { DbService } from '../../../infrastructure/db/db.service';
 import { DomainError, NotFoundError } from '../../../shared/errors';
@@ -7,6 +7,8 @@ import { ListQuery, Page, offset, orderBy } from '../../../shared/http/common';
 import { PostingEngine, PostingItem } from '../../accounting/application/posting-engine';
 import { JournalService } from '../../accounting/application/journal.service';
 import { FiscalService } from '../../core/application/fiscal.service';
+import { ZatcaService } from '../../tax/application/zatca.service';
+import { isLockedByZatca } from '../../tax/domain/zatca-status';
 import { computeInvoiceHash, generateZatcaTlv, validateZatcaCompliance } from '../domain/zatca';
 
 export const InvoiceLineInput = z.object({
@@ -45,6 +47,14 @@ export const CreditNoteCreate = z.object({
   lines: z.array(InvoiceLineInput).optional(),
 });
 
+export const DebitNoteCreate = z.object({
+  originalInvoiceId: z.string().uuid(),
+  returnReason: z.string().trim().min(3).max(1000),
+  issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+  lines: z.array(InvoiceLineInput).min(1),
+});
+
 export const AutoInvoiceFromRevenue = z.object({
   fiscalPeriodId: z.string().uuid(),
   projectId: z.string().uuid().nullable().optional(),
@@ -59,6 +69,7 @@ export class InvoicesService {
     private readonly posting: PostingEngine,
     private readonly journal: JournalService,
     private readonly fiscal: FiscalService,
+    @Optional() private readonly zatca?: ZatcaService,
   ) {}
 
   private async nextInvoiceNo(companyId: string, type: string): Promise<string> {
@@ -204,18 +215,27 @@ export class InvoicesService {
         [companyId],
       );
 
-      const client = await this.db.one<{ name_ar: string; vat_number: string }>(
-        'SELECT name_ar, vat_number FROM prj.clients WHERE id = $1 AND company_id = $2',
+      const client = await this.db.one<{ name_ar: string; vat_number: string; buyer_type?: string }>(
+        'SELECT name_ar, vat_number, buyer_type FROM prj.clients WHERE id = $1 AND company_id = $2',
         [body.clientId, companyId],
       );
       if (!client) throw new NotFoundError('Client', body.clientId);
 
-      const invoiceNo = await this.nextInvoiceNo(companyId, body.invoiceType);
+      // Auto-resolve B2C simplified type when buyer is explicitly B2C without a 15-digit VAT number
+      const resolvedInvoiceType =
+        body.invoiceType === 'TAX_INVOICE' &&
+        client.buyer_type === 'B2C' &&
+        (!client.vat_number || !/^3\d{13}3$/.test(client.vat_number))
+          ? 'SIMPLIFIED'
+          : body.invoiceType;
+
+      const invoiceNo = await this.nextInvoiceNo(companyId, resolvedInvoiceType);
       const pih = await this.lastInvoiceHash(companyId);
       const rate = D(body.exchangeRate);
 
       // Line computations
       let subtotal = D(0);
+      let discountTotal = D(0);
       let vatTotal = D(0);
       const processedLines = body.lines.map((l, idx) => {
         const qty = D(l.quantity);
@@ -229,6 +249,7 @@ export class InvoicesService {
         const lineTotal = lineSubtotal.plus(lineVat);
 
         subtotal = subtotal.plus(lineSubtotal);
+        discountTotal = discountTotal.plus(lineDiscount);
         vatTotal = vatTotal.plus(lineVat);
 
         return {
@@ -272,7 +293,7 @@ export class InvoicesService {
       const compliance = validateZatcaCompliance({
         sellerVatNumber: company?.tax_number,
         sellerName: company?.name_ar,
-        invoiceType: body.invoiceType,
+        invoiceType: resolvedInvoiceType,
         clientName: client.name_ar,
         clientVatNumber: client.vat_number,
         subtotal: subtotal.toNumber(),
@@ -281,6 +302,8 @@ export class InvoicesService {
         qrCode,
       });
 
+      const submissionType = resolvedInvoiceType === 'SIMPLIFIED' ? 'REPORTING' : 'CLEARANCE';
+
       const inv = await this.db.one<{ id: string }>(
         `INSERT INTO sal.invoices
            (company_id, invoice_no, invoice_type, invoice_sub_type, client_id, project_id,
@@ -288,19 +311,21 @@ export class InvoicesService {
             original_invoice_id, return_reason, subtotal, discount_amount, taxable_amount,
             vat_rate, vat_amount, total_amount, subtotal_base, vat_amount_base, total_amount_base,
             status, payment_status, notes, zatca_uuid, zatca_pih, zatca_hash, zatca_qr_code,
-            zatca_status, zatca_compliance_status, created_by, updated_by)
+            zatca_status, zatca_compliance_status, zatca_submission_type, created_by, updated_by)
          VALUES
-           ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0,$15,15.00,$16,$17,$18,$19,$20,
-            'DRAFT','UNPAID',$21,$22,$23,$24,$25,'NOT_SUBMITTED',$26,sys.current_user_id(),sys.current_user_id())
+           ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$27,$15,15.00,$16,$17,$18,$19,$20,
+            'DRAFT','UNPAID',$21,$22,$23,$24,$25,'NOT_SUBMITTED',$26,$28,sys.current_user_id(),sys.current_user_id())
          RETURNING id`,
         [
-          companyId, invoiceNo, body.invoiceType, body.invoiceSubType, body.clientId, body.projectId ?? null,
+          companyId, invoiceNo, resolvedInvoiceType, body.invoiceSubType, body.clientId, body.projectId ?? null,
           body.fiscalPeriodId, body.issueDate, issueTime, body.dueDate ?? null, body.currencyCode, rate.toFixed(10),
           body.originalInvoiceId ?? null, body.returnReason ?? null,
           subtotal.toFixed(4), vatTotal.toFixed(4), totalAmount.toFixed(4),
           subtotalBase.toFixed(4), vatAmountBase.toFixed(4), totalAmountBase.toFixed(4),
           body.notes ?? null, zatcaUuid, pih, zatcaHash, qrCode,
           compliance.passed ? 'PASS' : 'WARNING',
+          discountTotal.toFixed(4),
+          submissionType,
         ],
       );
 
@@ -420,7 +445,14 @@ export class InvoicesService {
   }
 
   async post(companyId: string, id: string) {
-    return this.postInternal(companyId, id, false);
+    const posted = await this.postInternal(companyId, id, false);
+    // Non-blocking post-commit ZATCA hook (only submits if company has autoSubmit=true;
+    // never creates duplicate accounting entries and never rolls back accounting on ZATCA failure).
+    if (this.zatca) {
+      await this.zatca.submitAfterAccountingPost(companyId, id);
+      return this.get(companyId, id);
+    }
+    return posted;
   }
 
   /**
@@ -443,24 +475,26 @@ export class InvoicesService {
       }
 
       const isCreditNote = inv.invoiceType === 'CREDIT_NOTE';
-      const eventCode = isCreditNote ? 'SAL.CREDIT_NOTE' : 'SAL.INVOICE';
+      const isDebitNote = inv.invoiceType === 'DEBIT_NOTE';
+      const docLabel = isCreditNote ? 'إشعار دائن' : isDebitNote ? 'إشعار مدين' : 'فاتورة مبيعات';
+      const eventCode = isCreditNote ? 'SAL.CREDIT_NOTE' : isDebitNote ? 'SAL.DEBIT_NOTE' : 'SAL.INVOICE';
 
       // Accounting entries:
-      // SAL.INVOICE:     Debit A/R (total), Credit Revenue (subtotal), Credit VAT (vat)
-      // SAL.CREDIT_NOTE: Debit Revenue/Returns (subtotal), Debit VAT (vat), Credit A/R (total)
+      // SAL.INVOICE / SAL.DEBIT_NOTE: Debit A/R (total), Credit Revenue (subtotal), Credit VAT (vat)
+      // SAL.CREDIT_NOTE:              Debit Revenue/Returns (subtotal), Debit VAT (vat), Credit A/R (total)
       const items: PostingItem[] = [
         {
           key: 'total',
           amount: inv.totalAmountBase,
           dims: { clientId: inv.clientId, projectId: inv.projectId ?? undefined },
           refs: { clientId: inv.clientId },
-          description: `${isCreditNote ? 'إشعار دائن' : 'فاتورة مبيعات'} ${inv.invoiceNo} - عميل: ${inv.clientName}`,
+          description: `${docLabel} ${inv.invoiceNo} - عميل: ${inv.clientName}`,
         },
         {
           key: 'subtotal',
           amount: inv.subtotalBase,
           dims: { clientId: inv.clientId, projectId: inv.projectId ?? undefined },
-          description: `إيرادات خدمات تعاقدية - ${inv.invoiceNo}`,
+          description: `${isDebitNote ? 'إضافات/فروقات إيرادات' : 'إيرادات خدمات تعاقدية'} - ${inv.invoiceNo}`,
         },
       ];
 
@@ -474,31 +508,34 @@ export class InvoicesService {
       }
 
       let entryId: string | null = null;
+      const postPayload = {
+        eventCode,
+        entryDate: inv.issueDate,
+        fiscalPeriodId: inv.fiscalPeriodId,
+        journalType: 'REVENUE' as const,
+        description: `${docLabel} - ${inv.invoiceNo} (${inv.clientName})`,
+        reference: inv.invoiceNo,
+        sourceModule: 'sales',
+        sourceType: isCreditNote ? 'CREDIT_NOTE' : isDebitNote ? 'DEBIT_NOTE' : 'SALES_INVOICE',
+        sourceId: inv.id,
+        currencyCode: inv.currencyCode,
+        exchangeRate: inv.exchangeRate,
+        items,
+      };
       try {
-        entryId = await this.posting.post(companyId, {
-          eventCode,
-          entryDate: inv.issueDate,
-          fiscalPeriodId: inv.fiscalPeriodId,
-          journalType: 'REVENUE',
-          description: `${isCreditNote ? 'إشعار دائن' : 'فاتورة مبيعات'} - ${inv.invoiceNo} (${inv.clientName})`,
-          reference: inv.invoiceNo,
-          sourceModule: 'sales',
-          sourceType: isCreditNote ? 'CREDIT_NOTE' : 'SALES_INVOICE',
-          sourceId: inv.id,
-          currencyCode: inv.currencyCode,
-          exchangeRate: inv.exchangeRate,
-          items,
-        });
+        entryId = await this.posting.post(companyId, postPayload);
       } catch (err: any) {
-        // An invoice must never post silently without its journal entry: that left revenue and
-        // VAT payable out of the ledger. Fail loudly so the missing rule gets configured.
-        if (err.code === 'POSTING_RULE_MISSING') {
+        // Fallback: if SAL.DEBIT_NOTE rule hasn't been created yet in an older DB, use SAL.INVOICE (identical Dr/Cr direction).
+        if (err.code === 'POSTING_RULE_MISSING' && isDebitNote) {
+          entryId = await this.posting.post(companyId, { ...postPayload, eventCode: 'SAL.INVOICE' });
+        } else if (err.code === 'POSTING_RULE_MISSING') {
           throw new DomainError(
             'POSTING_RULE_MISSING',
             `لا توجد قاعدة ترحيل نشطة للحدث ${eventCode}. أضفها من المحاسبة العامة ← قواعد الترحيل قبل ترحيل الفاتورة`,
           );
+        } else {
+          throw err;
         }
-        throw err;
       }
 
       await this.db.query(
@@ -550,11 +587,45 @@ export class InvoicesService {
     });
   }
 
+  async createDebitNote(companyId: string, body: z.infer<typeof DebitNoteCreate>) {
+    return this.db.tx(async () => {
+      const original = await this.get(companyId, body.originalInvoiceId);
+      if (original.status !== 'POSTED') {
+        throw new DomainError('ORIGINAL_NOT_POSTED', 'يمكن إصدار إشعار مدين للفواتير المرحّلة فقط');
+      }
+
+      const dbn = await this.create(companyId, {
+        invoiceType: 'DEBIT_NOTE',
+        invoiceSubType: 'STANDARD',
+        clientId: original.clientId,
+        projectId: original.projectId,
+        fiscalPeriodId: original.fiscalPeriodId,
+        issueDate: body.issueDate || new Date().toISOString().slice(0, 10),
+        currencyCode: original.currencyCode,
+        exchangeRate: original.exchangeRate,
+        originalInvoiceId: original.id,
+        returnReason: body.returnReason,
+        notes: body.notes ?? `إشعار مدين مرتبط بالفاتورة ${original.invoiceNo} - سبب: ${body.returnReason}`,
+        lines: body.lines,
+      });
+
+      return dbn;
+    });
+  }
+
   async cancel(companyId: string, id: string, reason: string) {
     return this.db.tx(async () => {
       const inv = await this.get(companyId, id);
       if (inv.status !== 'POSTED') {
         throw new DomainError('NOT_POSTED', 'يمكن إلغاء الفواتير المرحّلة فقط');
+      }
+
+      // ZATCA Phase 2 Immutability Guard: Once Cleared/Reported/Accepted by ZATCA, direct cancellation is prohibited!
+      if (isLockedByZatca(inv.zatcaStatus)) {
+        throw new DomainError(
+          'ZATCA_INVOICE_LOCKED',
+          'لا يمكن إلغاء أو تعديل فاتورة تم تخليصها أو الإبلاغ عنها لدى هيئة الزكاة (ZATCA). يجب إصدار إشعار دائن إلكتروني (Credit Note) مرتبط بهذه الفاتورة بدلاً من الإلغاء المباشر.',
+        );
       }
 
       if (inv.journalEntryId) {

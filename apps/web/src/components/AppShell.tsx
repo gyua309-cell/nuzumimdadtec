@@ -294,15 +294,17 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       {
         key: 'zatca_main',
-        label: 'الزكاة والضريبة (ZATCA)',
+        label: 'الفوترة الإلكترونية – هيئة الزكاة',
         icon: ShieldCheck,
         color: 'emerald',
-        badge: '🇸🇦',
+        badge: 'Phase 2',
         items: [
-          { to: '/zatca/hub', label: 'مركز القيادة والربط المباشر' },
-          { to: '/zatca/invoices', label: 'الفواتير والاعتماد (مرحلة 1 و 2)' },
-          { to: '/zatca/onboarding', label: 'تهيئة الشهادة الرقمية (CSID)' },
-          { to: '/zatca/qr-validator', label: 'فاحص ومفسر الرمز (QR)' },
+          { to: '/zatca/hub', label: 'لوحة التحكم ومؤشرات الامتثال' },
+          { to: '/zatca/settings', label: 'إعدادات المنشأة وأجهزة EGS والبيئات' },
+          { to: '/zatca/onboarding', label: 'معالج الربط والشهادات (7 خطوات)' },
+          { to: '/zatca/invoices', label: 'الفواتير الإلكترونية وسجل العمليات' },
+          { to: '/zatca/reports', label: 'تقارير الفوترة الإلكترونية (14 تقريراً)' },
+          { to: '/zatca/qr-validator', label: 'فاحص ومفسر الرمز (QR 9-Tags)' },
           { to: '/reports/zakat', label: 'إقرار الزكاة الشرعية والدخل' },
           { to: '/reports/vat-return', label: 'إقرار ضريبة القيمة المضافة 15%' },
         ],
@@ -1525,7 +1527,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </div>
           )}
 
-          <ErrorBoundary>
+          <ErrorBoundary key={loc.pathname}>
             {children ?? <Outlet />}
           </ErrorBoundary>
         </main>

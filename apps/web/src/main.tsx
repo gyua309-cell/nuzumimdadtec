@@ -51,8 +51,11 @@ const AutomationHubPage = lazyNamed(() => import('./pages/automation-hub'), 'Aut
 const VatReportPage = lazyNamed(() => import('./pages/vat-report'), 'VatReportPage');
 const ZakatPage = lazyNamed(() => import('./pages/zakat'), 'ZakatPage');
 const ZatcaHubPage = lazyNamed(() => import('./pages/zatca-hub'), 'ZatcaHubPage');
+const ZatcaSettingsPage = lazyNamed(() => import('./pages/zatca-settings'), 'ZatcaSettingsPage');
 const ZatcaInvoicesPage = lazyNamed(() => import('./pages/zatca-invoices'), 'ZatcaInvoicesPage');
+const ZatcaInvoiceDetailPage = lazyNamed(() => import('./pages/zatca-invoice-detail'), 'ZatcaInvoiceDetailPage');
 const ZatcaOnboardingPage = lazyNamed(() => import('./pages/zatca-onboarding'), 'ZatcaOnboardingPage');
+const ZatcaReportsPage = lazyNamed(() => import('./pages/zatca-reports'), 'ZatcaReportsPage');
 const ZatcaQrValidatorPage = lazyNamed(() => import('./pages/zatca-qr-validator'), 'ZatcaQrValidatorPage');
 
 const loadAdmin = () => import('./pages/admin');
@@ -210,8 +213,11 @@ function Root() {
           <Route path="reports/zakat" element={<ZakatPage />} />
           <Route path="sal/zatca" element={<ZatcaHubPage />} />
           <Route path="zatca/hub" element={<ZatcaHubPage />} />
+          <Route path="zatca/settings" element={<ZatcaSettingsPage />} />
           <Route path="zatca/invoices" element={<ZatcaInvoicesPage />} />
+          <Route path="zatca/invoices/:id" element={<ZatcaInvoiceDetailPage />} />
           <Route path="zatca/onboarding" element={<ZatcaOnboardingPage />} />
+          <Route path="zatca/reports" element={<ZatcaReportsPage />} />
           <Route path="zatca/qr-validator" element={<ZatcaQrValidatorPage />} />
           <Route path="reports/custody-movement" element={<CustodyReportPage />} />
           <Route path="reports/multi-currency-payroll" element={<MultiCurrencyPayrollReportPage />} />

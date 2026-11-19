@@ -37,7 +37,6 @@ import {
   addCustodyExpenseLine,
   assignAssetCustody,
   autoGenerateSalesInvoicesFromAssignments,
-  batchTransmitZatcaInvoices,
   buildZatcaUblXml,
   cancelDepreciationRunItem,
   cancelPurchaseInvoiceItem,
@@ -60,8 +59,6 @@ import {
   disburseCustodyItem,
   disposeAssetItem,
   executeDepreciationRun,
-  getZatcaLiveStatus,
-  getZatcaSettings,
   getZakatSettings,
   onboardZatcaSettings,
   payPurchaseInvoiceItem,
@@ -78,27 +75,77 @@ import {
   settleVatReturnPeriod,
   syncAllOperationalJournals,
   topUpCustodyTransfer,
-  transmitZatcaInvoice,
   executeInterBankTransfer,
   payPayrollRunFromBank,
   postEosbSettlementJournal,
 } from './cycle-engine';
+import {
+  batchTransmitZatcaLocal,
+  createSalesDebitNoteLocal,
+  createZatcaDeviceLocal,
+  generateDeviceCsrLocal,
+  getInvoiceZatcaDetailsLocal,
+  getZatcaLiveStatusV2,
+  getZatcaSettingsV2,
+  listNotificationsLocal,
+  listRetryQueueLocal,
+  listZatcaDevicesLocal,
+  markNotificationReadLocal,
+  processRetryQueueLocal,
+  requestComplianceCsidLocal,
+  requestProductionCsidLocal,
+  runComplianceChecksLocal,
+  testDeviceConnectionLocal,
+  transmitZatcaInvoiceV2,
+  updateZatcaSettingsV2,
+  validateInvoiceLocal,
+} from './zatca-local-engine';
 
-/** Filters sales/purchase invoice collections by status, ZATCA state, and fiscal period (ID or date window). */
+/** Filters sales/purchase invoice collections by status, ZATCA state, type, search, and fiscal period (ID or date window). */
 function filterInvoicesByQuery(items: any[], path: string, opts?: { isZatca?: boolean }): any[] {
   const qStr = path.includes('?') ? path.split('?')[1] : '';
   const params = new URLSearchParams(qStr);
   const statusFilter = params.get('status');
+  const typeFilter = params.get('type');
+  const searchFilter = (params.get('search') || '').trim().toLowerCase();
+  const fromDate = params.get('from');
+  const toDate = params.get('to');
   const fiscalPeriodId = params.get('fiscalPeriodId') || params.get('periodId');
 
   let result = items;
   if (opts?.isZatca) {
-    result = result.filter((i: any) => i.status === 'POSTED');
+    result = result.filter((i: any) => i.status === 'POSTED' || i.status === 'PAID' || i.status === 'PARTIALLY_PAID');
     if (statusFilter && statusFilter !== 'ALL') {
-      result = result.filter((i: any) => (i.zatcaStatus || 'NOT_SUBMITTED') === statusFilter);
+      if (statusFilter === 'PENDING_ALL') {
+        result = result.filter((i: any) => ['NOT_SUBMITTED', 'READY', 'PENDING_SUBMISSION', 'RETRY_PENDING'].includes(i.zatcaStatus || 'NOT_SUBMITTED'));
+      } else if (statusFilter === 'ACCEPTED_ALL') {
+        result = result.filter((i: any) => ['CLEARED', 'REPORTED', 'ACCEPTED', 'WARNING'].includes(i.zatcaStatus || ''));
+      } else if (statusFilter === 'REJECTED_ALL') {
+        result = result.filter((i: any) => ['REJECTED', 'FAILED', 'VALIDATION_FAILED'].includes(i.zatcaStatus || ''));
+      } else {
+        result = result.filter((i: any) => (i.zatcaStatus || 'NOT_SUBMITTED') === statusFilter);
+      }
     }
   } else if (statusFilter) {
     result = result.filter((i: any) => i.status === statusFilter);
+  }
+
+  if (typeFilter && typeFilter !== 'ALL') {
+    result = result.filter((i: any) => (i.invoiceType || 'TAX_INVOICE') === typeFilter);
+  }
+  if (fromDate) {
+    result = result.filter((i: any) => String(i.issueDate || '').slice(0, 10) >= fromDate);
+  }
+  if (toDate) {
+    result = result.filter((i: any) => String(i.issueDate || '').slice(0, 10) <= toDate);
+  }
+  if (searchFilter) {
+    result = result.filter((i: any) =>
+      String(i.invoiceNo || '').toLowerCase().includes(searchFilter) ||
+      String(i.clientName || '').toLowerCase().includes(searchFilter) ||
+      String(i.clientVatNumber || '').toLowerCase().includes(searchFilter) ||
+      String(i.zatcaUuid || '').toLowerCase().includes(searchFilter),
+    );
   }
 
   if (fiscalPeriodId) {
@@ -1487,7 +1534,36 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
     const cleanActionPath = path.split('?')[0].replace(/\/$/, '');
 
-    // --- ZATCA Operations ---
+    // --- ZATCA Phase 2 Operations ---
+    if (cleanActionPath === '/zatca/settings' && (method === 'PUT' || method === 'PATCH')) {
+      return updateZatcaSettingsV2(body);
+    }
+    if (cleanActionPath === '/zatca/devices' && method === 'POST') {
+      return createZatcaDeviceLocal(body);
+    }
+    if (cleanActionPath.includes('/zatca/devices/') && cleanActionPath.endsWith('/csr')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return generateDeviceCsrLocal(parts[parts.length - 2]);
+    }
+    if (cleanActionPath.includes('/zatca/devices/') && cleanActionPath.endsWith('/compliance-csid')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return requestComplianceCsidLocal(parts[parts.length - 2], body?.otp);
+    }
+    if (cleanActionPath.includes('/zatca/devices/') && cleanActionPath.endsWith('/compliance-check')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return runComplianceChecksLocal(parts[parts.length - 2]);
+    }
+    if (cleanActionPath.includes('/zatca/devices/') && cleanActionPath.endsWith('/production-csid')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return requestProductionCsidLocal(parts[parts.length - 2]);
+    }
+    if (cleanActionPath.includes('/zatca/devices/') && cleanActionPath.endsWith('/test')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return testDeviceConnectionLocal(parts[parts.length - 2]);
+    }
+    if (cleanActionPath === '/zatca/test-connection') {
+      return testDeviceConnectionLocal(body?.deviceId);
+    }
     if (cleanActionPath.includes('/zatca/onboard')) {
       return onboardZatcaSettings(body);
     }
@@ -1495,15 +1571,33 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       return decodeZatcaTlv(body?.qrBase64 || '');
     }
     if (cleanActionPath.includes('/zatca/invoices/batch-transmit')) {
-      return batchTransmitZatcaInvoices();
+      return batchTransmitZatcaLocal();
+    }
+    if (cleanActionPath.includes('/zatca/invoices/') && cleanActionPath.endsWith('/validate')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return validateInvoiceLocal(parts[parts.length - 2]);
     }
     if (cleanActionPath.includes('/zatca/invoices/') && cleanActionPath.endsWith('/transmit')) {
       const parts = cleanActionPath.split('/').filter(Boolean);
       const tIdx = parts.findIndex((p) => p === 'transmit');
-      return transmitZatcaInvoice(tIdx > 0 ? parts[tIdx - 1] : parts.pop() || '');
+      return transmitZatcaInvoiceV2(tIdx > 0 ? parts[tIdx - 1] : parts.pop() || '', body);
+    }
+    if (cleanActionPath === '/zatca/retry-queue/process') {
+      return processRetryQueueLocal();
+    }
+    if (cleanActionPath.includes('/zatca/retry-queue/') && cleanActionPath.endsWith('/retry')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return processRetryQueueLocal(parts[parts.length - 2]);
+    }
+    if (cleanActionPath.includes('/zatca/notifications/') && cleanActionPath.endsWith('/read')) {
+      const parts = cleanActionPath.split('/').filter(Boolean);
+      return markNotificationReadLocal(parts[parts.length - 2]);
     }
 
-    // --- Sales Invoices, Customer Receipts & Credit Notes ---
+    // --- Sales Invoices, Customer Receipts, Credit Notes & Sales Debit Notes ---
+    if ((cleanActionPath === '/invoices/debit-notes' || cleanActionPath === '/sales-debit-notes') && method === 'POST') {
+      return createSalesDebitNoteLocal(body);
+    }
     if (cleanActionPath.includes('/invoices/auto-generate')) {
       return autoGenerateSalesInvoicesFromAssignments(body);
     }
@@ -3156,17 +3250,25 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   if (path.includes('/credit-notes')) {
     return makeList(getEntityList('credit_notes', []));
   }
+  if (path.includes('/sales-debit-notes')) {
+    const invs = getEntityList<any>('invoices', []).filter((i) => i.invoiceType === 'DEBIT_NOTE');
+    return makeList(invs);
+  }
 
   if (path.includes('/invoices') || path.includes('/sal/invoices') || path.includes('/zatca/invoices')) {
     const cleanI = path.split('?')[0].replace(/\/$/, '');
     const invs = getEntityList<any>('invoices', []);
+    if (cleanI.endsWith('/details') && cleanI.includes('/zatca/invoices/')) {
+      const parts = cleanI.split('/').filter(Boolean);
+      return getInvoiceZatcaDetailsLocal(parts[parts.length - 2]);
+    }
     if (path.includes('/ubl-xml')) {
       const parts = cleanI.split('/').filter(Boolean);
       const xmlIdx = parts.findIndex((p) => p === 'ubl-xml');
       const targetId = xmlIdx > 0 ? parts[xmlIdx - 1] : '';
       const inv = invs.find((i: any) => i.id === targetId || i.invoiceNo === targetId) || invs[0];
       const ublXml = inv ? buildZatcaUblXml(inv) : '<?xml version="1.0" encoding="UTF-8"?><Invoice></Invoice>';
-      return { ublXml, hash: inv?.zatcaHash || sha256Hex(ublXml) };
+      return { ublXml, hash: inv?.zatcaHash || sha256Hex(ublXml), qrCode: inv?.zatcaQrCode || '' };
     }
     const single = invs.find((i: any) => cleanI.endsWith(`/${i.id}`) || cleanI.endsWith(`/${i.invoiceNo}`));
     if (single) {
@@ -3176,20 +3278,50 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         payments: Array.isArray(single.payments) ? single.payments : [],
       };
     }
-    return makeList(filterInvoicesByQuery(invs, path, { isZatca: path.includes('/zatca/invoices') }));
+    const filtered = filterInvoicesByQuery(invs, path, { isZatca: path.includes('/zatca/invoices') });
+    if (path.includes('/zatca/invoices')) {
+      return filtered.map((i: any) => ({
+        ...i,
+        uuid: i.zatcaUuid || i.id,
+        icv: i.zatcaIcv || 1,
+        accountingStatus: i.status,
+        zatcaStatus: i.zatcaStatus || 'NOT_SUBMITTED',
+        complianceStatus: i.zatcaComplianceStatus || 'PASS',
+        submissionType: i.zatcaSubmissionType || (i.invoiceType === 'SIMPLIFIED' ? 'REPORTING' : 'CLEARANCE'),
+        clientVat: i.clientVatNumber || '',
+        hasQr: Boolean(i.zatcaQrCode),
+        branchName: 'الفرع الرئيسي',
+        deviceCode: 'EGS-MAIN-01',
+      }));
+    }
+    return makeList(filtered);
   }
 
-  // 13. ZATCA
+  // 13. ZATCA Phase 2
   if (path.includes('/zatca/status')) {
-    return getZatcaLiveStatus();
+    return getZatcaLiveStatusV2();
   }
 
   if (path.includes('/zatca/settings')) {
-    return getZatcaSettings();
+    return getZatcaSettingsV2();
+  }
+
+  if (path.includes('/zatca/devices')) {
+    const qStr = path.includes('?') ? path.split('?')[1] : '';
+    const env = new URLSearchParams(qStr).get('environment') || undefined;
+    return listZatcaDevicesLocal(env);
+  }
+
+  if (path.includes('/zatca/retry-queue')) {
+    return listRetryQueueLocal();
+  }
+
+  if (path.includes('/zatca/notifications')) {
+    return listNotificationsLocal();
   }
 
   if (path.includes('/zatca/submissions')) {
-    return makeList(getEntityList('zatca_submissions', []));
+    return getEntityList('zatca_submissions', []);
   }
 
   if (path.includes('/zatca/decode-qr')) {

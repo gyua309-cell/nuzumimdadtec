@@ -5,7 +5,7 @@ import { activeCompanyId } from '../../../shared/http/request';
 import { ZodPipe } from '../../../shared/http/zod.pipe';
 import { RequirePermission } from '../../iam/presentation/decorators';
 import {
-  AutoInvoiceFromRevenue, CreditNoteCreate, InvoiceCreate, InvoicesService,
+  AutoInvoiceFromRevenue, CreditNoteCreate, DebitNoteCreate, InvoiceCreate, InvoicesService,
 } from '../application/invoices.service';
 import { ServicesCatalogService } from '../application/services-catalog.service';
 
@@ -39,6 +39,12 @@ export class InvoicesController {
   @RequirePermission('sal.invoice.create')
   autoGenerate(@Body(new ZodPipe(AutoInvoiceFromRevenue)) body: z.infer<typeof AutoInvoiceFromRevenue>) {
     return this.svc.generateFromRevenue(activeCompanyId(), body);
+  }
+
+  @Post('debit-notes')
+  @RequirePermission('sal.invoice.create')
+  createDebitNoteAlias(@Body(new ZodPipe(DebitNoteCreate)) body: z.infer<typeof DebitNoteCreate>) {
+    return this.svc.createDebitNote(activeCompanyId(), body);
   }
 
   @Post(':id/repair-journal')
@@ -77,6 +83,23 @@ export class CreditNotesController {
   @RequirePermission('sal.invoice.create')
   create(@Body(new ZodPipe(CreditNoteCreate)) body: z.infer<typeof CreditNoteCreate>) {
     return this.svc.createCreditNote(activeCompanyId(), body);
+  }
+}
+
+@Controller('sales-debit-notes')
+export class SalesDebitNotesController {
+  constructor(private readonly svc: InvoicesService) {}
+
+  @Get()
+  @RequirePermission('sal.invoice.view')
+  list(@Query(listPipe) q: any) {
+    return this.svc.list(activeCompanyId(), { ...q, type: 'DEBIT_NOTE' });
+  }
+
+  @Post()
+  @RequirePermission('sal.invoice.create')
+  create(@Body(new ZodPipe(DebitNoteCreate)) body: z.infer<typeof DebitNoteCreate>) {
+    return this.svc.createDebitNote(activeCompanyId(), body);
   }
 }
 
