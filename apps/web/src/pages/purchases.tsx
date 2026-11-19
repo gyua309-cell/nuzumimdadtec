@@ -1175,6 +1175,28 @@ export function PurchaseInvoiceDetailPage() {
             </button>
           )}
 
+          <ExportMenu
+            title={isDebitNote ? `إشعار مدين مشتريات ${inv.invoiceNo}` : `سند استحقاق مشتريات ${inv.invoiceNo}`}
+            filename={`Purchase-Voucher-${inv.invoiceNo}-${inv.issueDate}`}
+            periodLabel={`تاريخ الإصدار: ${inv.issueDate} • المورد: ${inv.vendorName}`}
+            currency={inv.currency || 'SAR'}
+            columns={[
+              { key: 'lineNo', header: '#', width: 6 },
+              { key: 'description', header: 'البيان والتفاصيل', width: 30 },
+              { key: 'accountName', header: 'حساب المصروف', width: 22 },
+              { key: 'quantity', header: 'الكمية', width: 10, type: 'number' },
+              { key: 'unitPrice', header: 'سعر الوحدة', width: 14, type: 'currency' },
+              { key: 'vatAmount', header: 'الضريبة 15%', width: 14, type: 'currency', isTotal: true },
+              { key: 'subtotal', header: 'المبلغ قبل الضريبة', width: 16, type: 'currency', isTotal: true },
+              { key: 'totalAmount', header: 'الإجمالي شامل الضريبة', width: 18, type: 'currency', isTotal: true },
+            ]}
+            data={(inv.lines ?? []).map((l: any, idx: number) => ({
+              ...l,
+              lineNo: idx + 1,
+              accountName: l.accountNameAr || l.accountName || l.accountId,
+            }))}
+          />
+
           <button className="btn-secondary flex items-center gap-1.5 text-xs" onClick={() => window.print()}>
             <Printer className="size-3.5" /> طباعة سند استحقاق المشتريات (A4)
           </button>

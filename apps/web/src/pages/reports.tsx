@@ -34,20 +34,26 @@ function Range({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="card mb-4 flex flex-wrap items-end gap-3 p-3">
-      <Field label="من تاريخ"><input className="input w-40" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-      <Field label="إلى تاريخ"><input className="input w-40" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
-      {setBranchId && (
-        <Field label="الفرع / المركز المالي">
-          <select className="input w-64 font-medium" value={branchId || 'ALL'} onChange={(e) => setBranchId(e.target.value)}>
-            <option value="ALL">الكل (قوائم موحدة - Consolidated SAR)</option>
-            {(branches ?? []).map((b: any) => (
-              <option key={b.id} value={b.id}>{b.nameAr} ({b.functionalCurrency || b.countryCode})</option>
-            ))}
-          </select>
-        </Field>
-      )}
-      {children}
+    <div className="card mb-5 p-4 relative z-40 overflow-visible bg-white/95 dark:bg-[#0c1324]/95 border border-slate-200/80 dark:border-slate-800 shadow-xs">
+      <div className="flex flex-wrap items-end gap-3.5">
+        <Field label="من تاريخ"><input className="input w-36 sm:w-40" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+        <Field label="إلى تاريخ"><input className="input w-36 sm:w-40" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+        {setBranchId && (
+          <Field label="الفرع / المركز المالي">
+            <select
+              className="input min-w-[14rem] sm:w-72 font-medium"
+              value={branchId || 'ALL'}
+              onChange={(e) => setBranchId(e.target.value)}
+            >
+              <option value="ALL">الكل (قوائم موحدة - Consolidated SAR)</option>
+              {(branches ?? []).map((b: any) => (
+                <option key={b.id} value={b.id}>{b.nameAr} ({b.functionalCurrency || b.countryCode})</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {children}
+      </div>
     </div>
   );
 }
@@ -72,6 +78,8 @@ export function TrialBalancePage() {
   });
   const rows = (q.data?.rows ?? []).filter((r: any) => !postingOnly || r.isPosting);
   const cols = ['openingDebit', 'openingCredit', 'periodDebit', 'periodCredit', 'closingDebit', 'closingCredit'];
+  const isBalanced = Boolean(q.data?.balanced ?? q.data?.isBalanced);
+
   return (
     <div>
       <PageHeader
@@ -85,45 +93,121 @@ export function TrialBalancePage() {
               periodLabel={`${from} إلى ${to}`}
               currency={base}
               columns={[
-                { key: 'code', header: 'الرمز', type: 'text' },
-                { key: 'nameAr', header: 'الحساب', type: 'text' },
-                { key: 'openingDebit', header: 'مدين افتتاحي', type: 'currency' },
-                { key: 'openingCredit', header: 'دائن افتتاحي', type: 'currency' },
-                { key: 'periodDebit', header: 'مدين الفترة', type: 'currency' },
-                { key: 'periodCredit', header: 'دائن الفترة', type: 'currency' },
-                { key: 'closingDebit', header: 'مدين ختامي', type: 'currency' },
-                { key: 'closingCredit', header: 'دائن ختامي', type: 'currency' },
+                { key: 'code', header: 'الرمز', type: 'text', width: 14 },
+                { key: 'nameAr', header: 'الحساب', type: 'text', width: 28 },
+                { key: 'openingDebit', header: 'مدين افتتاحي', type: 'currency', width: 16, isTotal: true },
+                { key: 'openingCredit', header: 'دائن افتتاحي', type: 'currency', width: 16, isTotal: true },
+                { key: 'periodDebit', header: 'مدين الفترة', type: 'currency', width: 16, isTotal: true },
+                { key: 'periodCredit', header: 'دائن الفترة', type: 'currency', width: 16, isTotal: true },
+                { key: 'closingDebit', header: 'مدين ختامي', type: 'currency', width: 16, isTotal: true },
+                { key: 'closingCredit', header: 'دائن ختامي', type: 'currency', width: 16, isTotal: true },
               ]}
               data={rows}
             />
+            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة فورية">
+              <Printer className="size-3.5" /> طباعة فورية (A4)
+            </button>
           </div>
         }
       />
+
       <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data}>
         <Field label="الدفتر"><select className="input w-32" value={ledger} onChange={(e) => setLedger(e.target.value)}><option value="FINANCIAL">مالي</option><option value="MANAGEMENT">إداري</option></select></Field>
-        <label className="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" checked={postingOnly} onChange={(e) => setPostingOnly(e.target.checked)} /> الحسابات التفصيلية فقط</label>
-        {q.data && <div className="ms-auto pb-1"><BalancedBadge ok={Boolean(q.data.balanced ?? q.data.isBalanced)} /></div>}
+        <label className="flex items-center gap-2 pb-2 text-sm cursor-pointer select-none">
+          <input type="checkbox" className="rounded text-brand-600" checked={postingOnly} onChange={(e) => setPostingOnly(e.target.checked)} />
+          <span>الحسابات التفصيلية فقط</span>
+        </label>
+        {q.data && (
+          <div className="ms-auto pb-1 flex items-center gap-2">
+            <BalancedBadge ok={isBalanced} />
+          </div>
+        )}
       </Range>
+
+      {/* Executive KPI Cards */}
+      {q.data && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mb-5">
+          <div className="card p-3.5 border-slate-200/90 dark:border-slate-800 bg-gradient-to-br from-white to-slate-50 dark:from-[#0c1324] dark:to-[#080d19]">
+            <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+              <span className="font-semibold">الأرصدة الافتتاحية</span>
+              <Calendar className="size-3.5 text-slate-400" />
+            </div>
+            <div className="flex items-center justify-between text-xs mt-2">
+              <span className="text-slate-600 dark:text-slate-400">مدين: <strong className="num text-slate-900 dark:text-white font-mono">{money(q.data?.totals?.openingDebit ?? '0.00')}</strong></span>
+              <span className="text-slate-600 dark:text-slate-400">دائن: <strong className="num text-slate-900 dark:text-white font-mono">{money(q.data?.totals?.openingCredit ?? '0.00')}</strong></span>
+            </div>
+          </div>
+
+          <div className="card p-3.5 border-slate-200/90 dark:border-slate-800 bg-gradient-to-br from-white to-slate-50 dark:from-[#0c1324] dark:to-[#080d19]">
+            <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+              <span className="font-semibold">حركات الفترة (النشاط)</span>
+              <Activity className="size-3.5 text-blue-500" />
+            </div>
+            <div className="flex items-center justify-between text-xs mt-2">
+              <span className="text-emerald-700 dark:text-emerald-400">مدين: <strong className="num font-mono">{money(q.data?.totals?.periodDebit ?? '0.00')}</strong></span>
+              <span className="text-rose-700 dark:text-rose-400">دائن: <strong className="num font-mono">{money(q.data?.totals?.periodCredit ?? '0.00')}</strong></span>
+            </div>
+          </div>
+
+          <div className="card p-3.5 border-slate-200/90 dark:border-slate-800 bg-gradient-to-br from-white to-slate-50 dark:from-[#0c1324] dark:to-[#080d19]">
+            <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+              <span className="font-semibold">الأرصدة الختامية</span>
+              <Wallet className="size-3.5 text-indigo-500" />
+            </div>
+            <div className="flex items-center justify-between text-xs mt-2">
+              <span className="text-slate-800 dark:text-slate-200">مدين: <strong className="num font-mono">{money(q.data?.totals?.closingDebit ?? '0.00')}</strong></span>
+              <span className="text-slate-800 dark:text-slate-200">دائن: <strong className="num font-mono">{money(q.data?.totals?.closingCredit ?? '0.00')}</strong></span>
+            </div>
+          </div>
+
+          <div className={`card p-3.5 border transition-all ${isBalanced ? 'border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-rose-200 dark:border-rose-800/60 bg-rose-50/50 dark:bg-rose-950/20'}`}>
+            <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+              <span className="font-semibold">التوازن المحاسبي العام</span>
+              {isBalanced ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-rose-600" />}
+            </div>
+            <div className="text-base font-black mt-1 font-mono text-slate-900 dark:text-white">
+              {isBalanced ? 'متوازن 100% (0.00 SAR)' : `فارق: ${money(q.data?.difference ?? '0.00')}`}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              {isBalanced ? 'إجمالي المدين يطابق إجمالي الدائن تماماً' : 'يوجد تباين بحاجة لمراجعة القيود'}
+            </div>
+          </div>
+        </div>
+      )}
+
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : rows.length === 0 ? <div className="card"><EmptyState text="لا توجد حركات مرحّلة في هذه الفترة." /></div> : (
-        <div className="card max-h-[70vh] overflow-auto">
+        <div className="card max-h-[70vh] overflow-auto shadow-sm">
           <table className="table">
             <thead>
-              <tr><th rowSpan={2}>الرمز</th><th rowSpan={2}>الحساب</th><th colSpan={2} className="text-center">الرصيد الافتتاحي</th><th colSpan={2} className="text-center">حركة الفترة</th><th colSpan={2} className="text-center">الرصيد الختامي</th></tr>
-              <tr><th>مدين</th><th>دائن</th><th>مدين</th><th>دائن</th><th>مدين</th><th>دائن</th></tr>
+              <tr className="bg-slate-900 text-white dark:bg-slate-950">
+                <th rowSpan={2} className="text-white">الرمز</th>
+                <th rowSpan={2} className="text-white">الحساب</th>
+                <th colSpan={2} className="text-center text-white border-inline border-slate-700">الرصيد الافتتاحي</th>
+                <th colSpan={2} className="text-center text-white border-inline border-slate-700">حركة الفترة</th>
+                <th colSpan={2} className="text-center text-white border-inline border-slate-700">الرصيد الختامي</th>
+              </tr>
+              <tr className="bg-slate-800 text-slate-200 text-xs">
+                <th className="text-slate-200">مدين</th>
+                <th className="text-slate-200">دائن</th>
+                <th className="text-slate-200">مدين</th>
+                <th className="text-slate-200">دائن</th>
+                <th className="text-slate-200">مدين</th>
+                <th className="text-slate-200">دائن</th>
+              </tr>
             </thead>
             <tbody>
               {rows.map((r: any) => (
-                <tr key={r.accountId} className={`${r.isPosting ? 'cursor-pointer' : 'bg-slate-50 font-semibold dark:bg-slate-800/40'}`} onClick={() => r.isPosting && nav(`/reports/account-statement?accountId=${r.accountId}&from=${from}&to=${to}`)}>
-                  <td className="num text-start">{r.code}</td>
-                  <td style={{ paddingInlineStart: `${(r.level - 1) * 16 + 12}px` }}>{r.nameAr}</td>
-                  {cols.map((c) => <td key={c} className="num">{money(r[c])}</td>)}
+                <tr key={r.accountId} className={`${r.isPosting ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60' : 'bg-slate-50/70 font-semibold dark:bg-slate-800/40'}`} onClick={() => r.isPosting && nav(`/reports/account-statement?accountId=${r.accountId}&from=${from}&to=${to}`)}>
+                  <td className="num text-start font-mono font-bold text-slate-600 dark:text-slate-400">{r.code}</td>
+                  <td style={{ paddingInlineStart: `${(r.level - 1) * 16 + 12}px` }} className="font-medium text-slate-900 dark:text-slate-100">{r.nameAr}</td>
+                  {cols.map((c) => <td key={c} className="num font-mono text-xs">{money(r[c])}</td>)}
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr className="sticky bottom-0 bg-slate-100 font-bold dark:bg-slate-800">
-                <td colSpan={2} className="px-3 py-2">الإجمالي (الحسابات التفصيلية)</td>
-                {cols.map((c) => <td key={c} className="num px-3">{money(q.data?.totals?.[c] ?? '0.00')}</td>)}
+              <tr className="sticky bottom-0 bg-slate-100 dark:bg-slate-800/90 font-bold border-t-2 border-slate-300 dark:border-slate-700 text-slate-950 dark:text-white">
+                <td colSpan={2} className="px-3 py-2.5">الإجمالي (الحسابات التفصيلية)</td>
+                {cols.map((c) => <td key={c} className="num px-3 font-mono font-black">{money(q.data?.totals?.[c] ?? '0.00')}</td>)}
               </tr>
             </tfoot>
           </table>
@@ -158,65 +242,198 @@ export function AccountStatementPage() {
       ? q.data.data
       : (Array.isArray(q.data) ? q.data : []));
 
+  const acc = q.data?.account;
+  const isDebitNormal = acc?.normalBalance !== 'CREDIT';
+  const openBal = parseFloat(q.data?.openingBalance ?? '0');
+  const pDebit = parseFloat(q.data?.periodDebit ?? '0');
+  const pCredit = parseFloat(q.data?.periodCredit ?? '0');
+  const closeBal = parseFloat(q.data?.closingBalance ?? '0');
+  const netMovement = isDebitNormal ? (pDebit - pCredit) : (pCredit - pDebit);
+
   return (
     <div>
       <PageHeader
-        title="كشف حساب"
-        subtitle="الرصيد الافتتاحي + الحركة + الرصيد الجاري. اضغط على أي حركة لعرض القيد."
+        title="كشف حساب تفصيلي"
+        subtitle="الرصيد الافتتاحي + الحركات المدينة والدائنة + الرصيد الجاري التراكمي. اضغط على أي حركة لعرض قيد اليومية."
         actions={
-          <div className="flex items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
             {q.data && (
-              <button
-                className="btn-secondary text-xs flex items-center gap-1.5"
-                onClick={() =>
-                  downloadCsv(`statement-${q.data?.account?.code || 'acc'}-${from}-${to}.csv`, [
-                    ['التاريخ', 'القيد', 'البيان', 'العملة', 'مدين (عملة)', 'دائن (عملة)', 'مدين', 'دائن', 'الرصيد'],
-                    ...statementRows.map((l: any) => [
-                      l.entryDate, l.entryNo, l.lineDescription ?? l.description, l.currencyCode, l.debitTx, l.creditTx, l.debitBase, l.creditBase, l.runningBalance,
-                    ]),
-                  ])
-                }
-              >
-                <Download className="size-3.5" /> تصدير CSV
-              </button>
+              <ExportMenu
+                title={`كشف حساب - ${acc?.nameAr || ''} (${acc?.code || ''})`}
+                filename={`statement-${acc?.code || 'acc'}-${from}-${to}`}
+                periodLabel={`من ${from} إلى ${to}`}
+                currency={acc?.currencyCode || 'SAR'}
+                columns={[
+                  { key: 'entryDate', header: 'التاريخ', width: 14, type: 'date' },
+                  { key: 'entryNo', header: 'رقم القيد', width: 14 },
+                  { key: 'lineDescription', header: 'البيان والتفاصيل', width: 34 },
+                  { key: 'currencyCode', header: 'العملة', width: 10 },
+                  { key: 'debitBase', header: 'مدين (SAR)', width: 16, type: 'currency', isTotal: true },
+                  { key: 'creditBase', header: 'دائن (SAR)', width: 16, type: 'currency', isTotal: true },
+                  { key: 'runningBalance', header: 'الرصيد الجاري', width: 18, type: 'currency' },
+                ]}
+                data={statementRows.map((l: any) => ({
+                  ...l,
+                  lineDescription: l.lineDescription ?? l.description ?? '',
+                }))}
+              />
             )}
+            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة فورية">
+              <Printer className="size-3.5" /> طباعة فورية (A4)
+            </button>
           </div>
         }
       />
+
       <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data}>
-        <Field label="الحساب" className="w-96"><AccountSelect accounts={accounts.data ?? []} value={accountId} onChange={(v) => { setAccountId(v); setPage(1); }} /></Field>
+        <Field label="الحساب المحاسبي" className="w-80 sm:w-96">
+          <AccountSelect
+            accounts={accounts.data ?? []}
+            value={accountId}
+            onChange={(v) => { setAccountId(v); setPage(1); }}
+          />
+        </Field>
       </Range>
-      {!accountId ? <div className="card"><EmptyState text="اختر حسابًا لعرض كشفه." /></div> : q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
-        <>
-          <div className="mb-4 grid grid-cols-4 gap-3">
-            <Stat label="الرصيد الافتتاحي" value={money(q.data?.openingBalance ?? '0.00')} />
-            <Stat label="مدين الفترة" value={money(q.data?.periodDebit ?? '0.00')} />
-            <Stat label="دائن الفترة" value={money(q.data?.periodCredit ?? '0.00')} />
-            <Stat label="الرصيد الختامي" value={money(q.data?.closingBalance ?? '0.00')} tone="blue" hint={q.data?.account?.normalBalance === 'DEBIT' ? 'طبيعة مدينة' : 'طبيعة دائنة'} />
+
+      {!accountId ? (
+        <div className="card p-10 text-center">
+          <div className="mx-auto size-16 rounded-2xl bg-brand-50 dark:bg-brand-950/40 text-brand-600 dark:text-brand-400 flex items-center justify-center mb-4 shadow-inner">
+            <Wallet className="size-8" />
           </div>
-          <div className="card overflow-hidden">
-            {!statementRows.length ? <EmptyState text="لا توجد حركات في هذه الفترة." /> : (
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">اختر حساباً مالياً لعرض كشفه</h3>
+          <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+            قم باختيار الحساب من القائمة المنسدلة أعلاه لعرض رصيده الافتتاحي وحركاته اليومية مع تتبع الرصيد التراكمي وتصدير كشف الحساب كملف Excel أو PDF معتمد.
+          </p>
+        </div>
+      ) : q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
+        <>
+          {/* Executive Account Banner & KPI Cards */}
+          <div className="card mb-5 p-4 border border-slate-200/90 dark:border-slate-800 bg-gradient-to-br from-white to-slate-50/70 dark:from-[#0c1324] dark:to-[#080d19]">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="size-11 rounded-xl bg-brand-600 text-white font-mono font-black text-sm flex items-center justify-center shadow-md">
+                  {acc?.code}
+                </div>
+                <div>
+                  <div className="text-base font-black text-slate-900 dark:text-slate-50">{acc?.nameAr}</div>
+                  {acc?.nameEn && <div className="text-xs text-slate-400">{acc.nameEn}</div>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${isDebitNormal ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800' : 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800'}`}>
+                  طبيعة الحساب: {isDebitNormal ? 'مدين (Debit)' : 'دائن (Credit)'}
+                </span>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                  {acc?.accountClass || 'حساب عام'}
+                </span>
+              </div>
+            </div>
+
+            {/* 5 Executive KPI Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-3">
+              <div className="p-3 rounded-xl bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/60">
+                <div className="text-[11px] font-semibold text-slate-500">الرصيد الافتتاحي</div>
+                <div className="text-base font-black font-mono text-slate-900 dark:text-white mt-1">{money(openBal)}</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">قبل {from}</div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/60">
+                <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">إجمالي مدين الفترة (+)</div>
+                <div className="text-base font-black font-mono text-emerald-800 dark:text-emerald-300 mt-1">{money(pDebit)}</div>
+                <div className="text-[10px] text-emerald-600/70 mt-0.5">حركات زيادة/إضافة</div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-800/60">
+                <div className="text-[11px] font-semibold text-rose-700 dark:text-rose-400">إجمالي دائن الفترة (-)</div>
+                <div className="text-base font-black font-mono text-rose-800 dark:text-rose-300 mt-1">{money(pCredit)}</div>
+                <div className="text-[10px] text-rose-600/70 mt-0.5">حركات خصم/صرف</div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/60">
+                <div className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">صافي تغير الفترة</div>
+                <div className="text-base font-black font-mono text-indigo-800 dark:text-indigo-300 mt-1">
+                  {netMovement >= 0 ? `+${money(netMovement)}` : money(netMovement)}
+                </div>
+                <div className="text-[10px] text-indigo-600/70 mt-0.5">فرق النشاط الدوري</div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-gradient-to-br from-brand-600 to-indigo-700 text-white shadow-sm col-span-2 sm:col-span-1">
+                <div className="text-[11px] font-bold text-white/80">الرصيد الختامي الصافي</div>
+                <div className="text-lg font-black font-mono text-white mt-1">{money(closeBal)}</div>
+                <div className="text-[10px] text-white/70 mt-0.5">{closeBal >= 0 ? 'رصيد مطابق لطبيعة الحساب' : 'رصيد عكس طبيعة الحساب'}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Statement Table */}
+          <div className="card overflow-hidden shadow-sm">
+            {!statementRows.length ? (
+              <div className="p-8 text-center text-slate-500 text-xs">
+                لا توجد حركات مقيدة لهذا الحساب خلال الفترة المحددة ({from} إلى {to}).
+              </div>
+            ) : (
               <>
-                <table className="table">
-                  <thead><tr><th>التاريخ</th><th>رقم القيد</th><th>البيان</th><th>العملة</th><th>مدين (عملة)</th><th>دائن (عملة)</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
-                  <tbody>
-                    {statementRows.map((l: any, i: number) => (
-                      <tr key={i} className="cursor-pointer" onClick={() => nav(`/acc/journals/${l.entryId}`)}>
-                        <td>{date(l.entryDate)}</td>
-                        <td className="num text-start" onClick={(e) => e.stopPropagation()}>
-                          <JournalLinkBadge entryId={l.entryId} entryNo={l.entryNo} compact />
-                        </td>
-                        <td className="max-w-sm truncate">{l.lineDescription ?? l.description}</td>
-                        <td>{l.currencyCode}</td><td className="num">{money(l.debitTx)}</td><td className="num">{money(l.creditTx)}</td>
-                        <td className="num">{money(l.debitBase)}</td><td className="num">{money(l.creditBase)}</td><td className="num font-medium">{money(l.runningBalance)}</td>
+                <div className="overflow-x-auto">
+                  <table className="table w-full">
+                    <thead>
+                      <tr className="bg-slate-900 text-white dark:bg-slate-950">
+                        <th className="text-white">التاريخ</th>
+                        <th className="text-white">رقم القيد</th>
+                        <th className="text-white">البيان والتفاصيل</th>
+                        <th className="text-white">العملة</th>
+                        <th className="num text-white">مدين (عملة)</th>
+                        <th className="num text-white">دائن (عملة)</th>
+                        <th className="num text-white">مدين (SAR)</th>
+                        <th className="num text-white">دائن (SAR)</th>
+                        <th className="num text-white">الرصيد الجاري</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <Pager {...(q.data?.meta ?? { page: 1, pageSize: 50, total: 0 })} onPage={setPage} />
+                    </thead>
+                    <tbody>
+                      {/* Opening Balance Row */}
+                      <tr className="bg-slate-100/80 dark:bg-slate-800/60 font-bold border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                        <td>{date(from)}</td>
+                        <td>—</td>
+                        <td colSpan={6} className="font-bold">رصيد ما قبل الفترة (الرصيد الافتتاحي المرحّل)</td>
+                        <td className="num font-mono font-black">{money(openBal)}</td>
+                      </tr>
+
+                      {statementRows.map((l: any, i: number) => (
+                        <tr
+                          key={i}
+                          className="cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors"
+                          onClick={() => nav(`/acc/journals/${l.entryId}`)}
+                        >
+                          <td className="text-xs whitespace-nowrap">{date(l.entryDate)}</td>
+                          <td className="num text-start whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <JournalLinkBadge entryId={l.entryId} entryNo={l.entryNo} compact />
+                          </td>
+                          <td className="max-w-md truncate text-xs text-slate-900 dark:text-slate-100 font-medium">
+                            {l.lineDescription ?? l.description}
+                          </td>
+                          <td className="text-xs font-mono text-slate-500">{l.currencyCode}</td>
+                          <td className="num font-mono text-xs text-slate-600 dark:text-slate-400">{money(l.debitTx)}</td>
+                          <td className="num font-mono text-xs text-slate-600 dark:text-slate-400">{money(l.creditTx)}</td>
+                          <td className="num font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400">{money(l.debitBase)}</td>
+                          <td className="num font-mono text-xs font-semibold text-rose-700 dark:text-rose-400">{money(l.creditBase)}</td>
+                          <td className="num font-mono text-xs font-black text-slate-900 dark:text-white bg-slate-50/50 dark:bg-slate-800/30">
+                            {money(l.runningBalance)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-100 dark:bg-slate-800/90 font-bold border-t-2 border-slate-300 dark:border-slate-700 text-slate-950 dark:text-white">
+                        <td colSpan={6} className="px-3 py-2.5 font-bold">إجمالي حركة الفترة والرصيد الختامي</td>
+                        <td className="num px-3 font-mono font-black text-emerald-800 dark:text-emerald-300">{money(pDebit)}</td>
+                        <td className="num px-3 font-mono font-black text-rose-800 dark:text-rose-300">{money(pCredit)}</td>
+                        <td className="num px-3 font-mono font-black text-brand-700 dark:text-brand-300 bg-brand-50 dark:bg-brand-950/40">
+                          {money(closeBal)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                <Pager {...(q.data?.meta ?? { page: 1, pageSize: 50, total: statementRows.length })} onPage={setPage} />
               </>
             )}
           </div>
@@ -239,61 +456,148 @@ export function IncomeStatementPage() {
       from, to, ...(branchId !== 'ALL' ? { branchId } : {}),
     }),
   });
-  const section = (cls: string[], title: string, total: string) => {
+
+  const rev = parseFloat(q.data?.revenue || '0');
+  const dc = parseFloat(q.data?.directCost || '0');
+  const gp = parseFloat(q.data?.grossProfit || '0');
+  const opex = parseFloat(q.data?.operatingExpenses || '0');
+  const np = parseFloat(q.data?.netProfit || '0');
+  const gpMargin = rev > 0 ? ((gp / rev) * 100).toFixed(1) + '%' : '0.0%';
+  const netMargin = rev > 0 ? ((np / rev) * 100).toFixed(1) + '%' : '0.0%';
+
+  const section = (cls: string[], title: string, total: string, badgeColor: string) => {
     const lines = (q.data?.lines ?? []).filter((l: any) => cls.includes(l.accountClass));
     return (
       <>
-        <tr className="bg-slate-50 font-semibold dark:bg-slate-800/40"><td colSpan={2} className="px-3 py-2">{title}</td></tr>
-        {lines.map((l: any) => <tr key={l.accountId}><td className="ps-8"><Link className="hover:underline" to={`/reports/account-statement?accountId=${l.accountId}&from=${from}&to=${to}`}><span className="num">{l.code}</span> {l.nameAr}</Link></td><td className="num">{money(l.amount)}</td></tr>)}
-        <tr className="font-semibold"><td className="px-3 py-2">إجمالي {title}</td><td className="num px-3">{money(total)}</td></tr>
+        <tr className="bg-slate-100/80 font-bold dark:bg-slate-800/60 text-slate-900 dark:text-slate-100 border-t border-slate-200 dark:border-slate-700">
+          <td colSpan={2} className="px-4 py-2.5">
+            <span className={`inline-block size-2 rounded-full ${badgeColor} me-2`} />
+            {title}
+          </td>
+        </tr>
+        {lines.map((l: any) => (
+          <tr key={l.accountId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+            <td className="ps-8 py-2">
+              <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?accountId=${l.accountId}&from=${from}&to=${to}`}>
+                <span className="font-mono text-xs font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{l.code}</span>
+                <span className="text-slate-900 dark:text-slate-100 text-xs font-medium">{l.nameAr}</span>
+              </Link>
+            </td>
+            <td className="num font-mono text-xs font-semibold px-4">{money(l.amount)}</td>
+          </tr>
+        ))}
+        <tr className="font-bold bg-slate-50 dark:bg-slate-800/30 text-slate-800 dark:text-slate-200">
+          <td className="px-4 py-2">إجمالي {title}</td>
+          <td className="num px-4 font-mono font-bold">{money(total)}</td>
+        </tr>
       </>
     );
   };
+
   return (
     <div>
       <PageHeader
-        title="قائمة الدخل"
-        subtitle={`بالعملة الأساسية (${base}). لا تشمل قيود الإقفال السنوي.`}
+        title="قائمة الدخل (الأرباح والخسائر)"
+        subtitle={`بالعملة الأساسية (${base}). قياس الأداء التشغيلي والربحية للفترة المحددة. اضغط على أي حساب لعرض كشفه.`}
         actions={
-          <div className="flex items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
             {q.data && (
-              <button
-                className="btn-secondary text-xs flex items-center gap-1.5"
-                onClick={() =>
-                  downloadCsv(`income-statement-${from}-${to}.csv`, [
-                    ['الرمز', 'الحساب', 'المبلغ'],
-                    ...(q.data?.lines ?? []).map((l: any) => [l.code, l.nameAr, l.amount]),
-                    ['', 'إجمالي الإيرادات', q.data?.revenue ?? '0.00'],
-                    ['', 'إجمالي التكاليف المباشرة', q.data?.directCost ?? '0.00'],
-                    ['', 'مجمل الربح', q.data?.grossProfit ?? '0.00'],
-                    ['', 'المصروفات التشغيلية', q.data?.operatingExpenses ?? '0.00'],
-                    ['', 'الربح التشغيلي', q.data?.operatingProfit ?? '0.00'],
-                    ['', 'صافي الربح', q.data?.netProfit ?? '0.00'],
-                  ])
-                }
-              >
-                <Download className="size-3.5" /> تصدير CSV
-              </button>
+              <ExportMenu
+                title="قائمة الدخل - الأرباح والخسائر"
+                filename={`income-statement-${from}-${to}`}
+                periodLabel={`من ${from} إلى ${to}`}
+                currency={base}
+                columns={[
+                  { key: 'code', header: 'رمز الحساب', width: 14 },
+                  { key: 'nameAr', header: 'الحساب', width: 30 },
+                  { key: 'classLabel', header: 'التصنيف المالي', width: 22 },
+                  { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
+                ]}
+                data={(q.data?.lines ?? []).map((l: any) => ({
+                  ...l,
+                  classLabel: ACCOUNT_CLASS[l.accountClass] || l.accountClass,
+                }))}
+              />
             )}
+            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة فورية">
+              <Printer className="size-3.5" /> طباعة فورية (A4)
+            </button>
           </div>
         }
       />
+
       <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data} />
+
+      {/* 5 Executive KPI Cards */}
+      {q.data && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-5">
+          <div className="card p-3.5 border-emerald-200/80 dark:border-emerald-800/50 bg-emerald-50/30 dark:bg-emerald-950/20">
+            <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400">إجمالي الإيرادات</div>
+            <div className="text-lg font-black font-mono text-emerald-900 dark:text-emerald-200 mt-1">{money(rev)}</div>
+            <div className="text-[10px] text-emerald-600 mt-0.5">مبيعات وخدمات تشغيلية</div>
+          </div>
+
+          <div className="card p-3.5 border-rose-200/80 dark:border-rose-800/50 bg-rose-50/30 dark:bg-rose-950/20">
+            <div className="text-[11px] font-semibold text-rose-800 dark:text-rose-400">التكاليف المباشرة</div>
+            <div className="text-lg font-black font-mono text-rose-900 dark:text-rose-200 mt-1">{money(dc)}</div>
+            <div className="text-[10px] text-rose-600 mt-0.5">رواتب المطورين وتكلفة الخدمات</div>
+          </div>
+
+          <div className="card p-3.5 border-indigo-200/80 dark:border-indigo-800/50 bg-indigo-50/30 dark:bg-indigo-950/20">
+            <div className="text-[11px] font-semibold text-indigo-800 dark:text-indigo-400">مجمل الربح (Gross Profit)</div>
+            <div className="text-lg font-black font-mono text-indigo-900 dark:text-indigo-200 mt-1">{money(gp)}</div>
+            <div className="text-[10px] text-indigo-600 font-bold mt-0.5">هامش مجمل: {gpMargin}</div>
+          </div>
+
+          <div className="card p-3.5 border-amber-200/80 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-950/20">
+            <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-400">المصروفات التشغيلية</div>
+            <div className="text-lg font-black font-mono text-amber-900 dark:text-amber-200 mt-1">{money(opex)}</div>
+            <div className="text-[10px] text-amber-600 mt-0.5">إيجار، عموميات، إهلاك</div>
+          </div>
+
+          <div className={`card p-3.5 border col-span-2 sm:col-span-1 shadow-sm ${np >= 0 ? 'border-emerald-300 dark:border-emerald-700 bg-gradient-to-br from-emerald-600 to-teal-700 text-white' : 'border-rose-300 dark:border-rose-700 bg-gradient-to-br from-rose-600 to-red-700 text-white'}`}>
+            <div className="text-[11px] font-bold text-white/80">صافي الربح / (الخسارة)</div>
+            <div className="text-xl font-black font-mono text-white mt-1">{money(np)}</div>
+            <div className="text-[10px] text-white/80 font-bold mt-0.5">صافي الهامش: {netMargin}</div>
+          </div>
+        </div>
+      )}
+
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
-        <div className="card max-w-3xl overflow-hidden">
-          <table className="table">
+        <div className="card max-w-4xl overflow-hidden shadow-sm">
+          <table className="table w-full">
             <tbody>
-              {section(['REVENUE'], ACCOUNT_CLASS.REVENUE, q.data?.revenue ?? '0.00')}
-              {section(['DIRECT_COST'], ACCOUNT_CLASS.DIRECT_COST, q.data?.directCost ?? '0.00')}
-              <tr className="bg-brand-50 font-bold dark:bg-brand-500/10"><td className="px-3 py-2">مجمل الربح</td><td className="num px-3">{money(q.data?.grossProfit ?? '0.00')}</td></tr>
-              {section(['OPERATING_EXPENSE'], ACCOUNT_CLASS.OPERATING_EXPENSE, q.data?.operatingExpenses ?? '0.00')}
-              <tr className="bg-brand-50 font-bold dark:bg-brand-500/10"><td className="px-3 py-2">الربح التشغيلي</td><td className="num px-3">{money(q.data?.operatingProfit ?? '0.00')}</td></tr>
-              {section(['OTHER_INCOME'], ACCOUNT_CLASS.OTHER_INCOME, q.data?.otherIncome ?? '0.00')}
-              {section(['OTHER_EXPENSE'], ACCOUNT_CLASS.OTHER_EXPENSE, q.data?.otherExpenses ?? '0.00')}
-              <tr className="bg-slate-800 text-lg font-bold text-white"><td className="px-3 py-3">صافي الربح / (الخسارة)</td><td className="num px-3">{money(q.data?.netProfit ?? '0.00')}</td></tr>
+              {section(['REVENUE'], ACCOUNT_CLASS.REVENUE, q.data?.revenue ?? '0.00', 'bg-emerald-500')}
+              {section(['DIRECT_COST'], ACCOUNT_CLASS.DIRECT_COST, q.data?.directCost ?? '0.00', 'bg-rose-500')}
+
+              {/* Milestone Row: Gross Profit */}
+              <tr className="bg-brand-50/90 font-black dark:bg-brand-950/40 text-brand-950 dark:text-brand-200 border-y-2 border-brand-200 dark:border-brand-800">
+                <td className="px-4 py-3 flex items-center justify-between">
+                  <span>مجمل الربح التشغيلي (Gross Profit)</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-brand-100 dark:bg-brand-900/60 font-bold">الهامش: {gpMargin}</span>
+                </td>
+                <td className="num px-4 font-mono text-base font-black">{money(q.data?.grossProfit ?? '0.00')}</td>
+              </tr>
+
+              {section(['OPERATING_EXPENSE'], ACCOUNT_CLASS.OPERATING_EXPENSE, q.data?.operatingExpenses ?? '0.00', 'bg-amber-500')}
+
+              {/* Milestone Row: Operating Profit */}
+              <tr className="bg-blue-50/90 font-bold dark:bg-blue-950/40 text-blue-950 dark:text-blue-200 border-y border-blue-200 dark:border-blue-800">
+                <td className="px-4 py-2.5">الربح التشغيلي قبل الفوائد والضرائب (Operating Profit - EBIT)</td>
+                <td className="num px-4 font-mono font-bold">{money(q.data?.operatingProfit ?? '0.00')}</td>
+              </tr>
+
+              {section(['OTHER_INCOME'], ACCOUNT_CLASS.OTHER_INCOME, q.data?.otherIncome ?? '0.00', 'bg-sky-500')}
+              {section(['OTHER_EXPENSE'], ACCOUNT_CLASS.OTHER_EXPENSE, q.data?.otherExpenses ?? '0.00', 'bg-purple-500')}
+
+              {/* Grand Final Row: Net Profit */}
+              <tr className="bg-slate-900 text-white dark:bg-slate-950 border-t-2 border-slate-950 font-black text-base">
+                <td className="px-4 py-3.5 text-white flex items-center justify-between">
+                  <span>صافي الربح / (الخسارة) للفترة</span>
+                  <span className="text-xs px-2.5 py-0.5 rounded bg-white/10 font-bold">صافي الهامش: {netMargin}</span>
+                </td>
+                <td className="num px-4 font-mono text-lg font-black text-white">{money(q.data?.netProfit ?? '0.00')}</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -314,50 +618,72 @@ export function BalanceSheetPage() {
       asOf, ...(branchId !== 'ALL' ? { branchId } : {}),
     }),
   });
-  const Section = ({ title, s }: { title: string; s: any }) => (
+
+  const isBalanced = Boolean(q.data?.balanced ?? q.data?.isBalanced);
+
+  const Section = ({ title, s, badgeColor }: { title: string; s: any; badgeColor: string }) => (
     <>
-      <tr className="bg-slate-50 font-semibold dark:bg-slate-800/40"><td colSpan={2} className="px-3 py-2">{title}</td></tr>
-      {(s?.lines ?? []).map((l: any) => <tr key={l.accountId}><td className="ps-8"><span className="num">{l.code}</span> {l.nameAr}</td><td className="num">{money(l.amount)}</td></tr>)}
-      <tr className="font-semibold"><td className="px-3 py-2">إجمالي {title}</td><td className="num px-3">{money(s?.total ?? '0.00')}</td></tr>
+      <tr className="bg-slate-100/80 font-bold dark:bg-slate-800/60 text-slate-900 dark:text-slate-100 border-t border-slate-200 dark:border-slate-700">
+        <td colSpan={2} className="px-4 py-2.5">
+          <span className={`inline-block size-2 rounded-full ${badgeColor} me-2`} />
+          {title}
+        </td>
+      </tr>
+      {(s?.lines ?? []).map((l: any) => (
+        <tr key={l.accountId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+          <td className="ps-8 py-2">
+            <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?accountId=${l.accountId}&to=${asOf}`}>
+              <span className="font-mono text-xs font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{l.code}</span>
+              <span className="text-slate-900 dark:text-slate-100 text-xs font-medium">{l.nameAr}</span>
+            </Link>
+          </td>
+          <td className="num font-mono text-xs font-semibold px-4">{money(l.amount)}</td>
+        </tr>
+      ))}
+      <tr className="font-bold bg-slate-50 dark:bg-slate-800/30 text-slate-800 dark:text-slate-200">
+        <td className="px-4 py-2">إجمالي {title}</td>
+        <td className="num px-4 font-mono font-bold">{money(s?.total ?? '0.00')}</td>
+      </tr>
     </>
   );
+
   return (
     <div>
       <PageHeader
-        title="قائمة المركز المالي"
-        subtitle={`بالعملة الأساسية (${base}). المعادلة: الأصول = الالتزامات + حقوق الملكية + أرباح الفترة غير المقفلة.`}
+        title="قائمة المركز المالي (الميزانية العمومية)"
+        subtitle={`بالعملة الأساسية (${base}). المعادلة المحاسبية: الأصول = الالتزامات + حقوق الملكية + أرباح الفترة غير المقفلة.`}
         actions={
-          <div className="flex items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
             {q.data && (
-              <button
-                className="btn-secondary text-xs flex items-center gap-1.5"
-                onClick={() =>
-                  downloadCsv(`balance-sheet-${asOf}.csv`, [
-                    ['التصنيف', 'الرمز', 'الحساب', 'المبلغ'],
-                    ...(q.data?.assets?.lines ?? []).map((l: any) => ['الأصول', l.code, l.nameAr, l.amount]),
-                    ['الأصول', '', 'إجمالي الأصول', q.data?.assets?.total ?? '0.00'],
-                    ...(q.data?.liabilities?.lines ?? []).map((l: any) => ['الالتزامات', l.code, l.nameAr, l.amount]),
-                    ['الالتزامات', '', 'إجمالي الالتزامات', q.data?.liabilities?.total ?? '0.00'],
-                    ...(q.data?.equity?.lines ?? []).map((l: any) => ['حقوق الملكية', l.code, l.nameAr, l.amount]),
-                    ['حقوق الملكية', '', 'إجمالي حقوق الملكية', q.data?.equity?.total ?? '0.00'],
-                    ['حقوق الملكية', '', 'أرباح الفترة غير المقفلة', q.data?.currentEarnings ?? '0.00'],
-                    ['الالتزامات وحقوق الملكية', '', 'إجمالي الالتزامات وحقوق الملكية', q.data?.liabilitiesAndEquity ?? '0.00'],
-                  ])
-                }
-              >
-                <Download className="size-3.5" /> تصدير CSV
-              </button>
+              <ExportMenu
+                title="قائمة المركز المالي"
+                filename={`balance-sheet-${asOf}`}
+                periodLabel={`كما في ${asOf}`}
+                currency={base}
+                columns={[
+                  { key: 'section', header: 'القسم', width: 20 },
+                  { key: 'code', header: 'رمز الحساب', width: 14 },
+                  { key: 'nameAr', header: 'الحساب', width: 30 },
+                  { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
+                ]}
+                data={[
+                  ...(q.data?.assets?.lines ?? []).map((l: any) => ({ ...l, section: 'الأصول' })),
+                  ...(q.data?.liabilities?.lines ?? []).map((l: any) => ({ ...l, section: 'الالتزامات' })),
+                  ...(q.data?.equity?.lines ?? []).map((l: any) => ({ ...l, section: 'حقوق الملكية' })),
+                ]}
+              />
             )}
+            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة فورية">
+              <Printer className="size-3.5" /> طباعة فورية (A4)
+            </button>
           </div>
         }
       />
-      <div className="card mb-4 flex flex-wrap items-end gap-3 p-3">
-        <Field label="كما في تاريخ"><input className="input w-44" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
+
+      <div className="card mb-5 p-4 relative z-30 overflow-visible bg-white/95 dark:bg-[#0c1324]/95 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-wrap items-end gap-3.5">
+        <Field label="كما في تاريخ"><input className="input w-40" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
         <Field label="الفرع / المركز المالي">
-          <select className="input w-64 font-medium" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+          <select className="input min-w-[14rem] sm:w-72 font-medium" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
             <option value="ALL">الكل (قوائم موحدة - Consolidated SAR)</option>
             {(branchesQ.data ?? []).map((b: any) => (
               <option key={b.id} value={b.id}>{b.nameAr} ({b.functionalCurrency || b.countryCode})</option>
@@ -366,28 +692,92 @@ export function BalanceSheetPage() {
         </Field>
         {branchId === 'ALL' && (
           <div className="text-xs text-blue-700 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 flex items-center gap-2">
-            <span className="font-bold">قوائم موحدة:</span> تشمل عمليات المركز الرئيسي (الرياض) وفرع مصر (القاهرة) مع استبعاد القيود المتقابلة بين الفروع واحتساب فروق ترجمة العملات (CTA).
+            <span className="font-bold">قوائم موحدة:</span> تشمل المركز الرئيسي وفرع مصر مع تسوية القيود المتبادلة.
           </div>
         )}
         {q.data && (
           <div className="ms-auto flex items-center gap-2 pb-1">
-            {!Boolean(q.data.balanced ?? q.data.isBalanced) && (
-              <span className="text-sm text-rose-600">الفرق: <span className="num">{money(q.data.difference ?? '0.00')}</span></span>
+            {!isBalanced && (
+              <span className="text-sm text-rose-600 font-bold">الفرق: <span className="num font-mono">{money(q.data.difference ?? '0.00')}</span></span>
             )}
-            <BalancedBadge ok={Boolean(q.data.balanced ?? q.data.isBalanced)} />
+            <BalancedBadge ok={isBalanced} />
           </div>
         )}
       </div>
+
+      {/* Executive KPI Cards */}
+      {q.data && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mb-5">
+          <div className="card p-3.5 border-emerald-200/80 dark:border-emerald-800/50 bg-emerald-50/30 dark:bg-emerald-950/20">
+            <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400">إجمالي الأصول (Assets)</div>
+            <div className="text-xl font-black font-mono text-emerald-900 dark:text-emerald-200 mt-1">{money(q.data?.assets?.total ?? '0.00')}</div>
+            <div className="text-[10px] text-emerald-600 mt-0.5">نقدية، بنوك، عملاء، أصول ثابتة</div>
+          </div>
+
+          <div className="card p-3.5 border-amber-200/80 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-950/20">
+            <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-400">إجمالي الالتزامات (Liabilities)</div>
+            <div className="text-xl font-black font-mono text-amber-900 dark:text-amber-200 mt-1">{money(q.data?.liabilities?.total ?? '0.00')}</div>
+            <div className="text-[10px] text-amber-600 mt-0.5">موردين، ضريبة VAT، مستحقات</div>
+          </div>
+
+          <div className="card p-3.5 border-indigo-200/80 dark:border-indigo-800/50 bg-indigo-50/30 dark:bg-indigo-950/20">
+            <div className="text-[11px] font-semibold text-indigo-800 dark:text-indigo-400">حقوق الملكية + أرباح الفترة</div>
+            <div className="text-xl font-black font-mono text-indigo-900 dark:text-indigo-200 mt-1">
+              {money(parseFloat(q.data?.equity?.total ?? '0') + parseFloat(q.data?.currentEarnings ?? '0'))}
+            </div>
+            <div className="text-[10px] text-indigo-600 mt-0.5">
+              رأس المال + أرباح الفترة ({money(q.data?.currentEarnings ?? '0.00')})
+            </div>
+          </div>
+
+          <div className={`card p-3.5 border transition-all ${isBalanced ? 'border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-rose-200 dark:border-rose-800/60 bg-rose-50/50 dark:bg-rose-950/20'}`}>
+            <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+              <span className="font-semibold">توازن المعادلة المحاسبية</span>
+              {isBalanced ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-rose-600" />}
+            </div>
+            <div className="text-base font-black font-mono text-slate-900 dark:text-white mt-1">
+              {isBalanced ? 'الأصول = الالتزامات + الملكية' : `عدم توازن: ${money(q.data?.difference ?? '0.00')}`}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+              المجموع: {money(q.data?.liabilitiesAndEquity ?? '0.00')}
+            </div>
+          </div>
+        </div>
+      )}
+
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="card overflow-hidden"><table className="table"><tbody><Section title="الأصول" s={q.data?.assets} /></tbody></table></div>
-          <div className="card overflow-hidden">
-            <table className="table">
+        <div className="grid gap-5 lg:grid-cols-2">
+          {/* Assets Side */}
+          <div className="card overflow-hidden shadow-sm">
+            <div className="bg-slate-900 text-white dark:bg-slate-950 px-4 py-3 font-bold text-sm flex items-center justify-between">
+              <span>الأصول والموجودات (Assets)</span>
+              <span className="font-mono text-xs font-bold text-emerald-400">{money(q.data?.assets?.total ?? '0.00')}</span>
+            </div>
+            <table className="table w-full">
               <tbody>
-                <Section title="الالتزامات" s={q.data?.liabilities} />
-                <Section title="حقوق الملكية" s={q.data?.equity} />
-                <tr><td className="px-3 py-2">أرباح (خسائر) الفترة غير المقفلة</td><td className="num px-3">{money(q.data?.currentEarnings ?? '0.00')}</td></tr>
-                <tr className="bg-slate-800 font-bold text-white"><td className="px-3 py-2">الالتزامات وحقوق الملكية</td><td className="num px-3">{money(q.data?.liabilitiesAndEquity ?? '0.00')}</td></tr>
+                <Section title="الأصول المتداولة والثابتة" s={q.data?.assets} badgeColor="bg-emerald-500" />
+              </tbody>
+            </table>
+          </div>
+
+          {/* Liabilities & Equity Side */}
+          <div className="card overflow-hidden shadow-sm">
+            <div className="bg-slate-900 text-white dark:bg-slate-950 px-4 py-3 font-bold text-sm flex items-center justify-between">
+              <span>الالتزامات وحقوق الملكية (Liabilities & Equity)</span>
+              <span className="font-mono text-xs font-bold text-indigo-400">{money(q.data?.liabilitiesAndEquity ?? '0.00')}</span>
+            </div>
+            <table className="table w-full">
+              <tbody>
+                <Section title="الالتزامات والخصوم" s={q.data?.liabilities} badgeColor="bg-amber-500" />
+                <Section title="حقوق الملكية ورأس المال" s={q.data?.equity} badgeColor="bg-indigo-500" />
+                <tr className="bg-slate-50/80 font-bold dark:bg-slate-800/40 text-slate-900 dark:text-slate-100">
+                  <td className="px-4 py-2.5">أرباح (خسائر) الفترة الحالية غير المقفلة</td>
+                  <td className="num px-4 font-mono font-bold text-emerald-700 dark:text-emerald-400">{money(q.data?.currentEarnings ?? '0.00')}</td>
+                </tr>
+                <tr className="bg-slate-800 text-white dark:bg-slate-900 font-black text-sm border-t-2 border-slate-700">
+                  <td className="px-4 py-3 text-white">إجمالي الالتزامات وحقوق الملكية</td>
+                  <td className="num px-4 font-mono font-black text-white text-base">{money(q.data?.liabilitiesAndEquity ?? '0.00')}</td>
+                </tr>
               </tbody>
             </table>
           </div>

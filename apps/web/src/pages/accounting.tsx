@@ -1,10 +1,10 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Decimal from 'decimal.js';
 import {
-  CheckCircle2, ChevronDown, ChevronLeft, Eye, FileCode, FlaskConical,
-  Folder, FolderOpen, List, Network, Pencil, Plus, Printer, RefreshCw, Send, Trash2, Undo2, Upload, XCircle, Zap,
+  Check, CheckCircle2, ChevronDown, ChevronLeft, Eye, FileCode, FlaskConical,
+  Folder, FolderOpen, List, Network, Pencil, Plus, Printer, RefreshCw, Search, Send, Trash2, Undo2, Upload, X, XCircle, Zap,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
@@ -34,29 +34,225 @@ export function useAccounts(postingOnly = false) {
   });
 }
 
-/** Searchable account picker (code / name). */
-export function AccountSelect({ value, onChange, accounts, className = '' }: { value: string; onChange: (id: string) => void; accounts: Account[]; className?: string }) {
+/** Searchable and categorized account picker (code / name) with outside-click handling and high z-index. */
+export function AccountSelect({
+  value,
+  onChange,
+  accounts,
+  className = '',
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  accounts: Account[];
+  className?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
-  const safeAccounts: Account[] = Array.isArray(accounts) ? accounts : ((accounts as any)?.data ?? []);
+  const [classFilter, setClassFilter] = useState<string>('ALL');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const safeAccounts: Account[] = Array.isArray(accounts)
+    ? accounts
+    : ((accounts as any)?.data ?? []);
+
+  // Close on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    if (open) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [open]);
+
   const sel = safeAccounts.find((a) => a.id === value || a.code === value);
-  const list = useMemo(() => safeAccounts.filter((a) => !q || a.code.includes(q) || a.nameAr.includes(q) || (a.nameEn ?? '').toLowerCase().includes(q.toLowerCase())).slice(0, 60), [safeAccounts, q]);
+
+  const list = useMemo(() => {
+    return safeAccounts
+      .filter((a) => {
+        if (classFilter !== 'ALL') {
+          if (classFilter === 'EXPENSE') {
+            if (!['DIRECT_COST', 'EXPENSE', 'OPERATING_EXPENSE', 'OTHER_EXPENSE'].includes(a.accountClass)) return false;
+          } else if (a.accountClass !== classFilter) {
+            return false;
+          }
+        }
+        if (!q) return true;
+        const query = q.toLowerCase();
+        return (
+          a.code.includes(query) ||
+          a.nameAr.includes(query) ||
+          (a.nameEn ?? '').toLowerCase().includes(query)
+        );
+      })
+      .slice(0, 80);
+  }, [safeAccounts, q, classFilter]);
+
+  const getClassBadge = (cls: string) => {
+    switch (cls) {
+      case 'ASSET':
+        return { label: 'أصول', color: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' };
+      case 'LIABILITY':
+        return { label: 'خصوم', color: 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400 border-amber-200 dark:border-amber-800' };
+      case 'EQUITY':
+        return { label: 'ملكية', color: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800' };
+      case 'REVENUE':
+        return { label: 'إيراد', color: 'bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-400 border-sky-200 dark:border-sky-800' };
+      case 'DIRECT_COST':
+      case 'OPERATING_EXPENSE':
+      case 'EXPENSE':
+      case 'OTHER_EXPENSE':
+        return { label: 'مصروف', color: 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400 border-rose-200 dark:border-rose-800' };
+      default:
+        return { label: cls, color: 'bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200' };
+    }
+  };
+
   return (
-    <div className={`relative ${className}`}>
-      <button type="button" className="input flex items-center justify-between text-start" onClick={() => setOpen(!open)}>
-        <span className="truncate">{sel ? `${sel.code} — ${sel.nameAr}` : <span className="text-slate-400">اختر الحساب…</span>}</span>
-        <ChevronDown className="size-4 shrink-0 text-slate-400" />
-      </button>
+    <div ref={containerRef} className={`relative ${className}`}>
+      <div
+        className={`input flex items-center justify-between text-start cursor-pointer select-none transition-all ${
+          open ? 'ring-2 ring-brand-500/30 border-brand-500' : ''
+        }`}
+        onClick={() => setOpen(!open)}
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1 truncate">
+          {sel ? (
+            <>
+              <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 shrink-0">
+                {sel.code}
+              </span>
+              <span className="truncate font-medium text-slate-900 dark:text-slate-100">
+                {sel.nameAr}
+              </span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border hidden sm:inline-block shrink-0 ${getClassBadge(sel.accountClass).color}`}>
+                {getClassBadge(sel.accountClass).label}
+              </span>
+            </>
+          ) : (
+            <span className="text-slate-400 text-xs">اختر الحساب المحاسبي…</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0 ms-2">
+          {sel && (
+            <button
+              type="button"
+              className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange('');
+                setQ('');
+              }}
+              title="مسح الاختيار"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+          <ChevronDown className={`size-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        </div>
+      </div>
+
       {open && (
-        <div className="absolute z-30 mt-1 w-[26rem] max-w-[80vw] rounded-lg border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-          <input className="input mb-2" autoFocus placeholder="ابحث بالرمز أو الاسم" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)} />
-          <div className="max-h-64 overflow-y-auto">
-            {list.map((a) => (
-              <button type="button" key={a.id} className="flex w-full gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => { onChange(a.id); setOpen(false); setQ(''); }}>
-                <span className="num w-20 shrink-0 text-start text-slate-500">{a.code}</span> {a.nameAr}
+        <div className="absolute start-0 top-full z-[100] mt-1.5 w-[28rem] sm:w-[32rem] max-w-[95vw] rounded-2xl border border-slate-200/90 bg-white p-3 shadow-2xl dark:border-slate-700/80 dark:bg-slate-900 animate-in fade-in-0 zoom-in-95 duration-150">
+          {/* Search bar */}
+          <div className="relative mb-2">
+            <Search className="pointer-events-none absolute start-3 top-2.5 size-4 text-slate-400" />
+            <input
+              className="input ps-9 pe-8 h-9 text-xs w-full"
+              autoFocus
+              placeholder="ابحث بالرمز أو اسم الحساب بالعربية أو الإنجليزية..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
+            />
+            {q && (
+              <button
+                type="button"
+                onClick={() => setQ('')}
+                className="absolute end-2.5 top-2 text-slate-400 hover:text-slate-600 p-0.5"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Class Filter Chips */}
+          <div className="flex flex-wrap items-center gap-1 pb-2 border-b border-slate-100 dark:border-slate-800 text-[11px]">
+            {[
+              { id: 'ALL', label: 'الكل' },
+              { id: 'ASSET', label: 'الأصول (1)' },
+              { id: 'LIABILITY', label: 'الخصوم (2)' },
+              { id: 'EQUITY', label: 'الملكية (3)' },
+              { id: 'REVENUE', label: 'الإيرادات (4)' },
+              { id: 'EXPENSE', label: 'المصروفات (5)' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setClassFilter(tab.id)}
+                className={`px-2 py-0.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                  classFilter === tab.id
+                    ? 'bg-brand-600 text-white font-bold shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                {tab.label}
               </button>
             ))}
-            {list.length === 0 && <div className="p-2 text-center text-xs text-slate-500">لا توجد حسابات تفصيلية مطابقة</div>}
+          </div>
+
+          {/* Accounts List */}
+          <div className="max-h-64 overflow-y-auto mt-2 space-y-1 pe-1">
+            {list.map((a) => {
+              const isSelected = a.id === value || a.code === value;
+              const badge = getClassBadge(a.accountClass);
+              return (
+                <button
+                  type="button"
+                  key={a.id}
+                  className={`flex w-full items-center justify-between rounded-xl p-2 text-start text-xs transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-brand-50 text-brand-950 font-bold dark:bg-brand-950/40 dark:text-brand-200 border border-brand-200 dark:border-brand-800'
+                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                  }`}
+                  onClick={() => {
+                    onChange(a.id);
+                    setOpen(false);
+                    setQ('');
+                  }}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="font-mono font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md shrink-0 text-start">
+                      {a.code}
+                    </span>
+                    <div className="min-w-0 truncate">
+                      <div className="truncate font-semibold">{a.nameAr}</div>
+                      {a.nameEn && <div className="text-[10px] text-slate-400 font-normal truncate">{a.nameEn}</div>}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 ms-2">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${badge.color}`}>
+                      {badge.label}
+                    </span>
+                    <span className="text-[10px] px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono">
+                      {a.normalBalance === 'DEBIT' ? 'مدين' : 'دائن'}
+                    </span>
+                    {isSelected && <Check className="size-4 text-brand-600 dark:text-brand-400 ms-1" />}
+                  </div>
+                </button>
+              );
+            })}
+
+            {list.length === 0 && (
+              <div className="p-4 text-center text-xs text-slate-500">
+                لا توجد حسابات تفصيلية مطابقة للبحث أو التصنيف المختار
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -880,8 +1076,29 @@ export function JournalDetailPage() {
         title={`قيد ${e.entryNo ?? '(مسودة بدون رقم)'}`}
         subtitle={e.description}
         actions={<>
+          <ExportMenu
+            title={`سند قيد محاسبي رقم ${e.entryNo ?? ''}`}
+            filename={`Journal-Entry-${e.entryNo || e.id}-${e.entryDate}`}
+            periodLabel={`تاريخ القيد: ${date(e.entryDate)} • الفترة: ${e.periodName || '—'}`}
+            columns={[
+              { key: 'lineNo', header: '#', width: 6 },
+              { key: 'accountCode', header: 'رمز الحساب', width: 14 },
+              { key: 'accountNameAr', header: 'اسم الحساب', width: 26 },
+              { key: 'debitBase', header: 'مدين (SAR)', width: 16, type: 'currency', isTotal: true },
+              { key: 'creditBase', header: 'دائن (SAR)', width: 16, type: 'currency', isTotal: true },
+              { key: 'currencyCode', header: 'العملة', width: 10 },
+              { key: 'debitTx', header: 'مدين (عملة)', width: 14, type: 'currency' },
+              { key: 'creditTx', header: 'دائن (عملة)', width: 14, type: 'currency' },
+              { key: 'dimensions', header: 'الأبعاد الإدارية', width: 20 },
+              { key: 'description', header: 'البيان والتفاصيل', width: 30 },
+            ]}
+            data={lines.map((l: any) => ({
+              ...l,
+              dimensions: [l.branchName, l.departmentName, l.costCenterName].filter(Boolean).join(' / ') || '—',
+            }))}
+          />
           <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة سند القيد">
-            <Printer className="size-3.5" /> طباعة السند
+            <Printer className="size-3.5" /> طباعة السند (A4)
           </button>
           {e.status === 'DRAFT' && <>
             <Link className="btn-secondary" to={`/acc/journals/${e.id}/edit`}><Pencil className="size-4" /> تعديل</Link>
