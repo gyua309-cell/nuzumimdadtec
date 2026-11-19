@@ -5,12 +5,13 @@ import ReactECharts from 'echarts-for-react';
 import {
   Activity, ArrowUpRight, Briefcase, Calendar, CheckCircle2, Clock,
   ExternalLink, FileText, Landmark, Plus, Printer, Receipt,
-  ShieldCheck, ShoppingCart, TrendingUp, Users, Wallet,
+  ShieldCheck, ShoppingCart, TrendingUp, Users, Wallet, Zap,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { money, today, yearStart, monthStart } from '../lib/format';
 import { useAuth, useBaseCurrency } from '../lib/auth';
 import { Badge, Loading, Stat } from '../components/ui';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
 function useIsDark() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
@@ -736,7 +737,14 @@ export function DashboardPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  to="/automation/hub"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-indigo-600 to-violet-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm shadow-indigo-600/20 hover:brightness-110 transition-all"
+                >
+                  <Zap className="size-3.5" />
+                  <span>مركز الأتمتة والقيود الآلية</span>
+                </Link>
                 <span className="rounded-lg border border-indigo-500/25 bg-indigo-500/10 px-2.5 py-1 text-xs font-extrabold text-indigo-700 dark:text-indigo-300">
                   {completedSteps} / {cycleSteps.length} مراحل نشطة ({progressPct}%)
                 </span>
@@ -1314,9 +1322,9 @@ export function DashboardPage() {
               <div className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
                 {(Array.isArray(recentJournals.data) ? recentJournals.data : (recentJournals.data?.data ?? [])).slice(0, 4).map((je: any) => (
                   <div key={je.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition">
-                    <div className="space-y-0.5">
+                    <div className="space-y-1">
                       <div className="font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                        <span className="num font-mono text-indigo-700 dark:text-indigo-400">{je.entryNo}</span>
+                        <JournalLinkBadge entryId={je.id} entryNo={je.entryNo} compact />
                         <Badge color={je.status === 'POSTED' ? 'green' : 'amber'}>
                           {je.status === 'POSTED' ? 'مرحل' : 'مسودة'}
                         </Badge>

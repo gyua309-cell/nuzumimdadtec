@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, Calculator, CheckCircle2, ChevronDown, ChevronLeft,
   Cloud, Coins, Command, Database, FileText, Globe, Landmark, LayoutDashboard, Loader2, LogOut, Menu, Moon, Package,
-  PanelRightClose, Plus, Search, Server, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet, X,
+  PanelRightClose, Plus, Search, Server, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet, X, Zap,
 } from 'lucide-react';
 import { api, getApiBaseUrl, getCustomApiUrl, resetApiOfflineCache, setCustomApiUrl } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -133,6 +133,7 @@ export const PINNED_FAVORITES: Array<{
   icon: any;
   color: string;
 }> = [
+  { label: 'الأتمتة والقيود', path: '/automation/hub', icon: Zap, color: 'text-amber-400' },
   { label: 'الموظفون', path: '/hr/employees', icon: Users, color: 'text-indigo-400' },
   { label: 'المشاريع', path: '/prj/projects', icon: Briefcase, color: 'text-sky-400' },
   { label: 'الفواتير', path: '/sal/invoices', icon: FileText, color: 'text-emerald-400' },
@@ -149,6 +150,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'الرئيسية والمؤشرات التنفيذية',
     sections: [
       { key: 'dash', label: 'لوحة المؤشرات التنفيذية', icon: LayoutDashboard, to: '/', color: 'blue' },
+      { key: 'auto_hub', label: 'مركز الأتمتة والقيود الآلية', icon: Zap, to: '/automation/hub', color: 'amber' },
     ],
   },
   {
@@ -752,7 +754,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
       {/* ─────────── Executive Dark Navy Sidebar ─────────── */}
       <aside
-        className={`fixed inset-y-0 start-0 z-40 flex shrink-0 flex-col border-e border-slate-800/90 bg-[#0f172a] text-slate-200 shadow-2xl transition-all duration-300 dark:border-slate-800/80 dark:bg-[#090d18] lg:static lg:z-auto ${
+        className={`fixed inset-y-0 start-0 z-40 flex shrink-0 flex-col border-e border-slate-800/90 bg-gradient-to-b from-[#0b1122] via-[#0e162b] to-[#080c18] text-slate-200 shadow-2xl transition-all duration-300 dark:border-slate-800/80 dark:from-[#080c18] dark:via-[#0a1020] dark:to-[#050811] lg:static lg:z-auto ${
           mobileMenuOpen ? 'translate-x-0 w-[292px]' : 'max-lg:translate-x-full'
         } ${collapsed ? 'lg:w-[74px]' : 'lg:w-[292px]'}`}
       >
@@ -1032,6 +1034,17 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
           {/* Fast Command & Unified Navigation Pills */}
           <div className="flex shrink-0 items-center gap-1.5">
+            {/* Smart Automation & Auto-Journal Hub CTA */}
+            <NavLink
+              to="/automation/hub"
+              className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-amber-400/40 bg-gradient-to-r from-amber-500/15 via-indigo-500/10 to-emerald-500/15 hover:from-amber-500/25 hover:to-indigo-500/20 text-slate-900 dark:text-amber-200 font-extrabold px-2.5 text-xs shadow-2xs transition-all active:scale-95"
+              title="مركز الأتمتة الذكية والتوليد التلقائي للقيود المحاسبية"
+            >
+              <Zap className="size-3.5 shrink-0 text-amber-500 fill-amber-500" />
+              <span className="hidden sm:inline whitespace-nowrap">الأتمتة الآلية</span>
+              <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            </NavLink>
+
             {/* Primary Royal Indigo CTA: + فاتورة */}
             <NavLink
               to="/sal/invoices"

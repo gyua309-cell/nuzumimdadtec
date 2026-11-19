@@ -9,6 +9,7 @@ import { api, Page } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
 import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import {
   Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, ReasonDialog, Stat, useToast,
 } from '../components/ui';
@@ -196,13 +197,7 @@ export function RevenuePage() {
                   <td>{r.periodName}</td>
                   <td className="num font-medium text-green-600">{money(r.totalRevenueBase)}</td>
                   <td>
-                    {r.journalEntryId ? (
-                      <Link to={`/acc/journals/${r.journalEntryId}`} className="text-brand-600 hover:underline">
-                        {r.journalEntryNo}
-                      </Link>
-                    ) : (
-                      '—'
-                    )}
+                    <JournalLinkBadge entryId={r.journalEntryId} entryNo={r.journalEntryNo} compact />
                   </td>
                   <td>
                     <Badge color={r.status === 'POSTED' ? 'green' : r.status === 'CANCELLED' ? 'red' : 'slate'}>
@@ -819,6 +814,7 @@ export function ProfitabilityPage() {
                     <th className="num">الوحدات</th>
                     <th className="num">السعر</th>
                     <th className="num">الإيراد المسوى</th>
+                    <th>القيد الآلي</th>
                     <th>الحالة (Workflow)</th>
                     <th>سبب التسوية</th>
                     <th>إجراءات الاعتماد</th>
@@ -851,6 +847,7 @@ export function ProfitabilityPage() {
                         <td className="num font-mono">{Number(r.units).toFixed(2)}</td>
                         <td className="num font-mono">{money(r.unitPrice)}</td>
                         <td className="num font-bold text-emerald-600">{money(r.grossRevenueBase)}</td>
+                        <td><JournalLinkBadge entryId={r.journalEntryId} entryNo={r.journalEntryNo} compact /></td>
                         <td>{statusBadge}</td>
                         <td className="max-w-xs truncate" title={r.adjustmentReason}>{r.adjustmentReason}</td>
                         <td>

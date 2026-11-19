@@ -1,17 +1,20 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Calendar, Download, Landmark,
-  Printer, Receipt, ShieldCheck, TrendingDown,
+  Calendar, CheckCircle2, Download, Landmark,
+  Printer, Receipt, ShieldCheck, Sparkles, TrendingDown,
   TrendingUp,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
 import { usePeriods } from '../components/forms';
 import { Badge, PageHeader, Stat, useToast } from '../components/ui';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
 export function VatReportPage() {
   const toast = useToast();
+  const qc = useQueryClient();
+  const [settling, setSettling] = useState(false);
   const periodsQuery = usePeriods();
   const periods = periodsQuery.data || [];
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
@@ -36,6 +39,36 @@ export function VatReportPage() {
     queryFn: () => api.get<any>('/purchase-invoices', { fiscalPeriodId: activePeriodId, pageSize: 100 }),
     enabled: Boolean(activePeriodId),
   });
+
+  // Fetch VAT settlements history
+  const settlementsQuery = useQuery({
+    queryKey: ['/vat-return/settlements'],
+    queryFn: () => api.get<any>('/vat-return/settlements'),
+  });
+  const settlements = Array.isArray(settlementsQuery.data)
+    ? settlementsQuery.data
+    : (settlementsQuery.data?.data ?? []);
+  const currentSettlement = settlements.find((s: any) => s.fiscalPeriodId === activePeriodId);
+
+  const handleSettleVat = async () => {
+    if (!activePeriodId) return;
+    if (!confirm('ترحيل قيد تسوية إقفال ضريبة القيمة المضافة (مخرجات 20201 مقابل مدخلات 1250) وسداد صافي الضريبة لهيئة الزكاة ZATCA من البنك؟')) return;
+    setSettling(true);
+    try {
+      const res: any = await api.post('/vat-return/settle', {
+        periodId: activePeriodId,
+        payNow: true,
+      });
+      toast.success(`تم ترحيل قيد تسوية وسداد الضريبة آلياً برقم ${res.journalEntryNo || ''}`);
+      qc.invalidateQueries({ queryKey: ['/vat-return/settlements'] });
+      qc.invalidateQueries({ queryKey: ['journals'] });
+      qc.invalidateQueries({ queryKey: ['/journal-entries'] });
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setSettling(false);
+    }
+  };
 
   const rawSales = Array.isArray(salesQuery.data) ? salesQuery.data : (salesQuery.data?.data || []);
   const rawPurchases = Array.isArray(purchasesQuery.data) ? purchasesQuery.data : (purchasesQuery.data?.data || []);
@@ -70,6 +103,24 @@ export function VatReportPage() {
         subtitle="ملخص ضريبة القيمة المضافة المحصلة على المبيعات (المخرجات) والمسددة على المشتريات (المدخلات) واحتساب صافي الضريبة الواجب سدادها لهيئة الزكاة والضريبة والجمارك."
         actions={
           <div className="flex flex-wrap items-center gap-2 print:hidden">
+            {currentSettlement ? (
+              <div className="inline-flex items-center gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-300">
+                <CheckCircle2 className="size-4 text-emerald-600" />
+                <span>تمت التسوية:</span>
+                <JournalLinkBadge entryId={currentSettlement.journalEntryId} entryNo={currentSettlement.journalEntryNo} compact />
+              </div>
+            ) : (salesVat > 0 || purchasesVat > 0) ? (
+              <button
+                type="button"
+                disabled={settling}
+                onClick={handleSettleVat}
+                className="btn-primary text-xs flex items-center gap-1.5"
+                title="توليد وترحيل قيد تسوية وسداد ضريبة القيمة المضافة تلقائياً"
+              >
+                <Sparkles className="size-3.5" />
+                <span>{settling ? 'جارٍ الترحيل الآلي...' : 'ترحيل قيد تسوية وسداد الضريبة آلياً'}</span>
+              </button>
+            ) : null}
             <button
               className="btn btn-secondary text-xs flex items-center gap-1.5"
               onClick={() => window.print()}

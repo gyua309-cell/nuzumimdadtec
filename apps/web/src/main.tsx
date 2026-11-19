@@ -47,6 +47,7 @@ const SnapshotsPage = lazyNamed(loadReports, 'SnapshotsPage');
 const TrialBalancePage = lazyNamed(loadReports, 'TrialBalancePage');
 
 const DashboardPage = lazyNamed(() => import('./pages/dashboard'), 'DashboardPage');
+const AutomationHubPage = lazyNamed(() => import('./pages/automation-hub'), 'AutomationHubPage');
 const VatReportPage = lazyNamed(() => import('./pages/vat-report'), 'VatReportPage');
 const ZakatPage = lazyNamed(() => import('./pages/zakat'), 'ZakatPage');
 const ZatcaHubPage = lazyNamed(() => import('./pages/zatca-hub'), 'ZatcaHubPage');
@@ -149,6 +150,7 @@ function Root() {
       <Routes key={company.id}>
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
+          <Route path="automation/hub" element={<AutomationHubPage />} />
           <Route path="org/company" element={<CompanyPage />} />
           <Route path="org/branches" element={<BranchesPage />} />
           <Route path="org/departments" element={<DepartmentsPage />} />

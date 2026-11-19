@@ -11,6 +11,7 @@ import { date, money, today } from '../lib/format';
 import { getStoredCompany } from '../lib/storage-company';
 import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { ActionButton, ActionGroup, AddButton, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
 export interface CustodyTransfer {
@@ -595,13 +596,8 @@ export function CustodiesPage() {
                           </div>
                         )}
                         {c.disbursement_journal_entry_id && (
-                          <div className="mt-0.5">
-                            <Link
-                              to={`/acc/journals/${c.disbursement_journal_entry_id}`}
-                              className="inline-flex items-center gap-1 rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-700 hover:underline"
-                            >
-                              <FileText className="size-2.5" /> {c.disbursementEntryNo || 'القيد'}
-                            </Link>
+                          <div className="mt-1 flex justify-center">
+                            <JournalLinkBadge entryId={c.disbursement_journal_entry_id} entryNo={c.disbursementEntryNo || 'القيد'} compact />
                           </div>
                         )}
                       </td>

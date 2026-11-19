@@ -13,6 +13,7 @@ import { ExportMenu } from '../components/ExportMenu';
 import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import {
   ActionButton, ActionGroup, AddButton, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader,
   ReasonDialog, Stat, useToast,
@@ -624,13 +625,7 @@ export function PurchaseInvoicesPage() {
                       </td>
                       <td>
                         {inv.journalEntryId ? (
-                          <Link
-                            to={`/acc/journals/${inv.journalEntryId}`}
-                            className="inline-flex items-center gap-1 text-[11px] font-mono text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 hover:underline"
-                            title="عرض القيد المحاسبي المتولد آلياً في دفتر الأستاذ"
-                          >
-                            <FileText className="size-3" /> {inv.journalEntryNo}
-                          </Link>
+                          <JournalLinkBadge entryId={inv.journalEntryId} entryNo={inv.journalEntryNo} compact />
                         ) : (
                           <span className="text-[11px] text-slate-400">ينشأ عند الاعتماد</span>
                         )}
@@ -1330,11 +1325,9 @@ export function PurchaseInvoiceDetailPage() {
                     <td className="num font-bold text-indigo-700 dark:text-indigo-400">{money(p.amount)}</td>
                     <td className="font-mono">{p.bankGlCode}</td>
                     <td>
-                      {p.journalEntryId && (
-                        <Link to={`/acc/journals/${p.journalEntryId}`} className="text-brand-600 hover:underline font-mono">
-                          {p.journalEntryNo || 'عرض القيد'}
-                        </Link>
-                      )}
+                      {p.journalEntryId ? (
+                        <JournalLinkBadge entryId={p.journalEntryId} entryNo={p.journalEntryNo} compact />
+                      ) : '—'}
                     </td>
                   </tr>
                 ))}
@@ -1462,13 +1455,7 @@ export function PurchaseDebitNotesPage() {
                   <td className="num font-mono text-emerald-700">{money(d.vatAmount)}</td>
                   <td className="num font-mono font-bold text-rose-600">-{money(d.totalAmount)}</td>
                   <td>
-                    {d.journalEntryId ? (
-                      <Link to={`/acc/journals/${d.journalEntryId}`} className="text-xs font-mono text-emerald-700 hover:underline">
-                        {d.journalEntryNo}
-                      </Link>
-                    ) : (
-                      '—'
-                    )}
+                    <JournalLinkBadge entryId={d.journalEntryId} entryNo={d.journalEntryNo} compact />
                   </td>
                   <td><Badge color="green">مرحّل ومعتمد</Badge></td>
                   <td className="text-end">

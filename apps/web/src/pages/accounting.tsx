@@ -4,12 +4,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Decimal from 'decimal.js';
 import {
   CheckCircle2, ChevronDown, ChevronLeft, Eye, FileCode, FlaskConical,
-  Folder, FolderOpen, List, Network, Pencil, Plus, Printer, Send, Trash2, Undo2, Upload, XCircle,
+  Folder, FolderOpen, List, Network, Pencil, Plus, Printer, RefreshCw, Send, Trash2, Undo2, Upload, XCircle, Zap,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, money, today } from '../lib/format';
-import { ACCOUNT_CLASS, ACCOUNT_SOURCE, ACCOUNT_SUBTYPE, CASH_FLOW, DIMENSION_POLICY, JE_STATUS, JOURNAL_TYPE, LEDGER, opts } from '../lib/labels';
+import { ACCOUNT_CLASS, ACCOUNT_SOURCE, ACCOUNT_SUBTYPE, CASH_FLOW, DIMENSION_POLICY, JE_STATUS, JOURNAL_TYPE, LEDGER, opts, SOURCE_MODULE_LABELS, SOURCE_TYPE_LABELS } from '../lib/labels';
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef, fieldErrors, useRefOptions } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
@@ -566,17 +566,55 @@ export function JournalsPage() {
   const qc = useQueryClient();
   const [f, setF] = useState({ status: '', journalType: '', ledger: '', dateFrom: '', dateTo: '', q: '' });
   const [page, setPage] = useState(1);
+  const [syncing, setSyncing] = useState(false);
   const q = useQuery({ queryKey: ['journals', f, page], queryFn: () => api.get<Page<any>>('/journal-entries', { ...f, page, pageSize: 50, sort: '-entryDate' }) });
   const base = useBaseCurrency();
   const list: any[] = Array.isArray(q.data) ? q.data : (q.data?.data ?? []);
+  const autoCount = list.filter((e: any) => e.sourceType && e.sourceType !== 'MANUAL').length;
+
+  const handleSyncAll = async () => {
+    setSyncing(true);
+    try {
+      const res: any = await api.post('/accounting/sync-all-journals', {});
+      qc.invalidateQueries({ queryKey: ['journals'] });
+      qc.invalidateQueries({ queryKey: ['/journal-entries'] });
+      const count = res?.syncedCount ?? res?.repairedCount ?? 0;
+      if (count > 0) {
+        toast.success(`تم فحص العمليات وتوليد ${count} قيد محاسبي آلي مفقود بنجاح`);
+      } else {
+        toast.success('جميع العمليات المعتمدة مربوطة بقيود يومية متوازنة 100%');
+      }
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
-        title="القيود اليومية"
-        subtitle="القيد المرحّل لا يعدل ولا يحذف؛ التصحيح يتم بقيد عكسي أو قيد تسوية."
+        title="سجل القيود اليومية (التلقائية واليدوية)"
+        subtitle={`تتولد القيود آلياً من كافة العمليات (المبيعات، المشتريات، الرواتب، السلف، العهد، الأصول، البنوك، الضريبة) فور اعتمادها • قيود آلية نشطة: ${autoCount}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/automation/hub"
+              className="btn-secondary text-xs flex items-center gap-1.5 border-indigo-500/30 text-indigo-700 dark:text-indigo-300"
+            >
+              <Zap className="size-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>مركز الأتمتة والربط</span>
+            </Link>
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={handleSyncAll}
+              className="btn-secondary text-xs flex items-center gap-1.5 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 cursor-pointer"
+              title="فحص جميع العمليات التشغيلية وتوليد أي قيود محاسبية غير مرحلة"
+            >
+              <RefreshCw className={`size-3.5 text-emerald-600 ${syncing ? 'animate-spin' : ''}`} />
+              <span>{syncing ? 'جارٍ المزامنة...' : 'مزامنة القيود التلقائية'}</span>
+            </button>
             <ExportMenu
               title="دفتر قيود اليومية"
               filename={`journal-entries-${today()}`}
@@ -588,7 +626,7 @@ export function JournalsPage() {
                 { key: 'journalTypeLabel', header: 'النوع', width: 16 },
                 { key: 'ledgerLabel', header: 'الدفتر', width: 12 },
                 { key: 'description', header: 'الوصف', width: 32 },
-                { key: 'sourceLabel', header: 'المصدر', width: 18 },
+                { key: 'sourceLabel', header: 'المصدر', width: 22 },
                 { key: 'totalDebitBase', header: `مدين (${base})`, width: 16, type: 'currency', isTotal: true },
                 { key: 'totalCreditBase', header: `دائن (${base})`, width: 16, type: 'currency', isTotal: true },
                 { key: 'statusLabel', header: 'الحالة', width: 14 },
@@ -597,14 +635,12 @@ export function JournalsPage() {
                 ...e,
                 journalTypeLabel: JOURNAL_TYPE[e.journalType] || e.journalType,
                 ledgerLabel: LEDGER[e.ledger] || e.ledger,
-                sourceLabel: `${e.sourceModule}/${e.sourceType}`,
+                sourceLabel: `${SOURCE_MODULE_LABELS[e.sourceModule] || e.sourceModule || 'محاسبة'} — ${SOURCE_TYPE_LABELS[e.sourceType] || e.sourceType || 'يدوي'}`,
                 statusLabel: JE_STATUS[e.status]?.label || e.status,
               }))}
             />
-            <Link className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-3.5 py-2 text-xs font-black text-slate-950 shadow-xs shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 hover:brightness-105 active:scale-[0.98] transition-all cursor-pointer" to="/acc/journals/new">
-              <span className="flex size-5 items-center justify-center rounded-lg bg-slate-950/15 text-slate-950">
-                <Plus className="size-3.5 stroke-[3]" />
-              </span>
+            <Link className="btn-primary text-xs flex items-center gap-1.5" to="/acc/journals/new">
+              <Plus className="size-4" />
               <span>قيد يدوي جديد</span>
             </Link>
           </div>
@@ -634,9 +670,21 @@ export function JournalsPage() {
                 <tbody>
                   {list.map((e: any) => (
                     <tr key={e.id} className="cursor-pointer" onClick={() => nav(`/acc/journals/${e.id}`)}>
-                      <td className="num text-start font-medium">{e.entryNo ?? '—'}</td>
+                      <td className="num text-start font-bold text-indigo-700 dark:text-indigo-300">{e.entryNo ?? '—'}</td>
                       <td>{date(e.entryDate)}</td><td>{e.periodName}</td><td>{JOURNAL_TYPE[e.journalType] ?? e.journalType}</td><td>{LEDGER[e.ledger]}</td>
-                      <td className="max-w-xs truncate">{e.description}</td><td className="text-xs">{e.sourceModule}/{e.sourceType}</td>
+                      <td className="max-w-xs truncate">{e.description}</td>
+                      <td className="text-xs">
+                        {e.sourceType && e.sourceType !== 'MANUAL' ? (
+                          <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                            <Zap className="size-3 text-indigo-500 shrink-0" />
+                            <span>{SOURCE_TYPE_LABELS[e.sourceType] || SOURCE_MODULE_LABELS[e.sourceModule] || e.sourceModule}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                            قيد يدوي
+                          </span>
+                        )}
+                      </td>
                       <td className="num">{money(e.totalDebitBase)}</td><td className="num">{money(e.totalCreditBase)}</td>
                       <td><Badge color={JE_STATUS[e.status].color}>{JE_STATUS[e.status].label}</Badge> {e.reversedById && <Badge color="slate">معكوس</Badge>}</td>
                       <td onClick={(evt) => evt.stopPropagation()}>

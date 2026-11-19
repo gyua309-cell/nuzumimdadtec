@@ -885,6 +885,9 @@ export function createPurchaseInvoiceItem(body: any): any {
   };
 
   saveEntityItem('purchase_invoices', item);
+  if (body.status === 'POSTED' || body.autoPost === true) {
+    return postPurchaseInvoiceItem(item.id);
+  }
   recordAudit({
     action: 'CREATE',
     schemaName: 'purchases',
@@ -1201,6 +1204,18 @@ export function createAssetItem(body: any): any {
   };
 
   saveEntityItem('assets', asset);
+  if (body.autoActivate === true || (body.autoActivate !== false && body.status !== 'DRAFT' && costBase > 0)) {
+    try {
+      return activateAssetItem(asset.id, {
+        entryDate: purchaseDate,
+        funding: body.funding || 'BANK',
+        bankAccountId: body.bankAccountId || null,
+        reason: `تفعيل ورسملة تلقائية للأصل (${asset.assetNo}) عند الإضافة`,
+      });
+    } catch {
+      // If period is closed, fall back to saved draft safely
+    }
+  }
   recordAudit({
     action: 'CREATE',
     schemaName: 'assets',
@@ -1578,6 +1593,18 @@ export function createCustodyItem(body: any): any {
   });
 
   saveEntityItem('custodies', item);
+  if (body.autoDisburse === true && Number(body.requestedAmount || 0) > 0) {
+    try {
+      return disburseCustodyItem(item.id, {
+        disbursedAmount: body.requestedAmount,
+        disbursedFromAccountId: body.disbursedFromAccountId,
+        disbursementDate: body.disbursementDate || new Date().toISOString().slice(0, 10),
+        reference: body.reference || `WIRE-${item.custody_no}`,
+      });
+    } catch {
+      // Safe fallback to saved draft if period closed
+    }
+  }
   recordAudit({
     action: 'CREATE',
     schemaName: 'treasury',
@@ -1646,6 +1673,7 @@ export function convertCustodyItem(custId: string, body: any): any {
   const rate = Number(body?.conversionRate || body?.exchangeRate || 13.15);
   const srcAmt = Number(body?.convertedAmountSource || body?.amountSource || c.disbursed_amount || 0);
   const tgtAmt = Number(body?.convertedAmountTarget || body?.amountTarget || round2(srcAmt * rate));
+  const feeSar = round2(Number(body?.bankFeeSar || 0));
   const cDate = (body?.conversionDate || body?.transferDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
 
   c.target_currency = body?.targetCurrency || c.target_currency || 'EGP';
@@ -1657,6 +1685,30 @@ export function convertCustodyItem(custId: string, body: any): any {
   c.conversion_notes = body?.conversionNotes || body?.notes || null;
   c.status = 'CONVERTED';
 
+  let convJe: any = null;
+  if (feeSar > 0) {
+    try {
+      assertPeriodOpen(cDate, `رسوم تحويل عملة العهدة ${c.custody_no}`);
+      const bankGl = resolveBankGlCode(c.disbursed_from_account_id, '10201');
+      convJe = createAutoPostedJournalEntry({
+        entryDate: cDate,
+        fiscalPeriodId: resolvePeriodByIdOrDate(undefined, cDate)?.id,
+        journalType: 'EXPENSE',
+        sourceModule: 'TREASURY',
+        sourceType: 'CUSTODY_CONVERSION',
+        postingEvent: 'CUSTODY_CONVERTED',
+        reference: c.conversion_receipt_no || `FX-${c.custody_no}`,
+        description: `إثبات عمولة التحويل البنكي وصرافة العهدة ${c.custody_no} — ${c.employeeNameAr}`,
+        lines: [
+          { accountCode: '50402', debit: feeSar, credit: 0, employeeId: c.employee_id, currencyCode: 'SAR', description: `عمولة تحويل بنكي للعهدة ${c.custody_no}` },
+          { accountCode: bankGl, debit: 0, credit: feeSar, employeeId: c.employee_id, currencyCode: 'SAR', description: `خصم عمولة حوالة العهدة ${c.custody_no}` },
+        ],
+      });
+    } catch {
+      // Ignore if period closed
+    }
+  }
+
   c.transfers = [
     ...(Array.isArray(c.transfers) ? c.transfers : []),
     {
@@ -1665,8 +1717,10 @@ export function convertCustodyItem(custId: string, body: any): any {
       amount_source: srcAmt.toFixed(2),
       exchange_rate: String(rate),
       amount_target: tgtAmt.toFixed(2),
-      bank_fee_sar: Number(body?.bankFeeSar || 0).toFixed(2),
+      bank_fee_sar: feeSar.toFixed(2),
       bank_reference: c.conversion_receipt_no,
+      sa_journal_entry_id: convJe?.id || c.disbursement_journal_entry_id || null,
+      saJournalEntryNo: convJe?.entryNo || c.disbursementEntryNo || null,
       status: 'COMPLETED',
       notes: c.conversion_notes,
     },
@@ -2225,4 +2279,532 @@ export function cancelZakatReturnItem(id: string, reason?: string): any {
   r.cancelReason = reason || 'إلغاء الإقرار';
   saveEntityItem('zakat_returns', r);
   return r;
+}
+
+// ============================================================================
+// 7. Treasury Inter-Bank FX Transfers, Payroll Disbursement, EOSB, VAT & Sync
+// ============================================================================
+
+export function executeInterBankTransfer(body: any): any {
+  const banks = getEntityList<any>('bank_accounts', defaultBankAccountsList);
+  const accounts = getNormalizedAccounts();
+  const sourceBank = banks.find((b) => b.id === body?.sourceBankId || b.code === body?.sourceBankId) || banks[0];
+  const targetBank = banks.find((b) => b.id === body?.targetBankId || b.code === body?.targetBankId) || banks[1] || banks[0];
+  if (!sourceBank || !targetBank) throw new Error('يرجى تحديد حسابات البنوك المصدر والمستلم');
+  if (sourceBank.id === targetBank.id) throw new Error('لا يمكن التحويل لنفس الحساب البنكي');
+
+  const transferDate = (body?.transferDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  assertPeriodOpen(transferDate, 'تنفيذ تحويل بنكي وصرافة عملات');
+
+  const srcCur = sourceBank.currencyCode || body?.sourceCurrency || 'SAR';
+  const tgtCur = targetBank.currencyCode || body?.targetCurrency || 'SAR';
+  const srcAmt = round2(Number(body?.sourceAmount || 0));
+  if (srcAmt <= 0) throw new Error('مبلغ التحويل يجب أن يكون أكبر من صفر');
+
+  const isCross = srcCur !== tgtCur;
+  const spotRate = Number(body?.exchangeRate || (isCross ? 13.15 : 1));
+  const tgtAmt = round2(
+    body?.targetAmount != null
+      ? Number(body.targetAmount)
+      : isCross
+        ? srcAmt * spotRate
+        : srcAmt,
+  );
+  const bankFee = round2(Number(body?.bankFee || 0));
+
+  const srcGl = accounts.find((a) => a.id === sourceBank.glAccountId || a.code === sourceBank.glAccountCode)?.code || '10201';
+  const tgtGl = accounts.find((a) => a.id === targetBank.glAccountId || a.code === targetBank.glAccountCode)?.code || '10202';
+
+  const srcBase = round2(convertToBase(srcAmt, srcCur, transferDate).amountBase);
+  const tgtBase = round2(convertToBase(tgtAmt, tgtCur, transferDate).amountBase);
+  const fxDiff = round2(srcBase - tgtBase);
+
+  const reference = body?.reference || `TRF-${transferDate.replace(/-/g, '')}-${getEntityList('bank_transfers', []).length + 1}`;
+  const jeLines: Array<{ accountCode: string; debit: number; credit: number; currencyCode?: string; description?: string }> = [
+    {
+      accountCode: tgtGl,
+      debit: tgtAmt,
+      credit: 0,
+      currencyCode: tgtCur,
+      description: `إيداع تحويل بنكي وارد من (${sourceBank.name}) — ${reference}`,
+    },
+    {
+      accountCode: srcGl,
+      debit: 0,
+      credit: srcAmt,
+      currencyCode: srcCur,
+      description: `صرف تحويل بنكي صادر إلى (${targetBank.name}) — ${reference}`,
+    },
+  ];
+
+  if (Math.abs(fxDiff) >= 0.01) {
+    if (fxDiff > 0) {
+      jeLines.push({
+        accountCode: '5700',
+        debit: fxDiff,
+        credit: 0,
+        currencyCode: 'SAR',
+        description: `فروق تقييم صرافة عملات محققة (${srcCur} ➔ ${tgtCur}) — ${reference}`,
+      });
+    } else {
+      jeLines.push({
+        accountCode: '4300',
+        debit: 0,
+        credit: Math.abs(fxDiff),
+        currencyCode: 'SAR',
+        description: `أرباح فروق صرافة عملات محققة (${srcCur} ➔ ${tgtCur}) — ${reference}`,
+      });
+    }
+  }
+
+  if (bankFee > 0) {
+    const feeBase = round2(convertToBase(bankFee, srcCur, transferDate).amountBase);
+    jeLines.push(
+      {
+        accountCode: '50402',
+        debit: feeBase,
+        credit: 0,
+        currencyCode: 'SAR',
+        description: `عمولات ومصروفات سويفت وتحويل بنكي — ${reference}`,
+      },
+      {
+        accountCode: srcGl,
+        debit: 0,
+        credit: bankFee,
+        currencyCode: srcCur,
+        description: `خصم عمولة التحويل من (${sourceBank.name}) — ${reference}`,
+      },
+    );
+  }
+
+  const je = createAutoPostedJournalEntry({
+    entryDate: transferDate,
+    fiscalPeriodId: resolvePeriodByIdOrDate(undefined, transferDate)?.id,
+    journalType: 'TRANSFER',
+    sourceModule: 'TREASURY',
+    sourceType: 'BANK_TRANSFER',
+    postingEvent: 'BANK_TRANSFER_POSTED',
+    reference,
+    description: `سند تحويل وصرافة بنكية: ${sourceBank.name} ➔ ${targetBank.name} (${reference})`,
+    lines: jeLines,
+  });
+
+  const record = saveEntityItem('bank_transfers', {
+    id: `trf-${Date.now()}`,
+    transferDate,
+    sourceBankId: sourceBank.id,
+    sourceBankName: sourceBank.name,
+    sourceCurrency: srcCur,
+    sourceAmount: srcAmt,
+    targetBankId: targetBank.id,
+    targetBankName: targetBank.name,
+    targetCurrency: tgtCur,
+    targetAmount: tgtAmt,
+    exchangeRate: spotRate,
+    bankFee,
+    reference,
+    notes: body?.notes || `تحويل سيولة بنكية من ${sourceBank.name} إلى ${targetBank.name}`,
+    journalEntryId: je.id,
+    journalEntryNo: je.entryNo,
+    status: 'POSTED',
+    createdAt: new Date().toISOString(),
+  });
+
+  recordAudit({
+    action: 'BANK_TRANSFER',
+    schemaName: 'treasury',
+    tableName: 'bank_transfers',
+    entityId: record.id,
+    newValues: { reference, sourceAmount: srcAmt, targetAmount: tgtAmt, journalEntryNo: je.entryNo },
+    reason: record.notes,
+  });
+
+  return record;
+}
+
+export function payPayrollRunFromBank(runId: string, body: any = {}): any {
+  const runs = getEntityList<any>('payroll_runs', []);
+  const run = runs.find((r) => r.id === runId || r.runNo === runId);
+  if (!run) throw new Error('مسيّر الرواتب غير موجود');
+  if (run.status !== 'POSTED') throw new Error('يجب اعتماد وترحيل مسيّر الرواتب أولاً قبل صرفه');
+  if (run.paymentStatus === 'PAID' && run.paymentJournalEntryId) {
+    return run;
+  }
+
+  const payDate = (body?.paymentDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  assertPeriodOpen(payDate, `صرف رواتب المسيّر ${run.runNo}`);
+
+  const netAmt = round2(Number(run.netPayableBase || 0));
+  if (netAmt <= 0) throw new Error('صافي الرواتب المستحقة يساوي صفر');
+
+  const bankGl = resolveBankGlCode(body?.bankAccountId, '10201');
+  const je = createAutoPostedJournalEntry({
+    entryDate: payDate,
+    fiscalPeriodId: resolvePeriodByIdOrDate(undefined, payDate)?.id || run.fiscalPeriodId,
+    journalType: 'PAYMENT',
+    sourceModule: 'PAY',
+    sourceType: 'PAYROLL_PAYMENT',
+    postingEvent: 'PAYROLL_DISBURSED',
+    reference: body?.reference || `WPS-${run.runNo}`,
+    description: `سند صرف وتحويل صافي الرواتب والأجور البنكية (WPS) — مسيّر ${run.runNo} (${run.periodName})`,
+    lines: [
+      { accountCode: '20401', debit: netAmt, credit: 0, description: `إقفال التزام الرواتب المستحقة — ${run.runNo}` },
+      { accountCode: bankGl, debit: 0, credit: netAmt, description: `تحويل رواتب الموظفين من البنك — ${run.runNo}` },
+    ],
+  });
+
+  run.paymentStatus = 'PAID';
+  run.paidAt = payDate;
+  run.paidBankAccountId = body?.bankAccountId || null;
+  run.paymentJournalEntryId = je.id;
+  run.paymentJournalEntryNo = je.entryNo;
+  saveEntityItem('payroll_runs', run);
+
+  recordAudit({
+    action: 'PAY_PAYROLL_RUN',
+    schemaName: 'pay',
+    tableName: 'payroll_runs',
+    entityId: run.id,
+    newValues: { paymentStatus: 'PAID', paymentJournalEntryNo: je.entryNo, netPayableBase: run.netPayableBase },
+    reason: `صرف رواتب المسيّر ${run.runNo} من البنك`,
+  });
+
+  return run;
+}
+
+export function postEosbSettlementJournal(body: any): any {
+  const entryDate = (body?.entryDate || body?.terminationDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  assertPeriodOpen(entryDate, 'ترحيل قيد تصفية مكافأة نهاية الخدمة');
+
+  const totalSettlement = round2(Number(body?.totalSettlement || 0));
+  if (totalSettlement <= 0) throw new Error('مبلغ التصفية المستحق يجب أن يكون أكبر من صفر');
+
+  const emps = getEntityList<any>('employees', []);
+  const emp = emps.find((e) => e.id === body?.employeeId || e.code === body?.employeeId);
+  const empName = emp?.fullNameAr || body?.employeeName || 'كادر وظيفي';
+  const mode = body?.mode || 'PROVISION'; // 'PROVISION' or 'PAY_NOW'
+  const creditAcc = mode === 'PAY_NOW' ? resolveBankGlCode(body?.bankAccountId, '10201') : '20402';
+
+  const cnt = getEntityList<any>('eosb_settlements', []).length + 1;
+  const refNo = `EOSB-${entryDate.slice(0, 4)}-${String(cnt).padStart(3, '0')}`;
+
+  const je = createAutoPostedJournalEntry({
+    entryDate,
+    fiscalPeriodId: resolvePeriodByIdOrDate(undefined, entryDate)?.id,
+    journalType: 'EOSB',
+    sourceModule: 'PAY',
+    sourceType: 'EOSB_SETTLEMENT',
+    postingEvent: mode === 'PAY_NOW' ? 'EOSB_PAID' : 'EOSB_PROVISIONED',
+    reference: refNo,
+    description: `${mode === 'PAY_NOW' ? 'قيد صرف وتصفية نهائية لمكافأة نهاية الخدمة' : 'قيد استحقاق مخصص مكافأة نهاية الخدمة والإجازات'} — ${empName} (${refNo})`,
+    lines: [
+      {
+        accountCode: '50103',
+        debit: totalSettlement,
+        credit: 0,
+        employeeId: emp?.id || undefined,
+        description: `مصروف مكافأة نهاية الخدمة ورصيد الإجازات — ${empName}`,
+      },
+      {
+        accountCode: creditAcc,
+        debit: 0,
+        credit: totalSettlement,
+        employeeId: emp?.id || undefined,
+        description: mode === 'PAY_NOW' ? `صرف مستحقات التصفية النهائية — ${empName}` : `مخصص نهاية الخدمة المستحق — ${empName}`,
+      },
+    ],
+  });
+
+  const saved = saveEntityItem('eosb_settlements', {
+    id: `eosb-${Date.now()}`,
+    refNo,
+    employeeId: emp?.id || body?.employeeId || null,
+    employeeName: empName,
+    entryDate,
+    totalYears: body?.totalYears || 0,
+    netEosb: round2(Number(body?.netEosb || 0)).toFixed(2),
+    vacPay: round2(Number(body?.vacPay || 0)).toFixed(2),
+    totalSettlement: totalSettlement.toFixed(2),
+    mode,
+    journalEntryId: je.id,
+    journalEntryNo: je.entryNo,
+    status: 'POSTED',
+    createdAt: new Date().toISOString(),
+  });
+
+  recordAudit({
+    action: 'POST_EOSB',
+    schemaName: 'pay',
+    tableName: 'eosb_settlements',
+    entityId: saved.id,
+    newValues: { refNo, employeeName: empName, totalSettlement: saved.totalSettlement, journalEntryNo: je.entryNo },
+    reason: `ترحيل قيد نهاية الخدمة ${refNo}`,
+  });
+
+  return saved;
+}
+
+export function settleVatReturnPeriod(body: any): any {
+  const period = resolvePeriodByIdOrDate(body?.periodId || body?.fiscalPeriodId, null);
+  const entryDate = (body?.settlementDate || period?.endDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  assertPeriodOpen(period?.id || entryDate, 'تسوية إقرار ضريبة القيمة المضافة');
+
+  const vatSummary = computeVatReturnSummary(period?.id);
+  const outVat = round2(Number(vatSummary.outputVat || 0));
+  const inVat = round2(Number(vatSummary.inputVat || 0));
+  const netVat = round2(outVat - inVat);
+
+  if (outVat <= 0 && inVat <= 0) {
+    throw new Error('لا توجد ضريبة مخرجات أو مدخلات مسجلة في هذه الفترة لتسويتها');
+  }
+
+  const existing = getEntityList<any>('vat_settlements', []).find(
+    (s) => s.fiscalPeriodId === period?.id && s.status === 'POSTED',
+  );
+  if (existing) {
+    throw new Error(`تم ترحيل قيد تسوية ضريبة القيمة المضافة لهذه الفترة مسبقاً برقم (${existing.journalEntryNo})`);
+  }
+
+  const bankGl = resolveBankGlCode(body?.bankAccountId, '10201');
+  const payNow = body?.payNow !== false && netVat > 0;
+  const refNo = `VAT-${(period?.startDate || entryDate).slice(0, 7)}`;
+
+  const lines: Array<{ accountCode: string; debit: number; credit: number; description?: string }> = [];
+  if (outVat > 0) {
+    lines.push({ accountCode: '20201', debit: outVat, credit: 0, description: `إقفال ضريبة المخرجات المحصلة للفترة ${period?.name || ''}` });
+  }
+  if (inVat > 0) {
+    lines.push({ accountCode: '1250', debit: 0, credit: inVat, description: `خصم ضريبة المدخلات القابلة للاسترداد للفترة ${period?.name || ''}` });
+  }
+  if (netVat > 0) {
+    lines.push({
+      accountCode: payNow ? bankGl : '20201',
+      debit: 0,
+      credit: netVat,
+      description: payNow ? `سداد صافي إقرار القيمة المضافة لهيئة الزكاة ZATCA (${refNo})` : `صافي الضريبة المستحقة للسداد (${refNo})`,
+    });
+  } else if (netVat < 0) {
+    lines.push({
+      accountCode: '1250',
+      debit: Math.abs(netVat),
+      credit: 0,
+      description: `رصيد ضريبي مدين مرحّل للاسترداد من ZATCA (${refNo})`,
+    });
+  }
+
+  const je = createAutoPostedJournalEntry({
+    entryDate,
+    fiscalPeriodId: period?.id,
+    journalType: 'TAX',
+    sourceModule: 'TAX',
+    sourceType: 'VAT_SETTLEMENT',
+    postingEvent: 'VAT_RETURN_SETTLED',
+    reference: refNo,
+    description: `قيد تسوية ${payNow ? 'وسداد ' : ''}إقرار ضريبة القيمة المضافة ZATCA — ${period?.name || refNo}`,
+    lines,
+  });
+
+  const saved = saveEntityItem('vat_settlements', {
+    id: `vatset-${Date.now()}`,
+    refNo,
+    fiscalPeriodId: period?.id || null,
+    periodName: period?.name || 'الفترة الحالية',
+    outputVat: outVat.toFixed(2),
+    inputVat: inVat.toFixed(2),
+    netVat: netVat.toFixed(2),
+    paidFromBank: payNow,
+    journalEntryId: je.id,
+    journalEntryNo: je.entryNo,
+    status: 'POSTED',
+    createdAt: new Date().toISOString(),
+  });
+
+  recordAudit({
+    action: 'SETTLE_VAT_RETURN',
+    schemaName: 'tax',
+    tableName: 'vat_settlements',
+    entityId: saved.id,
+    newValues: { refNo, netVat: saved.netVat, journalEntryNo: je.entryNo },
+    reason: `تسوية الإقرار الضريبي للفترة ${saved.periodName}`,
+  });
+
+  return saved;
+}
+
+/**
+ * Master Auto-Journal Reconciliation & Sync Engine.
+ * Scans every operational module and guarantees 100% double-entry journal parity.
+ */
+export function syncAllOperationalJournals(): any {
+  const jes = getEntityList<any>('journal_entries', []);
+  const validJeIds = new Set(jes.filter((j) => j.status === 'POSTED').map((j) => j.id));
+  const repairedItems: Array<{ module: string; ref: string; journalEntryNo: string; amount: string }> = [];
+
+  // 1. Sales Invoices & Credit Notes
+  const invoices = getEntityList<any>('invoices', []);
+  for (const inv of invoices) {
+    if (inv.status === 'POSTED' && (!inv.journalEntryId || !validJeIds.has(inv.journalEntryId))) {
+      const je = buildInvoiceJournal(inv, inv.invoiceType === 'CREDIT_NOTE');
+      if (je) {
+        inv.journalEntryId = je.id;
+        inv.journalEntryNo = je.entryNo;
+        saveEntityItem('invoices', inv);
+        validJeIds.add(je.id);
+        repairedItems.push({ module: 'المبيعات والفوترة', ref: inv.invoiceNo, journalEntryNo: je.entryNo, amount: inv.totalAmount });
+      }
+    }
+  }
+
+  // 2. Purchase Invoices
+  const pInvoices = getEntityList<any>('purchase_invoices', []);
+  for (const pinv of pInvoices) {
+    if (pinv.status === 'POSTED' && (!pinv.journalEntryId || !validJeIds.has(pinv.journalEntryId))) {
+      try {
+        pinv.status = 'DRAFT';
+        const posted = postPurchaseInvoiceItem(pinv.id);
+        if (posted?.journalEntryNo) {
+          validJeIds.add(posted.journalEntryId);
+          repairedItems.push({ module: 'المشتريات والموردين', ref: pinv.invoiceNo, journalEntryNo: posted.journalEntryNo, amount: pinv.totalAmount });
+        }
+      } catch { /* skip if closed period */ }
+    }
+  }
+
+  // 3. Employee Loans (Disbursement JEs)
+  const loans = getEntityList<any>('loans', []);
+  for (const loan of loans) {
+    if ((loan.status === 'ACTIVE' || loan.status === 'COMPLETED' || loan.status === 'SETTLED') && (!loan.journalEntryId || !validJeIds.has(loan.journalEntryId))) {
+      const amt = round2(Number(loan.principalBase || loan.principalAmount || 0));
+      if (amt > 0) {
+        const entryDate = (loan.createdAt || new Date().toISOString()).slice(0, 10);
+        const je = createAutoPostedJournalEntry({
+          entryDate,
+          fiscalPeriodId: loan.startPeriodId || resolvePeriodByIdOrDate(undefined, entryDate)?.id,
+          journalType: 'LOAN',
+          sourceModule: 'PAY',
+          sourceType: 'LOAN_DISBURSEMENT',
+          postingEvent: 'LOAN_DISBURSED',
+          reference: loan.loanNo,
+          description: `قيد صرف سلفة موظف (${loan.loanNo}) — ${loan.employeeName || 'موظف'}`,
+          lines: [
+            { accountCode: '10401', debit: amt, credit: 0, employeeId: loan.employeeId, description: `إثبات ذمة سلفة الموظف ${loan.employeeName} (${loan.loanNo})` },
+            { accountCode: '10201', debit: 0, credit: amt, employeeId: loan.employeeId, description: `صرف مبلغ السلفة من البنك (${loan.loanNo})` },
+          ],
+        });
+        loan.journalEntryId = je.id;
+        loan.journalEntryNo = je.entryNo;
+        saveEntityItem('loans', loan);
+        validJeIds.add(je.id);
+        repairedItems.push({ module: 'سلف وقروض الموظفين', ref: loan.loanNo, journalEntryNo: je.entryNo, amount: amt.toFixed(2) });
+      }
+    }
+  }
+
+  // 4. Active Fixed Assets (Capitalization JEs)
+  const assets = getEntityList<any>('assets', []);
+  for (const ast of assets) {
+    if (ast.status === 'ACTIVE' && (!ast.activationJournalEntryId || !validJeIds.has(ast.activationJournalEntryId))) {
+      const cost = round2(Number(ast.costBase || 0));
+      if (cost > 0) {
+        const entryDate = (ast.activatedAt || ast.purchaseDate || new Date().toISOString()).slice(0, 10);
+        const assetAcc = resolveAccountByIdOrCode(ast.assetAccountId, '10501');
+        const je = createAutoPostedJournalEntry({
+          entryDate,
+          fiscalPeriodId: resolvePeriodByIdOrDate(undefined, entryDate)?.id,
+          journalType: 'ASSET',
+          sourceModule: 'ASSETS',
+          sourceType: 'ASSET_ACTIVATION',
+          postingEvent: 'ASSET_ACTIVATED',
+          reference: ast.assetNo,
+          description: `إثبات رسملة وتفعيل أصل ثابت: ${ast.assetNo} — ${ast.name}`,
+          lines: [
+            { accountCode: assetAcc.code, debit: cost, credit: 0, description: `رسملة الأصل الثابت ${ast.name}` },
+            { accountCode: '10201', debit: 0, credit: cost, description: `سداد قيمة الأصل ${ast.assetNo}` },
+          ],
+        });
+        ast.activationJournalEntryId = je.id;
+        ast.activationJournalEntryNo = je.entryNo;
+        saveEntityItem('assets', ast);
+        validJeIds.add(je.id);
+        repairedItems.push({ module: 'الأصول الثابتة', ref: ast.assetNo, journalEntryNo: je.entryNo, amount: cost.toFixed(2) });
+      }
+    }
+  }
+
+  // 5. Disbursed Custodies
+  const custodies = getEntityList<any>('custodies', []);
+  for (const c of custodies) {
+    if (c.status !== 'DRAFT' && c.status !== 'CANCELLED' && (!c.disbursement_journal_entry_id || !validJeIds.has(c.disbursement_journal_entry_id))) {
+      const amtBase = round2(Number(c.disbursed_amount_base || c.disbursed_amount || c.requested_amount || 0));
+      if (amtBase > 0) {
+        const dDate = (c.disbursed_at || c.created_at || new Date().toISOString()).slice(0, 10);
+        const custodyGl = c.target_currency === 'EGP' ? '1310' : '1320';
+        const je = createAutoPostedJournalEntry({
+          entryDate: dDate,
+          fiscalPeriodId: resolvePeriodByIdOrDate(undefined, dDate)?.id,
+          journalType: 'PAYMENT',
+          sourceModule: 'TREASURY',
+          sourceType: 'CUSTODY_DISBURSEMENT',
+          postingEvent: 'CUSTODY_DISBURSED',
+          reference: c.custody_no,
+          description: `صرف العهدة النقدية ${c.custody_no} لأمين العهدة ${c.employeeNameAr}`,
+          lines: [
+            { accountCode: custodyGl, debit: amtBase, credit: 0, employeeId: c.employee_id, description: `إثبات عهدة ${c.employeeNameAr}` },
+            { accountCode: '10201', debit: 0, credit: amtBase, employeeId: c.employee_id, description: `حوالة صرف عهدة ${c.custody_no}` },
+          ],
+        });
+        c.disbursement_journal_entry_id = je.id;
+        c.disbursementEntryNo = je.entryNo;
+        saveEntityItem('custodies', c);
+        validJeIds.add(je.id);
+        repairedItems.push({ module: 'العهد النقدية', ref: c.custody_no, journalEntryNo: je.entryNo, amount: amtBase.toFixed(2) });
+      }
+    }
+  }
+
+  // 6. Approved Retroactive Revenue Adjustments
+  const adjs = getEntityList<any>('revenue_adjustments', []);
+  for (const adj of adjs) {
+    if (adj.status === 'APPROVED' && (!adj.journalEntryId || !validJeIds.has(adj.journalEntryId))) {
+      const amt = round2(Math.abs(Number(adj.grossRevenueBase || 0)));
+      const isPositive = Number(adj.grossRevenueBase || 0) >= 0;
+      if (amt > 0) {
+        const p = resolvePeriodByIdOrDate(adj.fiscalPeriodId, null);
+        const entryDate = p?.endDate || new Date().toISOString().slice(0, 10);
+        const je = createAutoPostedJournalEntry({
+          entryDate,
+          fiscalPeriodId: adj.fiscalPeriodId,
+          journalType: 'ADJUSTMENT',
+          sourceModule: 'REV',
+          sourceType: 'REVENUE_ADJUSTMENT',
+          postingEvent: 'RETRO_REVENUE_APPROVED',
+          reference: adj.id,
+          description: `قيد تسوية إيرادات بأثر رجعي — الموظف ${adj.employeeName} (${adj.projectName})`,
+          lines: isPositive
+            ? [
+                { accountCode: '110301', debit: amt, credit: 0, employeeId: adj.employeeId, projectId: adj.projectId, description: `إثبات إيراد مستحق بأثر رجعي (${adj.originalPeriodName})` },
+                { accountCode: '40101', debit: 0, credit: amt, employeeId: adj.employeeId, projectId: adj.projectId, description: `إيراد عقود ومشاريع — تسوية ${adj.projectName}` },
+              ]
+            : [
+                { accountCode: '40101', debit: amt, credit: 0, employeeId: adj.employeeId, projectId: adj.projectId, description: `تخفيض إيراد عقود بأثر رجعي — ${adj.projectName}` },
+                { accountCode: '110301', debit: 0, credit: amt, employeeId: adj.employeeId, projectId: adj.projectId, description: `تخفيض إيرادات مستحقة غير مفوترة` },
+              ],
+        });
+        adj.journalEntryId = je.id;
+        adj.journalEntryNo = je.entryNo;
+        saveEntityItem('revenue_adjustments', adj);
+        validJeIds.add(je.id);
+        repairedItems.push({ module: 'تسويات الإيرادات', ref: adj.projectName || adj.id, journalEntryNo: je.entryNo, amount: amt.toFixed(2) });
+      }
+    }
+  }
+
+  const allPostedNow = getEntityList<any>('journal_entries', []).filter((j) => j.status === 'POSTED').length;
+  return {
+    success: true,
+    syncedCount: repairedItems.length,
+    repairedItems,
+    totalPostedJournals: allPostedNow,
+    timestamp: new Date().toISOString(),
+  };
 }

@@ -247,19 +247,22 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
       ? title.trim()
       : 'لوحة التحكم والبيانات';
   return (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200/85 bg-white px-5 py-4 shadow-2xs dark:border-slate-800/90 dark:bg-[#0c1427]">
-      <div className="flex items-start gap-3.5 min-w-0">
-        <div className="mt-1 h-8 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-indigo-600 to-sky-500 shadow-xs" />
-        <div className="space-y-0.5 min-w-0">
-          <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-snug">
-            {safeTitle}
-          </h1>
-          {subtitle && (
-            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-3xl leading-relaxed">{subtitle}</p>
-          )}
+    <div className="relative mb-5 overflow-hidden rounded-2xl border border-slate-200/85 bg-gradient-to-l from-white via-white to-indigo-50/35 px-5 py-4 shadow-xs dark:border-slate-800/90 dark:from-[#0c1427] dark:via-[#0c1427] dark:to-indigo-950/20">
+      <div className="pointer-events-none absolute -top-12 -end-12 size-36 rounded-full bg-indigo-500/8 blur-2xl dark:bg-indigo-500/15" />
+      <div className="relative flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5 min-w-0">
+          <div className="mt-0.5 h-9 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-indigo-600 via-sky-500 to-emerald-500 shadow-xs shadow-indigo-500/30" />
+          <div className="space-y-0.5 min-w-0">
+            <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-snug">
+              {safeTitle}
+            </h1>
+            {subtitle && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-3xl leading-relaxed">{subtitle}</p>
+            )}
+          </div>
         </div>
+        {actions && <div className="flex flex-wrap items-center gap-2 print:hidden">{actions}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2 print:hidden">{actions}</div>}
     </div>
   );
 }

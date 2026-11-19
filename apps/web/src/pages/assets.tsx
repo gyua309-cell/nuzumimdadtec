@@ -9,6 +9,7 @@ import { ASSET_KIND, ASSET_STATUS, DEP_METHOD, opts, RUN_STATUS } from '../lib/l
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, Loading, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
 
 const AssetStatus = ({ s }: { s: string }) => <Badge color={ASSET_STATUS[s]?.color}>{ASSET_STATUS[s]?.label ?? s}</Badge>;
@@ -162,7 +163,7 @@ export function AssetsPage() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>الرقم</th><th>الأصل</th><th>الفئة</th><th>الشراء</th><th>التكلفة (أساسية)</th><th>مجمع الإهلاك</th><th>القيمة الدفترية</th><th>العهدة</th><th>الحالة</th>
+                    <th>الرقم</th><th>الأصل</th><th>الفئة</th><th>الشراء</th><th>التكلفة (أساسية)</th><th>مجمع الإهلاك</th><th>القيمة الدفترية</th><th>العهدة</th><th>قيد الاقتناء</th><th>الحالة</th>
                     <th className="w-24 text-end">الإجراءات</th>
                   </tr>
                 </thead>
@@ -171,7 +172,9 @@ export function AssetsPage() {
                     <tr key={a.id} className="cursor-pointer" onClick={() => nav(`/assets/list/${a.id}`)}>
                       <td className="num text-start">{a.assetNo}</td><td className="font-medium">{a.name}</td><td>{a.categoryName}</td><td>{date(a.purchaseDate)}</td>
                       <td className="num">{money(a.costBase)}</td><td className="num">{money(a.accumulatedBase)}</td><td className="num">{money(a.netBookValueBase)}</td>
-                      <td>{a.custodianName ?? '—'}</td><td><AssetStatus s={a.status} /></td>
+                      <td>{a.custodianName ?? '—'}</td>
+                      <td onClick={(evt) => evt.stopPropagation()}><JournalLinkBadge entryId={a.activationJournalEntryId} entryNo={a.activationJournalEntryNo} compact /></td>
+                      <td><AssetStatus s={a.status} /></td>
                       <td onClick={(evt) => evt.stopPropagation()}>
                         <ActionGroup>
                           <ActionButton
@@ -432,7 +435,7 @@ export function DepreciationPage() {
               {runList.map((r: any) => (
                 <tr key={r.id}>
                   <td className="num">{r.runNo}</td><td>{r.periodName}</td><td className="num">{r.assetCount}</td><td className="num">{money(r.totalAmountBase)}</td>
-                  <td>{r.journalEntryId ? <Link className="text-brand-600 hover:underline" to={`/acc/journals/${r.journalEntryId}`}>{r.journalEntryNo}</Link> : '—'}</td>
+                  <td><JournalLinkBadge entryId={r.journalEntryId} entryNo={r.journalEntryNo} compact /></td>
                   <td><Badge color={RUN_STATUS[r.status]?.color}>{RUN_STATUS[r.status]?.label ?? r.status}</Badge>{r.cancelReason && <div className="text-xs text-slate-500">{r.cancelReason}</div>}</td>
                   <td><div className="flex justify-end gap-1"><button className="btn-ghost h-7 px-2" onClick={() => setView(r.id)}>تفاصيل</button>{r.status === 'POSTED' && <button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => setCancelId(r.id)}>إلغاء</button>}</div></td>
                 </tr>

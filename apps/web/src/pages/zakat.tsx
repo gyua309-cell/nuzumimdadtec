@@ -4,6 +4,7 @@ import { AlertTriangle, Calculator, CheckCircle2, FileText, Printer, Save, Send,
 import { api } from '../lib/api';
 import { date, money, today } from '../lib/format';
 import { Badge, EmptyState, ErrorState, Field, Loading, PageHeader, ReasonDialog, Spinner, Stat, useToast } from '../components/ui';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
 const MANUAL_FIELDS: { key: string; label: string; hint: string }[] = [
   { key: 'provisionsAddBack', label: 'يضاف: المخصصات المكوّنة خلال الفترة', hint: 'مخصصات لم تُسدَّد فعلياً خلال الفترة' },
@@ -174,7 +175,7 @@ export function ZakatPage() {
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold dark:border-slate-800 dark:bg-slate-900/60">الإقرارات المحفوظة</div>
         {returns.isLoading ? <Loading /> : !savedReturns.length ? <EmptyState text="لا توجد إقرارات محفوظة بعد." /> : (
           <table className="table">
-            <thead><tr><th>الرقم</th><th>الفترة</th><th>الوعاء</th><th>الزكاة</th><th>ضريبة الدخل</th><th>الإجمالي</th><th>الحالة</th><th /></tr></thead>
+            <thead><tr><th>الرقم</th><th>الفترة</th><th>الوعاء</th><th>الزكاة</th><th>ضريبة الدخل</th><th>الإجمالي</th><th>القيد الآلي</th><th>الحالة</th><th /></tr></thead>
             <tbody>
               {savedReturns.map((r: any) => (
                 <tr key={r.id}>
@@ -184,6 +185,7 @@ export function ZakatPage() {
                   <td className="num">{money(r.zakatDue)}</td>
                   <td className="num">{money(r.incomeTaxDue)}</td>
                   <td className="num font-bold">{money(r.totalDue)}</td>
+                  <td><JournalLinkBadge entryId={r.journalEntryId} entryNo={r.journalEntryNo} compact /></td>
                   <td><Badge color={STATUS[r.status]?.color as any}>{STATUS[r.status]?.label ?? r.status}</Badge></td>
                   <td className="whitespace-normal">
                     <div className="flex flex-wrap gap-2">

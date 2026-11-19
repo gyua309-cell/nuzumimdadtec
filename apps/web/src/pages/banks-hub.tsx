@@ -9,6 +9,7 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { SearchableSelect } from '../components/SearchableSelect';
 
 export interface BankAccount {
@@ -86,8 +87,8 @@ export function BanksHubPage() {
   const { data: recentTransfers = [] } = useQuery({
     queryKey: ['recent-bank-transfers'],
     queryFn: async () => {
-      const res = await api.get<any[]>('/bank-transfers').catch(() => []);
-      return Array.isArray(res) ? res : [];
+      const res: any = await api.get<any>('/bank-transfers').catch(() => []);
+      return Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
     },
   });
 
@@ -390,7 +391,7 @@ export function BanksHubPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {recentTransfers.map((trf) => (
+                    {recentTransfers.map((trf: any) => (
                       <tr key={trf.id} className="hover:bg-slate-50/60">
                         <td className="py-3 px-4 font-mono">{date(trf.transferDate)}</td>
                         <td className="py-3 px-4 font-mono font-bold text-slate-700">{trf.reference}</td>
@@ -406,12 +407,10 @@ export function BanksHubPage() {
                           {money(trf.targetAmount)} {trf.targetCurrency}
                         </td>
                         <td className="py-3 px-4 text-center font-mono text-slate-500">
-                          {trf.bankFee > 0 ? `${money(trf.bankFee)} EGP` : '—'}
+                          {trf.bankFee > 0 ? `${money(trf.bankFee)} ${trf.sourceCurrency || 'SAR'}` : '—'}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
-                            {trf.journalEntryNo}
-                          </span>
+                          <JournalLinkBadge entryId={trf.journalEntryId} entryNo={trf.journalEntryNo} compact />
                         </td>
                         <td className="py-3 px-4 text-center">
                           <button
@@ -502,84 +501,34 @@ function InterBankTransferModal({
     return Math.round(s * r * 100) / 100;
   }, [sourceAmount, rate, isCrossCurrency]);
 
+  const toast = useToast();
+  const qc = useQueryClient();
+
   const transferMut = useMutation({
     mutationFn: async () => {
       if (!sourceAcc || !targetAcc) throw new Error('يرجى تحديد حسابات البنوك');
       if (sourceAcc.id === targetAcc.id) throw new Error('لا يمكن التحويل لنفس الحساب');
 
-      // Create balanced journal entry lines
-      // 1. Dr. Target Bank Account (in base EGP)
-      // 2. Dr. Bank Fee (in base EGP) if any
-      // 3. Cr. Source Bank Account (in source currency with exchange rate converted to base)
-      const baseTargetAmount = (targetAcc.currencyCode === 'SAR' ? computedTargetAmount * 13.15 : computedTargetAmount).toFixed(2);
-      const baseSourceAmount = (sourceAcc.currencyCode === 'SAR' ? parseFloat(sourceAmount) * 13.15 : parseFloat(sourceAmount)).toFixed(2);
-      const feeAmt = parseFloat(bankFee || '0');
-
-      const lines: any[] = [
-        {
-          accountId: targetAcc.glAccountId,
-          debit: computedTargetAmount.toFixed(2),
-          credit: null,
-          currencyCode: targetAcc.currencyCode,
-          exchangeRate: targetAcc.currencyCode === 'SAR' ? '13.15' : '1.00',
-          description: `تحويل بنكي وارد من ${sourceAcc.name} - إشعار ${reference}`,
-        },
-        {
-          accountId: sourceAcc.glAccountId,
-          debit: null,
-          credit: parseFloat(sourceAmount).toFixed(2),
-          currencyCode: sourceAcc.currencyCode,
-          exchangeRate: sourceAcc.currencyCode === 'SAR' ? rate : '1.00',
-          description: `تحويل بنكي صادر إلى ${targetAcc.name} - إشعار ${reference}`,
-        },
-      ];
-
-      // If bank fee exists
-      if (feeAmt > 0) {
-        lines.push({
-          accountId: sourceAcc.glAccountId, // Bank fee deducted
-          debit: feeAmt.toFixed(2),
-          credit: null,
-          currencyCode: 'EGP',
-          exchangeRate: '1.00',
-          description: `عمولات ومصروفات تحويل بنكي - ${reference}`,
-        });
-      }
-
-      // Post draft journal entry
-      const entry = await api.post('/journal-entries', {
-        entryDate: transferDate,
-        journalType: 'GENERAL',
-        description: `سند تحويل وصرافة بنكية: ${sourceAcc.name} ➔ ${targetAcc.name} (${reference})`,
+      return api.post('/bank-transfers', {
+        sourceBankId: sourceAcc.id,
+        targetBankId: targetAcc.id,
+        transferDate,
+        sourceCurrency: sourceAcc.currencyCode,
+        sourceAmount: parseFloat(sourceAmount || '0'),
+        targetCurrency: targetAcc.currencyCode,
+        targetAmount: computedTargetAmount,
+        exchangeRate: parseFloat(rate || '1'),
+        bankFee: parseFloat(bankFee || '0'),
         reference,
-        currencyCode: isCrossCurrency ? 'EGP' : sourceAcc.currencyCode,
-        lines: [
-          {
-            accountId: targetAcc.glAccountId,
-            debit: baseTargetAmount,
-            currencyCode: targetAcc.currencyCode,
-            exchangeRate: targetAcc.currencyCode === 'SAR' ? '13.15' : '1.00',
-            description: `استلام تحويل بنكي من ${sourceAcc.name}`,
-          },
-          {
-            accountId: sourceAcc.glAccountId,
-            credit: baseSourceAmount,
-            currencyCode: sourceAcc.currencyCode,
-            exchangeRate: sourceAcc.currencyCode === 'SAR' ? rate : '1.00',
-            description: `صرف تحويل بنكي إلى ${targetAcc.name}`,
-          },
-        ],
+        notes,
       });
-
-      // Post the entry immediately
-      const createdId = (entry as any)?.id;
-      if (createdId) {
-        await api.post(`/journal-entries/${createdId}/post`, {}).catch(() => null);
-      }
-
-      return entry;
     },
-    onSuccess,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['journals'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      onSuccess();
+    },
+    onError: (e) => toast.error(e),
   });
 
   return (

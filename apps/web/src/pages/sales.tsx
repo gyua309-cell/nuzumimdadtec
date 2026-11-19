@@ -13,6 +13,7 @@ import { SearchableSelect } from '../components/SearchableSelect';
 import { ZatcaTaxInvoiceTemplate, exportInvoiceToExcel } from '../components/ZatcaTaxInvoiceTemplate';
 import { ExportMenu } from '../components/ExportMenu';
 import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
 import { PrintEngine } from '../engine/print-engine';
 import {
@@ -281,6 +282,7 @@ export function InvoicesPage() {
                   <th>قبل الضريبة</th>
                   <th>ضريبة 15%</th>
                   <th>الإجمالي شامل الضريبة</th>
+                  <th>القيد الآلي</th>
                   <th>الزكاة ZATCA</th>
                   <th>الحالة</th>
                   <th className="text-end">الإجراءات</th>
@@ -328,6 +330,21 @@ export function InvoicesPage() {
                       <td className="num text-xs text-amber-700 dark:text-amber-400">{money(inv.vatAmount)}</td>
                       <td className="num font-bold text-slate-900 dark:text-slate-100">
                         {isCredit ? `-${money(inv.totalAmount)}` : money(inv.totalAmount)}
+                      </td>
+                      <td>
+                        {inv.journalEntryId ? (
+                          <JournalLinkBadge entryId={inv.journalEntryId} entryNo={inv.journalEntryNo} compact />
+                        ) : inv.status === 'POSTED' ? (
+                          <button
+                            type="button"
+                            onClick={() => doRepair(inv.id)}
+                            className="text-[11px] font-bold text-amber-600 hover:underline cursor-pointer"
+                          >
+                            توليد القيد ⚡
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">عند الاعتماد</span>
+                        )}
                       </td>
                       <td>
                         {inv.status === 'POSTED' ? (
@@ -1527,11 +1544,9 @@ export function InvoiceDetailPage() {
                     <td className="num font-bold text-emerald-700 dark:text-emerald-400">{money(p.amount)}</td>
                     <td className="font-mono">{p.bankGlCode}</td>
                     <td>
-                      {p.journalEntryId && (
-                        <Link to={`/acc/journals/${p.journalEntryId}`} className="text-brand-600 hover:underline font-mono">
-                          {p.journalEntryNo || 'عرض القيد'}
-                        </Link>
-                      )}
+                      {p.journalEntryId ? (
+                        <JournalLinkBadge entryId={p.journalEntryId} entryNo={p.journalEntryNo} compact />
+                      ) : '—'}
                     </td>
                   </tr>
                 ))}
@@ -1734,6 +1749,7 @@ export function CreditNotesPage() {
                 <th>المبلغ المردود</th>
                 <th>الضريبة 15%</th>
                 <th>الإجمالي الدائن</th>
+                <th>القيد العكسي الآلي</th>
                 <th>الحالة</th>
                 <th className="text-end">الإجراءات</th>
               </tr>
@@ -1756,6 +1772,9 @@ export function CreditNotesPage() {
                   <td className="num font-mono text-xs text-amber-700 dark:text-amber-400">{money(inv.vatAmount)}</td>
                   <td className="num font-bold text-purple-700 dark:text-purple-300">
                     -{money(inv.totalAmount)}
+                  </td>
+                  <td>
+                    <JournalLinkBadge entryId={inv.journalEntryId} entryNo={inv.journalEntryNo} compact />
                   </td>
                   <td>
                     <Badge color={inv.status === 'POSTED' ? 'green' : inv.status === 'CANCELLED' ? 'red' : 'slate'}>

@@ -73,7 +73,12 @@ import {
   saveZakatReturnDraft,
   saveZakatSettings,
   settleCustodyExpenses,
+  settleVatReturnPeriod,
+  syncAllOperationalJournals,
   transmitZatcaInvoice,
+  executeInterBankTransfer,
+  payPayrollRunFromBank,
+  postEosbSettlementJournal,
 } from './cycle-engine';
 
 /** Filters sales/purchase invoice collections by status, ZATCA state, and fiscal period (ID or date window). */
@@ -714,6 +719,23 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     }
 
     // --- 2.2 Robust Monthly Variables Operations (Business Process Section 12, 13, 14, 15) ---
+    if (path.startsWith('/monthly-variables/approve-all') && method === 'POST') {
+      const targetPeriodId = body?.periodId || body?.fiscalPeriodId;
+      if (targetPeriodId) assertPeriodOpen(targetPeriodId, 'اعتماد المتغيرات الشهرية دفعة واحدة');
+      const list = getEntityList<any>('monthly_variables', []);
+      let approvedCount = 0;
+      for (const mv of list) {
+        if (mv.status === 'DRAFT' && (!targetPeriodId || mv.fiscalPeriodId === targetPeriodId)) {
+          mv.status = 'APPROVED';
+          mv.approvedAt = new Date().toISOString();
+          mv.approvedBy = 'المدير التنفيذي';
+          saveEntityItem('monthly_variables', mv);
+          approvedCount++;
+        }
+      }
+      return { success: true, approvedCount };
+    }
+
     if (path.startsWith('/monthly-variables/') && path.endsWith('/approve') && method === 'POST') {
       const mvId = path.split('?')[0].split('/')[2];
       const list = getEntityList('monthly_variables', []);
@@ -903,9 +925,33 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const loans = getEntityList<any>('loans', []);
       const idx = loans.findIndex((l) => l.id === loanId);
       if (idx >= 0) {
+        const list = Array.isArray(loans[idx].installments_list) ? loans[idx].installments_list : [];
+        const pendingSum = list
+          .filter((inst: any) => inst.status === 'PENDING')
+          .reduce((s: number, inst: any) => s + Number(inst.dueAmount || 0), 0);
+
+        if (pendingSum > 0) {
+          try {
+            const revJe = createAutoPostedJournalEntry({
+              entryDate: new Date().toISOString().slice(0, 10),
+              journalType: 'LOAN',
+              sourceModule: 'PAY',
+              sourceType: 'LOAN_CANCELLATION',
+              postingEvent: 'LOAN_CANCELLED',
+              reference: loans[idx].loanNo,
+              description: `قيد عكس وتسوية الرصيد المتبقي للسلفة الملغاة (${loans[idx].loanNo}) — ${loans[idx].employeeName || ''}`,
+              lines: [
+                { accountCode: '10201', debit: pendingSum, credit: 0, employeeId: loans[idx].employeeId, description: `استرداد / إلغاء متبقي سلفة (${loans[idx].loanNo})` },
+                { accountCode: '10401', debit: 0, credit: pendingSum, employeeId: loans[idx].employeeId, description: `تخفيض ذمة سلفة الموظف (${loans[idx].loanNo})` },
+              ],
+            });
+            loans[idx].cancellationJournalEntryId = revJe.id;
+            loans[idx].cancellationJournalEntryNo = revJe.entryNo;
+          } catch { /* ignore if closed period */ }
+        }
+
         loans[idx].status = 'CANCELLED';
         loans[idx].cancelReason = body?.reason || 'إلغاء القرض إدارياً';
-        const list = Array.isArray(loans[idx].installments_list) ? loans[idx].installments_list : [];
         loans[idx].installments_list = list.map((inst: any) => (inst.status === 'PENDING' ? { ...inst, status: 'CANCELLED' } : inst));
         saveEntityItem('loans', loans[idx]);
         recordAudit({ action: 'CANCEL_LOAN', schemaName: 'pay', tableName: 'loans', entityId: loanId, reason: loans[idx].cancelReason });
@@ -951,7 +997,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
     }
 
-    // --- 2.38 Payroll Run Execution & Reversal (Business Process Section 12-16 & Accounting) ---
+    // --- 2.38 Payroll Run Execution, Bank Payment & Reversal (Business Process Section 12-16 & Accounting) ---
+    if (path.startsWith('/payroll-runs/') && path.endsWith('/pay') && method === 'POST') {
+      const runId = path.split('?')[0].split('/')[2];
+      return payPayrollRunFromBank(runId, body);
+    }
+
     if (path.split('?')[0] === '/payroll-runs' && method === 'POST') {
       const targetPeriodId = body?.periodId || body?.fiscalPeriodId;
       const period = assertPeriodOpen(targetPeriodId, 'تشغيل مسيّر الرواتب');
@@ -978,9 +1029,63 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const netPayable = Number(preview.netPayableBase || 0);
       const otherDeductions = Math.max(0, totalGross - totalLoanDed - netPayable);
 
-      const jeLines: Array<{ accountCode: string; debit: number; credit: number; description?: string }> = [
-        { accountCode: '50101', debit: totalGross, credit: 0, description: `رواتب وأجور ومتغيرات ${resolvedPeriod?.name}` },
-      ];
+      // Smart Project-Level Labor Cost Split vs Bench Time Cost based on active period assignments!
+      const allEmps = getEntityList<any>('employees', []);
+      const activeAsgs = getEntityList<any>('assignments', []).filter((a) => isAssignmentActiveInPeriod(a, resolvedPeriod));
+      const jeLines: Array<{ accountCode: string; debit: number; credit: number; employeeId?: string; projectId?: string; description?: string }> = [];
+
+      let allocatedSum = 0;
+      let benchSum = 0;
+
+      for (const line of preview.lines) {
+        const lineGross = Number(line.grossBase || 0);
+        if (lineGross <= 0) continue;
+        const empObj = allEmps.find((e) => e.id === line.employeeId || e.code === line.employeeCode) || { id: line.employeeId, code: line.employeeCode, fullNameAr: line.employeeName };
+        const empAsgs = activeAsgs.filter((a) => matchesEmployee(a, empObj));
+        const rawTotalPct = empAsgs.reduce(
+          (s, a) => s + Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100)),
+          0,
+        );
+        const normFactor = rawTotalPct > 100 ? 100 / rawTotalPct : 1;
+
+        let empAllocatedPortion = 0;
+        for (const asg of empAsgs) {
+          const pct = Number(asg.allocationPct != null ? asg.allocationPct : (asg.allocationBasis === 'DAYS' ? ((Number(asg.allocatedDays) || 22) / 22) * 100 : 100)) * normFactor;
+          const prjShare = Math.round(lineGross * (pct / 100) * 100) / 100;
+          if (prjShare > 0) {
+            empAllocatedPortion += prjShare;
+            jeLines.push({
+              accountCode: '50101',
+              debit: prjShare,
+              credit: 0,
+              employeeId: line.employeeId,
+              projectId: asg.projectId,
+              description: `تكلفة راتب مباشر (${Math.round(pct)}%) — ${line.employeeName} على مشروع ${asg.projectName || asg.projectCode || ''}`,
+            });
+          }
+        }
+        allocatedSum += empAllocatedPortion;
+        const empBench = Math.max(0, Math.round((lineGross - empAllocatedPortion) * 100) / 100);
+        if (empBench > 0.005) {
+          benchSum += empBench;
+          jeLines.push({
+            accountCode: '50102',
+            debit: empBench,
+            credit: 0,
+            employeeId: line.employeeId,
+            description: `تكلفة راتب وقت غير مستغل (Bench) — ${line.employeeName}`,
+          });
+        }
+      }
+
+      // Ensure exact penny rounding match with totalGross
+      const drDiff = Math.round((totalGross - (allocatedSum + benchSum)) * 100) / 100;
+      if (Math.abs(drDiff) >= 0.01 && jeLines.length > 0) {
+        jeLines[0].debit = Math.round((jeLines[0].debit + drDiff) * 100) / 100;
+      } else if (jeLines.length === 0 && totalGross > 0) {
+        jeLines.push({ accountCode: '50101', debit: totalGross, credit: 0, description: `رواتب وأجور ومتغيرات ${resolvedPeriod?.name}` });
+      }
+
       if (totalLoanDed > 0) {
         jeLines.push({ accountCode: '10401', debit: 0, credit: totalLoanDed, description: `استقطاع أقساط السلف المستحقة (${runNo}) — ليست تكلفة ربحية` });
       }
@@ -997,7 +1102,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         sourceType: 'PAYROLL_RUN',
         postingEvent: 'PAYROLL_POSTED',
         reference: runNo,
-        description: `قيد مسيّر الرواتب الشهري ${runNo} — ${resolvedPeriod?.name}`,
+        description: `قيد مسيّر الرواتب الشهري الموزع على المشاريع ${runNo} — ${resolvedPeriod?.name}`,
         lines: jeLines,
       });
 
@@ -1195,6 +1300,32 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           list[idx].status = 'APPROVED';
           list[idx].approvedAt = new Date().toISOString();
           list[idx].approvedBy = 'المدير التنفيذي';
+          const amt = Math.abs(Number(list[idx].grossRevenueBase || 0));
+          if (amt > 0 && !list[idx].journalEntryId) {
+            const p = resolvePeriodByIdOrDate(list[idx].fiscalPeriodId, null);
+            const isPos = Number(list[idx].grossRevenueBase || 0) >= 0;
+            const je = createAutoPostedJournalEntry({
+              entryDate: p?.endDate || new Date().toISOString().slice(0, 10),
+              fiscalPeriodId: list[idx].fiscalPeriodId,
+              journalType: 'ADJUSTMENT',
+              sourceModule: 'REV',
+              sourceType: 'REVENUE_ADJUSTMENT',
+              postingEvent: 'RETRO_REVENUE_APPROVED',
+              reference: list[idx].id,
+              description: `قيد اعتماد تسوية إيراد بأثر رجعي — ${list[idx].employeeName} (${list[idx].projectName})`,
+              lines: isPos
+                ? [
+                    { accountCode: '110301', debit: amt, credit: 0, employeeId: list[idx].employeeId, projectId: list[idx].projectId, description: `إيراد مستحق بأثر رجعي (${list[idx].originalPeriodName})` },
+                    { accountCode: '40101', debit: 0, credit: amt, employeeId: list[idx].employeeId, projectId: list[idx].projectId, description: `إيراد عقود ومشاريع — تسوية ${list[idx].projectName}` },
+                  ]
+                : [
+                    { accountCode: '40101', debit: amt, credit: 0, employeeId: list[idx].employeeId, projectId: list[idx].projectId, description: `تخفيض إيراد بأثر رجعي — ${list[idx].projectName}` },
+                    { accountCode: '110301', debit: 0, credit: amt, employeeId: list[idx].employeeId, projectId: list[idx].projectId, description: `تخفيض إيرادات مستحقة غير مفوترة` },
+                  ],
+            });
+            list[idx].journalEntryId = je.id;
+            list[idx].journalEntryNo = je.entryNo;
+          }
           saveEntityItem('revenue_adjustments', list[idx]);
           recordAudit({
             action: 'APPROVE_ADJUSTMENT',
@@ -1202,7 +1333,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             tableName: 'revenue_adjustments',
             entityId: adjId,
             oldValues: { status: oldStatus },
-            newValues: { status: 'APPROVED', grossRevenueBase: list[idx].grossRevenueBase },
+            newValues: { status: 'APPROVED', grossRevenueBase: list[idx].grossRevenueBase, journalEntryNo: list[idx].journalEntryNo || null },
             reason: body?.reason || `اعتماد تسوية الإيراد للموظف ${list[idx].employeeName}`,
           });
         } else if (act === 'reject') {
@@ -1237,7 +1368,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const unitPrice = Number(body.unitPrice || 0);
       const { amountBase: grossRev } = convertToBase(units * unitPrice, body.currencyCode || 'SAR');
       const initialStatus = body.status || 'APPROVED';
-      const retroItem = {
+      const retroItem: any = {
         id: `retro-${Date.now()}`,
         employeeId: body.employeeId,
         employeeCode: emp?.code || '',
@@ -1260,6 +1391,31 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         createdBy: 'المدير التنفيذي',
         status: initialStatus,
       };
+      if (initialStatus === 'APPROVED' && Math.abs(grossRev) > 0) {
+        const amt = Math.abs(grossRev);
+        const isPos = grossRev >= 0;
+        const je = createAutoPostedJournalEntry({
+          entryDate: regPeriod?.endDate || new Date().toISOString().slice(0, 10),
+          fiscalPeriodId: body.fiscalPeriodId,
+          journalType: 'ADJUSTMENT',
+          sourceModule: 'REV',
+          sourceType: 'REVENUE_ADJUSTMENT',
+          postingEvent: 'RETRO_REVENUE_APPROVED',
+          reference: retroItem.id,
+          description: `قيد تسوية إيراد بأثر رجعي — ${retroItem.employeeName} (${retroItem.projectName})`,
+          lines: isPos
+            ? [
+                { accountCode: '110301', debit: amt, credit: 0, employeeId: retroItem.employeeId, projectId: retroItem.projectId, description: `إثبات إيراد مستحق بأثر رجعي (${retroItem.originalPeriodName})` },
+                { accountCode: '40101', debit: 0, credit: amt, employeeId: retroItem.employeeId, projectId: retroItem.projectId, description: `إيراد عقود ومشاريع — تسوية ${retroItem.projectName}` },
+              ]
+            : [
+                { accountCode: '40101', debit: amt, credit: 0, employeeId: retroItem.employeeId, projectId: retroItem.projectId, description: `تخفيض إيراد بأثر رجعي — ${retroItem.projectName}` },
+                { accountCode: '110301', debit: 0, credit: amt, employeeId: retroItem.employeeId, projectId: retroItem.projectId, description: `تخفيض إيرادات مستحقة غير مفوترة` },
+              ],
+        });
+        retroItem.journalEntryId = je.id;
+        retroItem.journalEntryNo = je.entryNo;
+      }
       saveEntityItem('revenue_adjustments', retroItem);
       recordAudit({
         action: 'RETROACTIVE_REVENUE_ADJUSTMENT',
@@ -1488,6 +1644,17 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       return saveZakatReturnDraft(body);
     }
 
+    // --- Master Accounting Auto-Sync, EOSB & VAT Settlement ---
+    if (cleanActionPath === '/accounting/sync-all-journals' && method === 'POST') {
+      return syncAllOperationalJournals();
+    }
+    if (cleanActionPath === '/eosb/post-journal' && method === 'POST') {
+      return postEosbSettlementJournal(body);
+    }
+    if (cleanActionPath === '/vat-return/settle' && method === 'POST') {
+      return settleVatReturnPeriod(body);
+    }
+
     // --- Bank Accounts & Inter-Bank Transfers ---
     if ((cleanActionPath === '/bank-accounts' || cleanActionPath === '/banks') && method === 'POST') {
       getEntityList('bank_accounts', defaultBankAccountsList);
@@ -1501,14 +1668,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       });
     }
     if (cleanActionPath === '/bank-transfers' && method === 'POST') {
-      const jes = getEntityList<any>('journal_entries', []);
-      const linkedJe = jes.find((j) => j.id === body?.journalEntryId);
-      return saveEntityItem('bank_transfers', {
-        id: `trf-${Date.now()}`,
-        ...body,
-        journalEntryNo: body?.journalEntryNo || linkedJe?.entryNo || 'JE-AUTO',
-        createdAt: new Date().toISOString(),
-      });
+      return executeInterBankTransfer(body);
     }
 
     if (targetKey) {
@@ -1544,9 +1704,9 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           body.branchName = br?.nameAr || body.branchName || '';
           body.basicSalary = body.compensation?.basicSalary || body.basicSalary || '0.00';
           body.salaryCurrency = body.compensation?.salaryCurrency || body.salaryCurrency || 'SAR';
-          body.insuranceSalary = body.compensation?.insuranceSalary || body.insuranceSalary || '0.00';
+          body.insuranceSalary = body.compensation?.insuranceSalary || body.insuranceSalary || body.basicSalary || '0.00';
           body.insuranceCurrency = body.compensation?.insuranceCurrency || body.salaryCurrency || 'SAR';
-          body.costProfileId = body.costProfileId || null;
+          body.costProfileId = body.costProfileId || 'cp-tech';
           body.status = body.status || 'ACTIVE';
           body.hireDate = body.hireDate || new Date().toISOString().slice(0, 10);
           if (!body.code) {
@@ -1760,6 +1920,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
           let startIdx = body.startPeriodId ? periods.findIndex((p: any) => p.id === body.startPeriodId) : periods.findIndex((p: any) => p.status === 'OPEN');
           if (startIdx < 0) startIdx = 0;
+          body.startPeriodName = periods[startIdx]?.name || '';
 
           body.installments_list = Array.from({ length: instCount }, (_, i) => {
             const p = periods[startIdx + i];
@@ -1772,14 +1933,39 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
               status: 'PENDING',
             };
           });
+
+          // Automatically generate Loan Disbursement Journal Entry (Dr 10401 Employee Loans / Cr 10201 Bank)
+          if (principalNum > 0) {
+            try {
+              const entryDate = (body.disbursementDate || new Date().toISOString()).slice(0, 10);
+              const je = createAutoPostedJournalEntry({
+                entryDate,
+                fiscalPeriodId: periods[startIdx]?.id || resolvePeriodByIdOrDate(undefined, entryDate)?.id,
+                journalType: 'LOAN',
+                sourceModule: 'PAY',
+                sourceType: 'LOAN_DISBURSEMENT',
+                postingEvent: 'LOAN_DISBURSED',
+                reference: body.loanNo,
+                description: `قيد صرف سلفة موظف (${body.loanNo}) — ${body.employeeName}`,
+                lines: [
+                  { accountCode: '10401', debit: principalNum, credit: 0, employeeId: emp?.id || body.employeeId, description: `إثبات ذمة سلفة الموظف ${body.employeeName} (${body.loanNo})` },
+                  { accountCode: '10201', debit: 0, credit: principalNum, employeeId: emp?.id || body.employeeId, description: `صرف مبلغ السلفة من البنك (${body.loanNo})` },
+                ],
+              });
+              body.journalEntryId = je.id;
+              body.journalEntryNo = je.entryNo;
+            } catch { /* fallback if period closed */ }
+          }
+
+          body.createdAt = body.createdAt || new Date().toISOString();
           const savedLoan = saveEntityItem(targetKey, body);
           recordAudit({
             action: 'CREATE_LOAN',
             schemaName: 'pay',
             tableName: 'loans',
             entityId: savedLoan.id,
-            newValues: { loanNo: savedLoan.loanNo, employeeName: savedLoan.employeeName, principalBase: savedLoan.principalBase, installments: savedLoan.installments },
-            reason: `إضافة سلفة موظف (${savedLoan.loanNo}) للموظف ${savedLoan.employeeName} — لا تدخل ضمن تكلفة الربحية`,
+            newValues: { loanNo: savedLoan.loanNo, employeeName: savedLoan.employeeName, principalBase: savedLoan.principalBase, installments: savedLoan.installments, journalEntryNo: savedLoan.journalEntryNo || null },
+            reason: `إضافة وصرف سلفة موظف (${savedLoan.loanNo}) للموظف ${savedLoan.employeeName} — لا تدخل ضمن تكلفة الربحية`,
           });
           return savedLoan;
         }
@@ -3256,6 +3442,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/reports/cash-flow')) {
     return computeCashFlowSummary();
+  }
+
+  if (path.includes('/eosb/settlements')) {
+    return makeList(getEntityList('eosb_settlements', []));
+  }
+
+  if (path.includes('/vat-return/settlements')) {
+    return makeList(getEntityList('vat_settlements', []));
   }
 
   if (path.includes('/reports/vat-return') || path.includes('/vat-report')) {

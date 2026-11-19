@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Eye, Play, Plus, Printer, Search, Trash2, Calculator, Award, FileCheck2 } from 'lucide-react';
+import { Download, Eye, Play, Plus, Printer, Search, Trash2, Calculator, Award, FileCheck2, CheckCircle2, Wallet, Landmark } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date as _date, downloadCsv, money, today } from '../lib/format';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
+import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
 
 const CALC_METHOD: Record<string, string> = {
@@ -135,6 +136,22 @@ export function MonthlyVariablesPage() {
                 projectName: v.projectName || '—',
               }))}
             />
+            {rows.some((v: any) => v.status === 'DRAFT') && (
+              <button
+                className="btn-secondary text-xs flex items-center gap-1.5 border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
+                onClick={async () => {
+                  try {
+                    const res: any = await api.post('/monthly-variables/approve-all', { periodId });
+                    refresh();
+                    toast.success(`تم اعتماد ${res.approvedCount || ''} متغير شهري دفعة واحدة وتجهيزها لمسيّر الرواتب!`);
+                  } catch (e) {
+                    toast.error(e);
+                  }
+                }}
+              >
+                <CheckCircle2 className="size-3.5 text-emerald-600" /> اعتماد كافة المسودات
+              </button>
+            )}
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAdding(true)}>
               <Plus className="size-4" /> إضافة متغير
             </button>
@@ -371,6 +388,7 @@ export function LoansPage() {
                       <th>السبب / الغرض</th>
                       <th className="num">مبلغ السلفة</th>
                       <th className="num">الأقساط</th>
+                      <th>قيد الصرف الآلي</th>
                       <th>الحالة</th>
                       <th className="text-center">إجراء</th>
                     </tr>
@@ -400,6 +418,9 @@ export function LoansPage() {
                         <td className="text-slate-600 max-w-xs">{l.reason}</td>
                         <td className="num font-bold font-mono text-slate-900">{money(l.principalBase)}</td>
                         <td className="num font-mono font-bold text-blue-700">{l.installments} قسط</td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <JournalLinkBadge entryId={l.journalEntryId} entryNo={l.journalEntryNo} compact />
+                        </td>
                         <td>
                           <Badge color={LOAN_STATUS[l.status]?.color}>{LOAN_STATUS[l.status]?.label ?? l.status}</Badge>
                         </td>
@@ -562,11 +583,13 @@ export function LoansPage() {
         title="إضافة قرض / سلفة جديدة لموظف"
         fields={loanFields}
         onClose={() => setAdding(false)}
-        note="يُنشأ جدول الأقساط تلقائياً وتُربط الاستقطاعات آلياً مع مسيّر الرواتب لكل فترة محددة."
+        note="يُنشأ جدول الأقساط تلقائياً ويُرحّل قيد صرف السلفة فوراً (من حـ/ سلف الموظفين 10401 إلى حـ/ البنك 10201) وتُخصم الأقساط دورياً في مسيّر الرواتب."
         onSubmit={async (b) => {
-          await api.post('/loans', b);
+          const saved: any = await api.post('/loans', b);
           qc.invalidateQueries({ queryKey: ['/loans'] });
-          toast.success('تم إنشاء السلفة وجدول الأقساط بنجاح');
+          qc.invalidateQueries({ queryKey: ['journals'] });
+          qc.invalidateQueries({ queryKey: ['accounts'] });
+          toast.success(`تم إنشاء السلفة وتوليد قيد الصرف الآلي (${saved?.journalEntryNo || 'JE-AUTO'}) بنجاح`);
         }}
       />
 
@@ -696,20 +719,53 @@ export function PayrollRunsPage() {
         <div className="border-b border-slate-200 px-4 py-2.5 font-semibold dark:border-slate-800">التشغيلات السابقة</div>
         {runs.isLoading ? <Loading /> : (Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? [])).length === 0 ? <EmptyState text="لم يتم تشغيل مسيّر بعد." /> : (
           <table className="table">
-            <thead><tr><th>#</th><th>الفترة</th><th>الموظفون</th><th>الرواتب</th><th>المتغيرات</th><th>صافي الاستحقاق</th><th>القيد</th><th>الحالة</th><th /></tr></thead>
+            <thead><tr><th>#</th><th>الفترة</th><th>الموظفون</th><th>الرواتب</th><th>المتغيرات</th><th>صافي الاستحقاق</th><th>القيود الآلية (استحقاق / صرف)</th><th>الحالة</th><th /></tr></thead>
             <tbody>
               {(Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? [])).map((r: any) => (
                 <tr key={r.id}>
-                  <td className="num">{r.runNo}</td>
+                  <td className="num font-bold">{r.runNo}</td>
                   <td>{r.periodName}</td>
                   <td className="num">{r.employeeCount}</td>
                   <td className="num">{money(r.totalSalaryBase)}</td>
                   <td className="num">{money(r.totalVariablesBase)}</td>
-                  <td className="num font-medium">{money(r.netPayableBase)}</td>
-                  <td>{r.journalEntryId ? <Link to={`/acc/journals/${r.journalEntryId}`} className="text-brand-600 hover:underline">{r.journalEntryNo}</Link> : '—'}</td>
-                  <td><Badge color={RUN_STATUS[r.status]?.color}>{RUN_STATUS[r.status]?.label ?? r.status}</Badge></td>
+                  <td className="num font-bold text-indigo-700 dark:text-indigo-300">{money(r.netPayableBase)}</td>
                   <td>
-                    <div className="flex gap-1 justify-end items-center">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <JournalLinkBadge entryId={r.journalEntryId} entryNo={r.journalEntryNo} labelPrefix="استحقاق" compact />
+                      {r.paymentJournalEntryNo && (
+                        <JournalLinkBadge entryId={r.paymentJournalEntryId} entryNo={r.paymentJournalEntryNo} labelPrefix="صرف بنكي" compact />
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge color={RUN_STATUS[r.status]?.color}>{RUN_STATUS[r.status]?.label ?? r.status}</Badge>
+                      {r.paymentStatus === 'PAID' && <Badge color="green" dot>تم الصرف</Badge>}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="flex gap-1.5 justify-end items-center">
+                      {r.status === 'POSTED' && r.paymentStatus !== 'PAID' && (
+                        <button
+                          type="button"
+                          className="btn-secondary h-7 px-2.5 text-[11px] gap-1 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                          onClick={async () => {
+                            try {
+                              const paid: any = await api.post(`/payroll-runs/${r.id}/pay`, { paymentDate: today() });
+                              qc.invalidateQueries({ queryKey: ['/payroll-runs'] });
+                              qc.invalidateQueries({ queryKey: ['journals'] });
+                              qc.invalidateQueries({ queryKey: ['accounts'] });
+                              toast.success(`تم صرف الرواتب من البنك وتوليد قيد الصرف الآلي (${paid?.paymentJournalEntryNo})!`);
+                            } catch (e) {
+                              toast.error(e);
+                            }
+                          }}
+                          title="صرف صافي الرواتب من الحساب البنكي وتوليد قيد اليومية تلقائياً"
+                        >
+                          <Wallet className="size-3.5 text-emerald-600" />
+                          <span>صرف من البنك</span>
+                        </button>
+                      )}
                       <button
                         className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
                         onClick={() => setViewId(r.id)}
@@ -804,6 +860,7 @@ export function PayrollRunsPage() {
 // ================================================================== End of Service Benefits (EOSB) Page
 export function EosbPage() {
   const toast = useToast();
+  const qc = useQueryClient();
   const [employeeId, setEmployeeId] = useState('');
   const [hireDate, setHireDate] = useState('2022-01-01');
   const [terminationDate, setTerminationDate] = useState(today());
@@ -811,6 +868,8 @@ export function EosbPage() {
   const [terminationType, setTerminationType] = useState('TERMINATION_BY_EMPLOYER');
   const [vacationDays, setVacationDays] = useState('0');
   const [result, setResult] = useState<any>(null);
+  const [postedEosb, setPostedEosb] = useState<any>(null);
+  const [postingMode, setPostingMode] = useState<string | null>(null);
 
   const emps = useQuery({
     queryKey: ['/employees', 'eosb-list'],
@@ -1057,6 +1116,85 @@ export function EosbPage() {
                     </tr>
                   </tbody>
                 </table>
+              </div>
+
+              {/* Automated Accounting Posting Card */}
+              <div className="card p-4 space-y-3 border-emerald-500/30 bg-emerald-500/5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-bold text-xs text-slate-900 dark:text-white">
+                    <Landmark className="size-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>التوجيه المحاسبي وتوليد القيد المزدوج تلقائياً</span>
+                  </div>
+                  {postedEosb?.journalEntryNo && (
+                    <JournalLinkBadge entryId={postedEosb.journalEntryId} entryNo={postedEosb.journalEntryNo} labelPrefix="سند القيد المرحّل" />
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-300">
+                  يمكنك إثبات استحقاق المخصص في الدفاتر (من حـ/ مصروف نهاية الخدمة 50103 إلى حـ/ مخصص نهاية الخدمة 20402) أو الصرف النهائي المباشر من البنك (10201).
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={postingMode !== null || result.totalSettlement <= 0}
+                    onClick={async () => {
+                      setPostingMode('PROVISION');
+                      try {
+                        const saved: any = await api.post('/eosb/post-journal', {
+                          employeeId: employeeId || undefined,
+                          terminationDate,
+                          totalYears: result.totalYears,
+                          netEosb: result.netEosb,
+                          vacPay: result.vacPay,
+                          totalSettlement: result.totalSettlement,
+                          mode: 'PROVISION',
+                        });
+                        setPostedEosb(saved);
+                        qc.invalidateQueries({ queryKey: ['journals'] });
+                        qc.invalidateQueries({ queryKey: ['accounts'] });
+                        toast.success(`تم ترحيل قيد استحقاق مخصص نهاية الخدمة (${saved.journalEntryNo}) بنجاح!`);
+                      } catch (e) {
+                        toast.error(e);
+                      } finally {
+                        setPostingMode(null);
+                      }
+                    }}
+                    className="btn-secondary text-xs flex items-center gap-1.5 border-indigo-500/35 text-indigo-700 dark:text-indigo-300"
+                  >
+                    <Landmark className="size-3.5" />
+                    <span>إثبات قيد المخصص بالدفاتر</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={postingMode !== null || result.totalSettlement <= 0}
+                    onClick={async () => {
+                      setPostingMode('PAY_NOW');
+                      try {
+                        const saved: any = await api.post('/eosb/post-journal', {
+                          employeeId: employeeId || undefined,
+                          terminationDate,
+                          totalYears: result.totalYears,
+                          netEosb: result.netEosb,
+                          vacPay: result.vacPay,
+                          totalSettlement: result.totalSettlement,
+                          mode: 'PAY_NOW',
+                        });
+                        setPostedEosb(saved);
+                        qc.invalidateQueries({ queryKey: ['journals'] });
+                        qc.invalidateQueries({ queryKey: ['accounts'] });
+                        toast.success(`تم صرف التصفية النهائية من البنك وتوليد القيد (${saved.journalEntryNo}) بنجاح!`);
+                      } catch (e) {
+                        toast.error(e);
+                      } finally {
+                        setPostingMode(null);
+                      }
+                    }}
+                    className="btn-primary text-xs flex items-center gap-1.5"
+                  >
+                    <Wallet className="size-3.5" />
+                    <span>صرف التصفية النهائية من البنك وتوليد القيد</span>
+                  </button>
+                </div>
               </div>
             </>
           )}
