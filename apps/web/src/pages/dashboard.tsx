@@ -142,12 +142,14 @@ export function DashboardPage() {
   // Honest Workforce & Operation Card Counts
   const totalEmployees = Number(emps.data?.meta?.total ?? emps.data?.items?.length ?? emps.data?.data?.length ?? 0);
   const totalProjects = Number(prjs.data?.meta?.total ?? prjs.data?.items?.length ?? prjs.data?.data?.length ?? 0);
+  const assignedRows = useMemo(() => allocRows.filter((r: any) => Boolean(r.projectId)), [allocRows]);
+  const benchRows = useMemo(() => allocRows.filter((r: any) => !r.projectId), [allocRows]);
   const billedCardsCount = useMemo(
-    () => allocRows.filter((r: any) => Boolean(r.invoiceId || r.isInvoiced || Number(r.invoicedAmount) > 0)).length,
-    [allocRows],
+    () => assignedRows.filter((r: any) => Boolean(r.invoiceId || r.invoiceStatus === 'POSTED' || r.invoiceStatus === 'PAID' || r.isInvoiced || Number(r.invoicedAmount) > 0)).length,
+    [assignedRows],
   );
-  const activeAssignedCount = Math.max(0, allocRows.length - billedCardsCount);
-  const benchCount = Math.max(0, totalEmployees - allocRows.length);
+  const activeAssignedCount = Math.max(0, assignedRows.length - billedCardsCount);
+  const benchCount = benchRows.length > 0 ? benchRows.length : Math.max(0, totalEmployees - assignedRows.length);
   const totalOperationPool = billedCardsCount + activeAssignedCount + benchCount;
 
   const pctOfPool = (n: number) => (totalOperationPool > 0 ? Math.round((n / totalOperationPool) * 100) : 0);
@@ -292,9 +294,10 @@ export function DashboardPage() {
 
   // Project Portfolio Donut Chart
   const projectDonutOption = useMemo(() => {
-    const hasData = allocRows.some((r: any) => Number(r.revenueGenerated) > 0);
+    const projectRows = allocRows.filter((r: any) => Boolean(r.projectId) && Number(r.revenueGenerated) > 0);
+    const hasData = projectRows.length > 0;
     const data = hasData
-      ? allocRows.slice(0, 5).map((r: any, i: number) => ({
+      ? projectRows.slice(0, 5).map((r: any, i: number) => ({
           name: r.projectName || 'مشروع',
           value: Number(r.revenueGenerated) || 0,
           itemStyle: { color: ['#4f46e5', '#0ea5e9', '#10b981', '#8b5cf6', '#f59e0b'][i % 5] },
@@ -623,7 +626,7 @@ export function DashboardPage() {
         {/* Live Ticker Counters + Print Shortcut */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
-            كروت قيد العمل: <strong className="num text-indigo-600 dark:text-indigo-400 font-mono">{allocRows.length}</strong>
+            كروت قيد العمل: <strong className="num text-indigo-600 dark:text-indigo-400 font-mono">{assignedRows.length}</strong>
           </span>
           <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
             عقود سارية: <strong className="num text-sky-600 dark:text-sky-400 font-mono">{totalProjects}</strong>
@@ -666,9 +669,9 @@ export function DashboardPage() {
           {
             step: '02',
             title: 'المشاريع والتخصيص',
-            sub: `${totalProjects} مشروع • ${allocRows.length} تخصيص`,
-            done: totalProjects > 0 && allocRows.length > 0,
-            partial: totalProjects > 0 && allocRows.length === 0,
+            sub: `${totalProjects} مشروع • ${assignedRows.length} تخصيص نشط`,
+            done: totalProjects > 0 && assignedRows.length > 0,
+            partial: totalProjects > 0 && assignedRows.length === 0,
             to: '/prj/projects',
             icon: Briefcase,
           },
