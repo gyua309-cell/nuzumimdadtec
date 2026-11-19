@@ -2145,20 +2145,41 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const targetMargin = Number(emp.targetMarginPct || emp.requiredMarginPct || 25);
 
       const myAsgs = assignments.filter((a: any) => matchesEmployee(a, emp));
+      const workingDaysInMonth = 22;
       let totalAllocPct = 0;
+      let totalAllocDays = 0;
       for (const a of myAsgs) {
-        const pct = Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
+        const wDays = Math.max(1, Number(a.workingDaysInMonth || a.working_days_in_month || workingDaysInMonth));
+        const isDays = String(a.allocationBasis || '').toUpperCase() === 'DAYS';
+        let days = wDays;
+        let pct = 100;
+        if (isDays) {
+          days = a.allocatedDays != null && a.allocatedDays !== '' ? Number(a.allocatedDays) : wDays;
+          pct = Number(((days / wDays) * 100).toFixed(2));
+        } else {
+          pct = a.allocationPct != null && a.allocationPct !== ''
+            ? Number(a.allocationPct)
+            : (a.allocatedDays != null && a.allocatedDays !== '' ? Number(((Number(a.allocatedDays) / wDays) * 100).toFixed(2)) : 100);
+          days = Number(((pct / 100) * wDays).toFixed(2));
+        }
         totalAllocPct += pct;
+        totalAllocDays += days;
       }
 
       const unutilizedPct = Math.max(0, 100 - totalAllocPct);
+      const unutilizedDays = Math.max(0, Number((workingDaysInMonth - totalAllocDays).toFixed(2)));
       const unutilizedCost = Math.round(directCost * (unutilizedPct / 100));
       const overAllocatedPct = Math.max(0, totalAllocPct - 100);
+      const overAllocatedDays = Math.max(0, Number((totalAllocDays - workingDaysInMonth).toFixed(2)));
 
       let empRev = 0;
       const empProjects: any[] = [];
+      let weightedDailyRateSum = 0;
+      let weightedDaysSum = 0;
+
       for (const a of myAsgs) {
         const prj = prjs.find((p: any) => matchesProject(a, p));
+        const cli = clients.find((c: any) => c.id === (a.clientId || prj?.clientId));
         const econ = computeAssignmentEconomics({
           assignment: a,
           employee: emp,
@@ -2169,19 +2190,61 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           overheadPolicy,
         });
         empRev += econ.revenueBase;
+        const impliedDailyRate = econ.allocatedDays > 0 ? econ.revenueBase / econ.allocatedDays : 0;
+        if (impliedDailyRate > 0 && econ.allocatedDays > 0) {
+          weightedDailyRateSum += impliedDailyRate * econ.allocatedDays;
+          weightedDaysSum += econ.allocatedDays;
+        }
+
+        const prjProfit = econ.revenueBase - econ.totalCostShareBase;
+        const prjMarginPct = econ.revenueBase > 0 ? Number(((prjProfit / econ.revenueBase) * 100).toFixed(1)) : 0;
 
         empProjects.push({
-          projectId: a.projectId,
+          assignmentId: a.id,
+          projectId: prj?.id || a.projectId,
           projectCode: a.projectCode || prj?.code || '',
-          projectName: a.projectName || prj?.nameAr || '',
-          allocationPct: econ.allocationPct,
-          allocatedDays: econ.allocatedDays,
+          projectName: a.projectName || prj?.nameAr || 'مشروع',
+          clientId: cli?.id || a.clientId || prj?.clientId || null,
+          clientName: cli?.nameAr || a.clientName || prj?.clientName || 'العميل',
+          roleTitle: a.roleTitle || emp.positionTitle || 'كادر تقني',
+          startDate: a.startDate || a.effectiveFrom || targetPeriod?.startDate || '',
+          endDate: a.endDate || a.effectiveTo || null,
+          allocationBasis: econ.allocationBasis,
+          allocationPct: Number(econ.allocationPct.toFixed(1)),
+          allocatedDays: Number(econ.allocatedDays.toFixed(2)),
           pricingBasis: econ.pricingBasis,
           billableRate: econ.unitPriceBase,
           revenueBase: econ.revenueBase,
           directCostBase: econ.directCostShareBase,
+          overheadShareBase: econ.overheadShareBase,
+          totalCostShareBase: econ.totalCostShareBase,
+          profitBase: Number(prjProfit.toFixed(2)),
+          marginPct: prjMarginPct,
         });
       }
+
+      // Compute default/implied daily billable rate for bench opportunity estimation
+      const empDefaultSp = servicePrices.find((sp: any) => !sp.projectId && (sp.employeeId === emp.id || sp.employeeCode === emp.code));
+      const dailyDirectCost = workingDaysInMonth > 0 ? Number((directCost / workingDaysInMonth).toFixed(2)) : 0;
+      const fallbackDailyRate = empDefaultSp
+        ? (empDefaultSp.pricingBasis === 'MONTHLY'
+            ? Number(empDefaultSp.price || 0) / workingDaysInMonth
+            : empDefaultSp.pricingBasis === 'HOURLY'
+              ? Number(empDefaultSp.price || 0) * 8
+              : Number(empDefaultSp.price || 0))
+        : Math.max(Math.round((dailyDirectCost * (1 + targetMargin / 100)) / 50) * 50, 1200);
+      const effectiveDailyRate = weightedDaysSum > 0 ? Number((weightedDailyRateSum / weightedDaysSum).toFixed(2)) : Number(fallbackDailyRate.toFixed(2));
+      const potentialRevenueBase = unutilizedDays > 0 ? Number((unutilizedDays * effectiveDailyRate).toFixed(2)) : 0;
+      const potentialProfitBase = unutilizedDays > 0 ? Number((potentialRevenueBase - unutilizedCost).toFixed(2)) : 0;
+
+      const utilizationTier: 'FULL' | 'PARTIAL' | 'IDLE' | 'OVER' =
+        totalAllocPct > 100.05
+          ? 'OVER'
+          : totalAllocPct >= 99.5
+            ? 'FULL'
+            : totalAllocPct > 0.05
+              ? 'PARTIAL'
+              : 'IDLE';
 
       const empProfit = empRev - totalCost;
       const empMarginPct = empRev > 0 ? Number(((empProfit / empRev) * 100).toFixed(1)) : 0;
@@ -2198,8 +2261,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         code: emp.code,
         employeeName: emp.fullNameAr || emp.full_name_ar || emp.nameAr || 'الموظف',
         nameAr: emp.fullNameAr || emp.full_name_ar || emp.nameAr || 'الموظف',
+        departmentId: emp.departmentId || emp.placement?.departmentId || null,
         departmentName: deptMap.get(emp.departmentId || emp.placement?.departmentId) || emp.departmentName || 'تقنية المعلومات',
         positionTitle: emp.positionTitle || 'مهندس برمجيات',
+        workingDaysInMonth,
+        allocatedDays: Number(totalAllocDays.toFixed(2)),
+        unutilizedDays,
+        overAllocatedDays,
+        dailyDirectCostBase: dailyDirectCost,
+        effectiveDailyRateBase: effectiveDailyRate,
+        potentialRevenueBase,
+        potentialProfitBase,
+        utilizationTier,
         directCostBase: directCost,
         overheadBase: overhead,
         overheadCostBase: overhead,
@@ -2213,10 +2286,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         allocatedPct: Number(totalAllocPct.toFixed(1)),
         unutilizedPct: Number(unutilizedPct.toFixed(1)),
         unutilizedCostBase: unutilizedCost,
-        isOverAllocated: totalAllocPct > 100,
+        isOverAllocated: totalAllocPct > 100.05,
         overAllocatedPct: Number(overAllocatedPct.toFixed(1)),
         assetDepreciationBase: assetDeprCost,
         variablesCostBase: generalVarsCost,
+        projectCount: empProjects.length,
+        projectNames: empProjects.map((p) => `${p.projectCode ? `${p.projectCode} — ` : ''}${p.projectName} (${p.allocationPct}%)`),
         projects: empProjects,
         status: empMarginPct >= targetMargin ? 'TOP_PERFORMER' : empProfit >= 0 ? 'PROFITABLE' : 'LOSS_MAKER',
       });

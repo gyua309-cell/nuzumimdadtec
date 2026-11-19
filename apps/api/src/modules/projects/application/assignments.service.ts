@@ -348,6 +348,8 @@ export class AssignmentsService {
       [companyId, p.start, p.end],
     );
     const ranges = await this.rangesOf(companyId, emps.map((e) => e.id), p);
+    const allProjectIds = Array.from(new Set(Array.from(ranges.values()).flat().map((r) => r.projectId)));
+    const projMeta = await this.projectNames(companyId, allProjectIds);
     const withCost = hasPermission('hr.compensation.view');
     const rows: any[] = [];
     const totals = { unutilizedCost: D(0), cost: D(0), overAllocated: 0 };
@@ -355,10 +357,31 @@ export class AssignmentsService {
       const win = this.employedWindow(e, p);
       const segments = win ? segmentWindow(win, ranges.get(e.id) ?? []) : [];
       const s = summarize(segments);
+      const allocNum = Number(s.allocatedPct);
+      const projects = s.byProject.map((bp) => {
+        const meta = projMeta.get(bp.projectId);
+        const pctNum = Number(bp.effectivePct);
+        return {
+          projectId: bp.projectId,
+          projectCode: meta?.projectCode ?? '',
+          projectName: meta?.projectNameAr ?? 'مشروع',
+          allocationPct: Number(pctNum.toFixed(1)),
+          allocatedDays: Number(((pctNum / 100) * 22).toFixed(2)),
+        };
+      });
+      const utilizationTier = allocNum > 100.05 ? 'OVER' : allocNum >= 99.5 ? 'FULL' : allocNum > 0.05 ? 'PARTIAL' : 'IDLE';
       const row: any = {
-        employeeId: e.id, code: e.code, fullNameAr: e.full_name_ar, isBillableResource: e.is_billable_resource, employedDays: s.days,
-        allocatedPct: s.allocatedPct, unutilizedPct: s.unutilizedPct, overAllocatedPct: s.overAllocatedPct, peakTotalPct: s.peakTotalPct,
-        isOverAllocated: s.isOverAllocated, projectCount: s.byProject.length, error: null,
+        employeeId: e.id, code: e.code, employeeCode: e.code, fullNameAr: e.full_name_ar, employeeName: e.full_name_ar,
+        isBillableResource: e.is_billable_resource, employedDays: s.days, workingDaysInMonth: 22,
+        allocatedDays: Number(((allocNum / 100) * 22).toFixed(2)),
+        unutilizedDays: Math.max(0, Number((((100 - allocNum) / 100) * 22).toFixed(2))),
+        allocatedPct: Number(allocNum.toFixed(1)), unutilizedPct: Number(Number(s.unutilizedPct).toFixed(1)),
+        overAllocatedPct: Number(Number(s.overAllocatedPct).toFixed(1)), peakTotalPct: s.peakTotalPct,
+        isOverAllocated: s.isOverAllocated, utilizationTier,
+        projectCount: projects.length,
+        projectNames: projects.map((pr) => `${pr.projectCode ? `${pr.projectCode} — ` : ''}${pr.projectName} (${pr.allocationPct}%)`),
+        projects,
+        error: null,
       };
       if (s.isOverAllocated) totals.overAllocated++;
       if (withCost) {

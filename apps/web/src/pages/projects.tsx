@@ -11,7 +11,7 @@ import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../c
 import { ExportMenu } from '../components/ExportMenu';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
-import { FormModal, PeriodSelect, REF } from '../components/forms';
+import { FormModal, REF } from '../components/forms';
 import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Stat, useToast } from '../components/ui';
 
 const ProjStatus = ({ s }: { s: string }) => (
@@ -1217,102 +1217,8 @@ export function AssignmentsPage() {
   );
 }
 
-// ------------------------------------------------------------------ utilization report
-export function UtilizationPage() {
-  const toast = useToast();
-  const [periodId, setPeriodId] = useState('');
-  const report = useQuery({
-    queryKey: ['utilization', periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any[]>('/assignments/utilization', { periodId }),
-  });
-
-  const rawRep: any = report.data;
-  const reportItems: any[] = Array.isArray(rawRep) ? rawRep : (Array.isArray(rawRep?.data) ? rawRep.data : []);
-
-  const handleExportCsv = () => {
-    if (!reportItems.length) return;
-    downloadCsv(`utilization-${periodId || today()}.csv`, [
-      ['اسم الموظف', 'إجمالي التخصيص%', 'الوقت غير المستغل%', 'الوقت الفائض%', 'الحالة', 'المشاريع'],
-      ...reportItems.map((r: any) => [
-        r.employeeName, `${Number(r.allocatedPct).toFixed(1)}%`, `${Number(r.unutilizedPct).toFixed(1)}%`, `${Number(r.overAllocatedPct ?? 0).toFixed(1)}%`, r.isOverAllocated ? 'فائض تخصيص' : r.allocatedPct < 100 ? 'وقت فائض' : 'مكتمل', r.projectNames?.join(' - ') || '—',
-      ]),
-    ]);
-    toast.success('تم تصدير تقرير استغلال الموظفين إلى CSV بنجاح');
-  };
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="تقرير استغلال الموظفين والوقت الضائع"
-        subtitle="يوضح نسبة تخصيص كل موظف على المشاريع والوقت غير المستغل (الضائع) والمتجاوز خلال الفترة المختارة."
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            {report.data && report.data.length > 0 && (
-              <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv} title="تصدير CSV">
-                <Download className="size-3.5" /> تصدير Excel/CSV
-              </button>
-            )}
-          </div>
-        }
-      />
-      <div className="card p-4">
-        <Field label="الفترة المالية">
-          <PeriodSelect value={periodId} onChange={setPeriodId} />
-        </Field>
-      </div>
-      {report.isLoading && <Loading />}
-      {report.data && (
-        <div className="card overflow-hidden">
-          <div className="border-b border-slate-200 px-4 py-2.5 font-semibold dark:border-slate-800">
-            نتائج الاستغلال — {report.data.length} موظف
-          </div>
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>الموظف</th>
-                  <th className="num">إجمالي التخصيص%</th>
-                  <th className="num">الوقت غير المستغل%</th>
-                  <th className="num">الوقت الفائض%</th>
-                  <th>الحالة</th>
-                  <th>المشاريع</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reportItems.length === 0
-                  ? <tr><td colSpan={6} className="text-center text-slate-500">لا توجد تخصيصات في هذه الفترة</td></tr>
-                  : reportItems.map((r: any) => (
-                    <tr key={r.employeeId}>
-                      <td>
-                        <Link to={`/hr/employees/${r.employeeId}`} className="text-brand-600 hover:underline">
-                          {r.employeeName}
-                        </Link>
-                      </td>
-                      <td className="num font-medium">{Number(r.allocatedPct).toFixed(1)}%</td>
-                      <td className="num text-amber-600">{Number(r.unutilizedPct).toFixed(1)}%</td>
-                      <td className="num text-rose-600">{Number(r.overAllocatedPct ?? 0).toFixed(1)}%</td>
-                      <td>
-                        {r.isOverAllocated
-                          ? <Badge color="red">فائض تخصيص</Badge>
-                          : r.allocatedPct < 100
-                            ? <Badge color="amber">وقت فائض</Badge>
-                            : <Badge color="green">مكتمل</Badge>}
-                      </td>
-                      <td className="text-xs text-slate-500">{r.projectNames?.join('، ') ?? '—'}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+// ------------------------------------------------------------------ utilization report (Executive Module)
+export { UtilizationPage } from './utilization-report';
 
 // ------------------------------------------------------------------ service prices (global)
 export function ServicePricesPage() {
