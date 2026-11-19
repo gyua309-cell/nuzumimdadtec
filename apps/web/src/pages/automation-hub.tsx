@@ -458,7 +458,7 @@ export function AutomationHubPage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4">
           {modulesMatrix.map((m) => {
             const Icon = m.icon;
             return (
@@ -467,28 +467,28 @@ export function AutomationHubPage() {
                 className="card card-hover p-4 flex flex-col justify-between gap-3 relative overflow-hidden"
               >
                 <div className="space-y-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       <span className="flex size-8 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
                         <Icon className="size-4" />
                       </span>
-                      <span className="font-mono text-[11px] font-black text-slate-700 dark:text-slate-300">STEP {m.code}</span>
+                      <span className="font-mono text-[11px] font-bold whitespace-nowrap text-slate-600 dark:text-slate-300">STEP {m.code}</span>
                     </div>
                     <Badge color="green" dot>{m.countLabel}</Badge>
                   </div>
 
-                  <h3 className="font-black text-[15px] text-slate-950 dark:text-white leading-snug">
+                  <h3 className="font-bold text-[15px] text-slate-900 dark:text-white leading-snug">
                     {m.title}
                   </h3>
 
-                  <div className="rounded-xl bg-slate-50 dark:bg-[#080d1a] border border-slate-200/85 dark:border-slate-800/80 p-2.5 text-[11.5px] font-semibold text-slate-800 dark:text-slate-200 leading-relaxed">
-                    <span className="font-extrabold text-indigo-700 dark:text-indigo-400">القاعدة الآلية: </span>
+                  <div className="rounded-xl bg-slate-50 dark:bg-[#080d1a] border border-slate-200/85 dark:border-slate-800/80 p-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 leading-relaxed">
+                    <span className="font-bold text-indigo-700 dark:text-indigo-400">القاعدة الآلية: </span>
                     {m.rule}
                   </div>
 
-                  <div className="flex items-center gap-1.5 text-[11.5px] font-bold text-slate-700 dark:text-slate-300">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
                     <ArrowLeftRight className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span>يغذي تلقائياً: <strong className="font-extrabold text-slate-950 dark:text-white">{m.feedsInto}</strong></span>
+                    <span>يغذي تلقائياً: <strong className="font-bold text-slate-900 dark:text-white">{m.feedsInto}</strong></span>
                   </div>
                 </div>
 
@@ -568,7 +568,7 @@ export function AutomationHubPage() {
                     <td>
                       <Badge color="green">{SOURCE_TYPE_LABELS[j.sourceType] || j.sourceType}</Badge>
                     </td>
-                    <td className="max-w-md truncate font-medium">{j.description}</td>
+                    <td className="max-w-md font-medium leading-relaxed">{j.description}</td>
                     <td className="num text-end font-black text-emerald-700 dark:text-emerald-400">
                       {money(j.totalDebitBase)}
                     </td>

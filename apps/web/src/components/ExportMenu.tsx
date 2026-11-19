@@ -225,7 +225,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                 <span>تصدير مستند PDF</span>
                 <span className="text-[9px] bg-rose-500/15 text-rose-700 dark:text-rose-300 px-1 rounded font-bold">A4</span>
               </div>
-              <div className="text-[10px] text-slate-400 truncate">مستند رسمي معتمد بختم وترويسة ومجاميع</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">مستند رسمي معتمد بختم وترويسة ومجاميع</div>
             </div>
           </button>
 
@@ -243,7 +243,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                 <span>تصدير Excel (.xlsx)</span>
                 <span className="text-[9px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-1 rounded font-bold">RTL</span>
               </div>
-              <div className="text-[10px] text-slate-400 truncate">منسق محاسبياً مع معادلات SUM وتجميد العناوين</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">منسق محاسبياً مع معادلات SUM وتجميد العناوين</div>
             </div>
           </button>
 
@@ -258,7 +258,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-bold text-slate-900 dark:text-white">معاينة وطباعة فورية</div>
-              <div className="text-[10px] text-slate-400 truncate">طباعة نظيفة A4 أو طابعة إيصالات حرارية</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">طباعة نظيفة A4 أو طابعة إيصالات حرارية</div>
             </div>
           </button>
 
@@ -268,12 +268,12 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
             className="w-full flex items-center gap-3 px-3.5 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start group"
             onClick={handleExportCsv}
           >
-            <div className="flex size-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-300/60 dark:border-slate-700 group-hover:scale-105 transition-transform">
+            <div className="flex size-7.5 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-300/60 dark:border-slate-700 group-hover:scale-105 transition-transform">
               <FileText className="size-3.5" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-semibold text-slate-800 dark:text-slate-200">تصدير CSV (UTF-8)</div>
-              <div className="text-[10px] text-slate-400 truncate">ملف نصي متوافق مع كافة المنظومات المحاسبية</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">ملف نصي متوافق مع كافة المنظومات المحاسبية</div>
             </div>
           </button>
 

@@ -610,16 +610,16 @@ export function CustodiesPage() {
                       </td>
 
                       {/* Title & Purpose */}
-                      <td className="py-3.5 px-4 max-w-xs">
-                        <div className="font-semibold text-slate-900 truncate" title={c.title_ar}>{c.title_ar}</div>
-                        {c.purpose && <div className="text-[11px] text-slate-500 truncate" title={c.purpose}>{c.purpose}</div>}
+                      <td className="py-3.5 px-4 min-w-[200px] max-w-sm">
+                        <div className="font-bold text-slate-900 dark:text-slate-100 leading-snug">{c.title_ar}</div>
+                        {c.purpose && <div className="text-xs text-slate-500 dark:text-slate-400 leading-snug mt-0.5">{c.purpose}</div>}
                       </td>
 
                       {/* Disbursed Amount */}
-                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-900">
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-900 dark:text-slate-100">
                         {money(c.disbursed_amount)} {c.source_currency}
                         {c.disbursedFromAccountNameAr && (
-                          <div className="text-[10px] text-slate-400 font-normal truncate max-w-[120px] mx-auto">
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-sans font-medium leading-snug mt-0.5">
                             {c.disbursedFromAccountNameAr}
                           </div>
                         )}

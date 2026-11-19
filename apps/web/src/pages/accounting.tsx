@@ -229,9 +229,9 @@ export function AccountSelect({
                     <span className="font-mono font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md shrink-0 text-start">
                       {a.code}
                     </span>
-                    <div className="min-w-0 truncate">
-                      <div className="truncate font-semibold">{a.nameAr}</div>
-                      {a.nameEn && <div className="text-[10px] text-slate-400 font-normal truncate">{a.nameEn}</div>}
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 dark:text-slate-100 leading-snug">{a.nameAr}</div>
+                      {a.nameEn && <div className="text-[11px] text-slate-500 dark:text-slate-400 font-normal leading-snug">{a.nameEn}</div>}
                     </div>
                   </div>
 

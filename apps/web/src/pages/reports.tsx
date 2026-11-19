@@ -408,7 +408,7 @@ export function AccountStatementPage() {
                           <td className="num text-start whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             <JournalLinkBadge entryId={l.entryId} entryNo={l.entryNo} compact />
                           </td>
-                          <td className="max-w-md truncate text-xs text-slate-900 dark:text-slate-100 font-medium">
+                          <td className="max-w-md text-xs text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
                             {l.lineDescription ?? l.description}
                           </td>
                           <td className="text-xs font-mono text-slate-500">{l.currencyCode}</td>

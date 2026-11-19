@@ -277,13 +277,13 @@ export function PageHeader({
           )}
           <div className="space-y-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl sm:text-[22px] font-black text-slate-950 dark:text-white tracking-tight leading-snug">
+              <h1 className="text-xl sm:text-[22px] font-extrabold text-slate-900 dark:text-white tracking-tight leading-snug">
                 {safeTitle}
               </h1>
               {badge}
             </div>
             {subtitle && (
-              <p className="text-xs sm:text-[13px] text-slate-700 dark:text-slate-300 max-w-3xl leading-relaxed font-bold">
+              <p className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 max-w-3xl leading-relaxed font-medium">
                 {subtitle}
               </p>
             )}
@@ -712,7 +712,7 @@ export function Stat({
 
       <div className="relative p-4 sm:p-5">
         <div className="flex items-start justify-between gap-2.5">
-          <span className="text-[13px] font-extrabold text-slate-900 dark:text-slate-100 leading-snug">{label}</span>
+          <span className="text-[13px] font-bold text-slate-700 dark:text-slate-200 leading-snug">{label}</span>
           {Icon && (
             <div
               className={`flex size-9.5 shrink-0 items-center justify-center rounded-xl border ${theme.iconBox} transition-transform duration-200 group-hover:scale-110`}
@@ -723,7 +723,7 @@ export function Stat({
         </div>
 
         <div className="mt-2.5 flex items-end justify-between gap-2">
-          <div className="num text-start text-2xl sm:text-[26px] font-black tracking-tight text-slate-950 dark:text-white leading-tight truncate">
+          <div className="num text-start text-2xl sm:text-[25px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-normal break-words">
             {value}
           </div>
           {sparkline && sparkline.length >= 2 && <MiniStatSpark points={sparkline} stroke={theme.stroke} />}
@@ -739,8 +739,8 @@ export function Stat({
         )}
 
         {(hint || trend) && (
-          <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100/90 dark:border-slate-800/80 pt-2.5 text-[11.5px] text-slate-700 dark:text-slate-300">
-            <div className="flex items-center gap-1.5 min-w-0 truncate font-bold">{hint}</div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100/90 dark:border-slate-800/80 pt-2.5 text-[11.5px] text-slate-600 dark:text-slate-300">
+            <div className="flex items-center gap-1.5 min-w-0 leading-snug font-medium">{hint}</div>
             {trend && (
               <span
                 className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[10px] font-bold font-mono ${

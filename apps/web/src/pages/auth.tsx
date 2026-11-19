@@ -511,8 +511,8 @@ export function LoginPage() {
                             </div>
                             {isCurrent && <Check className="size-3.5 text-indigo-600 dark:text-indigo-400" />}
                           </div>
-                          <div className="truncate text-[11px] font-extrabold leading-snug">{acc.roleTitle}</div>
-                          <div className="truncate font-mono text-[10px] text-slate-500 dark:text-slate-400">{acc.u}</div>
+                          <div className="text-[11.5px] font-bold leading-snug">{acc.roleTitle}</div>
+                          <div className="font-mono text-[10.5px] text-slate-500 dark:text-slate-400">{acc.u}</div>
                         </button>
                       );
                     })}

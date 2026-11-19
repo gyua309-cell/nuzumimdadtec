@@ -6,7 +6,7 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 
-const CHART_FONT = "'Cairo', 'IBM Plex Sans Arabic', 'Inter', system-ui, sans-serif";
+const CHART_FONT = "'Tajawal', 'Cairo', 'IBM Plex Sans Arabic', 'Inter', system-ui, sans-serif";
 
 export const ROYAL_PALETTE = [
   '#4f46e5', // Royal Indigo
@@ -96,11 +96,11 @@ export function ExecutiveChartCard({
             </div>
           )}
           <div className="min-w-0">
-            <h3 className="text-[15.5px] font-black text-slate-950 dark:text-white leading-snug truncate">
+            <h3 className="text-[15px] font-bold text-slate-900 dark:text-white leading-snug">
               {title}
             </h3>
             {subtitle && (
-              <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-0.5 truncate">
+              <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mt-0.5 leading-snug">
                 {subtitle}
               </p>
             )}

@@ -145,7 +145,7 @@ export function ErpModalShell({
               <div className="flex items-center gap-2 flex-wrap">
                 <h2
                   id={titleId}
-                  className="font-black text-base sm:text-lg text-slate-950 dark:text-white tracking-tight truncate"
+                  className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white tracking-tight leading-snug"
                 >
                   {title}
                 </h2>
@@ -156,7 +156,7 @@ export function ErpModalShell({
                 )}
               </div>
               {subtitle && (
-                <p className="mt-0.5 text-xs font-bold text-slate-700 dark:text-slate-300 truncate">
+                <p className="mt-0.5 text-xs font-medium text-slate-600 dark:text-slate-300 leading-snug">
                   {subtitle}
                 </p>
               )}
@@ -311,9 +311,9 @@ export const FormSection = React.memo(function FormSection({
             </span>
           )}
           <div className="min-w-0">
-            <h3 className="text-sm font-black text-slate-950 dark:text-white truncate">{title}</h3>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white leading-snug">{title}</h3>
             {subtitle && (
-              <p className="text-[11.5px] font-bold text-slate-700 dark:text-slate-300 truncate">{subtitle}</p>
+              <p className="text-[11.5px] font-medium text-slate-600 dark:text-slate-300 leading-snug">{subtitle}</p>
             )}
           </div>
         </div>
