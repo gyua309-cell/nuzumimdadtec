@@ -620,41 +620,46 @@ export function DashboardPage() {
   return (
     <div className="space-y-5 animate-fade-in">
       {/* ── 1) Unified Live Operations Ticker Banner (مركز العمليات الموحد) ── */}
-      <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-xs dark:border-slate-800/90 dark:bg-[#0c1427]">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <span className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-500/12 border border-indigo-500/25 px-2.5 py-1 text-xs font-extrabold text-indigo-700 dark:text-indigo-300">
-            <span className="size-2 rounded-full bg-indigo-500 animate-ping" />
+      <div className="royal-banner px-4 py-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-l from-indigo-600 via-sky-500 to-emerald-500 opacity-90" />
+        <div className="pointer-events-none absolute -top-12 -end-10 size-36 rounded-full bg-indigo-500/12 blur-3xl dark:bg-indigo-500/20" />
+        <div className="relative flex flex-wrap items-center gap-2.5">
+          <span className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600/15 to-sky-500/15 border border-indigo-500/30 px-2.5 py-1 text-xs font-black text-indigo-700 dark:text-indigo-300 shadow-2xs">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+            </span>
             <span>مباشر</span>
           </span>
-          <div className="font-extrabold text-slate-900 dark:text-slate-100 text-xs sm:text-sm">
+          <div className="font-black text-slate-900 dark:text-white text-xs sm:text-sm tracking-tight">
             مركز العمليات الموحد – {company?.nameAr || 'شبكة فروع المنظومة'} (المقر الرئيسي + الفروع الإقليمية)
           </div>
         </div>
 
         {/* Live Ticker Counters + Print Shortcut */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+        <div className="relative flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-xl bg-white/80 dark:bg-[#080d1a]/80 backdrop-blur-xs px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
             كروت قيد العمل: <strong className="num text-indigo-600 dark:text-indigo-400 font-mono">{assignedRows.length}</strong>
           </span>
-          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+          <span className="rounded-xl bg-white/80 dark:bg-[#080d1a]/80 backdrop-blur-xs px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
             عقود سارية: <strong className="num text-sky-600 dark:text-sky-400 font-mono">{totalProjects}</strong>
           </span>
-          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+          <span className="rounded-xl bg-white/80 dark:bg-[#080d1a]/80 backdrop-blur-xs px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
             فواتير معتمدة ZATCA: <strong className="num text-emerald-600 dark:text-emerald-400 font-mono">{postedInvoicesCount}</strong>
           </span>
-          <span className="rounded-xl bg-slate-50 dark:bg-[#080d1a] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+          <span className="rounded-xl bg-white/80 dark:bg-[#080d1a]/80 backdrop-blur-xs px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
             بانتظار الفوترة: <strong className="num text-rose-600 dark:text-rose-400 font-mono">{allocSummary?.pendingInvoiceCount ?? validInvoices.filter((x) => x.status === 'DRAFT').length}</strong>
           </span>
           <Link
             to="/zatca/hub"
-            className="rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 font-extrabold border border-emerald-500/25 transition-colors"
+            className="rounded-xl bg-emerald-500/12 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 font-extrabold border border-emerald-500/30 transition-colors"
           >
             ZATCA Phase 2 جاهز
           </Link>
           <button
             type="button"
             onClick={() => window.print()}
-            className="no-print inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 px-2.5 py-1 font-bold text-slate-600 dark:border-slate-800 dark:bg-[#080d1a] dark:text-slate-300 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            className="no-print inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white/90 hover:bg-slate-50 px-2.5 py-1 font-bold text-slate-700 dark:border-slate-800 dark:bg-[#080d1a] dark:text-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer shadow-2xs"
             title="طباعة لوحة المؤشرات"
           >
             <Printer className="size-3.5" />

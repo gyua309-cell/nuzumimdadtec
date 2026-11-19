@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Calendar, CheckCircle2, Download, Landmark,
-  Printer, Receipt, ShieldCheck, Sparkles, TrendingDown,
+  BarChart3, Calendar, CheckCircle2, Landmark,
+  PieChart, Printer, Receipt, ShieldCheck, Sparkles, TrendingDown,
   TrendingUp,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { downloadCsv, money, today } from '../lib/format';
+import { money, today } from '../lib/format';
 import { usePeriods } from '../components/forms';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
+import { ExportMenu } from '../components/ExportMenu';
 import { Badge, PageHeader, Stat, useToast } from '../components/ui';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
@@ -86,21 +88,17 @@ export function VatReportPage() {
   const netVatPayable = salesVat - purchasesVat;
   const isPayable = netVatPayable >= 0;
 
-  const handleExportCsv = () => {
-    downloadCsv(`zatca-vat-return-${today()}.csv`, [
-      ['بند الإقرار الضريبي', 'المبلغ الخاضع للضريبة (ر.س)', 'نسبة الضريبة %', 'مبلغ الضريبة (ر.س)'],
-      ['1. المبيعات الخاضعة للنسبة الأساسية (15%)', salesSubtotal.toFixed(2), '15%', salesVat.toFixed(2)],
-      ['2. المشتريات الخاضعة للنسبة الأساسية (15%)', purchasesSubtotal.toFixed(2), '15%', purchasesVat.toFixed(2)],
-      ['3. صافي ضريبة القيمة المضافة المستحقة للسداد / (للاسترداد)', '', '', netVatPayable.toFixed(2)],
-    ]);
-    toast.success('تم تصدير مسودة الإقرار الضريبي إلى ملف CSV بنجاح');
-  };
-
   return (
     <div className="space-y-6 animate-fade-in">
       <PageHeader
         title="تقرير الإقرار الضريبي ومطابقة الزكاة (ZATCA VAT Return)"
         subtitle="ملخص ضريبة القيمة المضافة المحصلة على المبيعات (المخرجات) والمسددة على المشتريات (المدخلات) واحتساب صافي الضريبة الواجب سدادها لهيئة الزكاة والضريبة والجمارك."
+        icon={ShieldCheck}
+        badge={
+          <Badge color="green" dot>
+            ضريبة القيمة المضافة 15%
+          </Badge>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2 print:hidden">
             {currentSettlement ? (
@@ -121,19 +119,28 @@ export function VatReportPage() {
                 <span>{settling ? 'جارٍ الترحيل الآلي...' : 'ترحيل قيد تسوية وسداد الضريبة آلياً'}</span>
               </button>
             ) : null}
+            <ExportMenu
+              title="الإقرار الضريبي لضريبة القيمة المضافة (ZATCA VAT 15%)"
+              filename={`zatca-vat-return-${today()}`}
+              currency="SAR"
+              columns={[
+                { key: 'item', header: 'بند الإقرار الضريبي', width: 36 },
+                { key: 'taxable', header: 'المبلغ الخاضع (SAR)', width: 18, type: 'currency' },
+                { key: 'rate', header: 'النسبة', width: 10 },
+                { key: 'vat', header: 'مبلغ الضريبة (SAR)', width: 18, type: 'currency' },
+              ]}
+              data={[
+                { item: '1. المبيعات الخاضعة للنسبة الأساسية (15%)', taxable: salesSubtotal, rate: '15%', vat: salesVat },
+                { item: '2. المشتريات الخاضعة للنسبة الأساسية (15%)', taxable: purchasesSubtotal, rate: '15%', vat: purchasesVat },
+                { item: '3. صافي ضريبة القيمة المضافة المستحقة للسداد / (للاسترداد)', taxable: salesSubtotal - purchasesSubtotal, rate: 'صافي', vat: netVatPayable },
+              ]}
+            />
             <button
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
+              className="btn-secondary text-xs flex items-center gap-1.5"
               onClick={() => window.print()}
               title="طباعة الإقرار الضريبي"
             >
               <Printer className="size-3.5" /> طباعة الإقرار
-            </button>
-            <button
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
-              onClick={handleExportCsv}
-              title="تصدير إلى Excel / CSV"
-            >
-              <Download className="size-3.5" /> تصدير Excel / CSV
             </button>
           </div>
         }
@@ -193,6 +200,51 @@ export function VatReportPage() {
           tone={isPayable ? 'green' : 'purple'}
           icon={Landmark}
         />
+      </div>
+
+      {/* ZATCA VAT Analytics Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 print:hidden">
+        <ExecutiveChartCard
+          title="مقارنة ضريبة المخرجات مقابل المدخلات وصافي المستحق"
+          subtitle="ملخص المركز الضريبي للفترة بالريال السعودي (ZATCA 15%)"
+          icon={BarChart3}
+          accent="emerald"
+          className="lg:col-span-2"
+        >
+          <ExecutiveBarChart
+            categories={['ضريبة المخرجات (مبيعات)', 'ضريبة المدخلات (مشتريات)', 'صافي الضريبة المستحقة']}
+            series={[
+              {
+                name: 'مبلغ الضريبة (SAR)',
+                data: [salesVat, purchasesVat, netVatPayable],
+                color: '#10b981',
+                colorEnd: '#059669',
+              },
+            ]}
+            height={220}
+            unit="SAR"
+            emptyText="لا توجد حركات ضريبية مرحّلة لهذه الفترة"
+          />
+        </ExecutiveChartCard>
+
+        <ExecutiveChartCard
+          title="توزيع الوعاء الخاضع للضريبة"
+          subtitle="المبيعات الخاضعة مقابل المشتريات الخاضعة للضريبة"
+          icon={PieChart}
+          accent="indigo"
+        >
+          <ExecutiveDonutChart
+            data={[
+              { name: 'مبيعات خاضعة 15%', value: Math.max(0, salesSubtotal), color: '#4f46e5' },
+              { name: 'مشتريات خاضعة 15%', value: Math.max(0, purchasesSubtotal), color: '#f59e0b' },
+            ]}
+            centerValue={money(netVatPayable)}
+            centerLabel="صافي الضريبة"
+            height={220}
+            unit="SAR"
+            emptyText="لا توجد معاملات"
+          />
+        </ExecutiveChartCard>
       </div>
 
       {/* Official ZATCA VAT Return Table */}

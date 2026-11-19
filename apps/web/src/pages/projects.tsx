@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Eye, FileText, Layers, Pencil, Plus, Printer, Search, Sparkles, Trash2, Upload, Users } from 'lucide-react';
+import { ArrowRight, BarChart3, Briefcase, CheckCircle2, Download, Eye, FileText, Layers, Pencil, PieChart, Plus, Printer, Search, Sparkles, Trash2, TrendingUp, Upload, Users, Wallet } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { normalizePricingBasis } from '../lib/fallback-engine';
 import { opts, PRICING_BASIS, PROJECT_STATUS } from '../lib/labels';
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
@@ -85,14 +86,41 @@ export function ProjectsPage() {
   const activePrjCount = prjList.filter((x: any) => x.status === 'ACTIVE').length;
   const onHoldCount = prjList.filter((x: any) => x.status === 'ON_HOLD').length;
   const draftPrjCount = prjList.filter((x: any) => x.status === 'DRAFT').length;
+  const completedPrjCount = prjList.filter((x: any) => x.status === 'COMPLETED' || x.status === 'CLOSED').length;
+  const totalMonthlyRev = prjList.reduce((acc: number, x: any) => acc + Number(x.monthlyRevenueBase ?? 0), 0);
+  const totalMonthlyProfit = prjList.reduce((acc: number, x: any) => acc + Number(x.grossProfitBase ?? 0), 0);
+  const overallMargin = totalMonthlyRev > 0 ? Math.round((totalMonthlyProfit / totalMonthlyRev) * 100) : 0;
 
+  const projectPerfChart = useMemo(() => {
+    const top = prjList.slice(0, 8);
+    return {
+      categories: top.map((p: any) => p.nameAr || p.code || 'مشروع'),
+      revenue: top.map((p: any) => Number(p.monthlyRevenueBase ?? 0)),
+      profit: top.map((p: any) => Number(p.grossProfitBase ?? 0)),
+    };
+  }, [prjList]);
 
+  const statusDonut = useMemo(
+    () => [
+      { name: 'نشط وجاري', value: activePrjCount, color: '#10b981' },
+      { name: 'معلق', value: onHoldCount, color: '#f59e0b' },
+      { name: 'مسودة', value: draftPrjCount, color: '#64748b' },
+      { name: 'مكتمل', value: completedPrjCount, color: '#4f46e5' },
+    ],
+    [activePrjCount, onHoldCount, draftPrjCount, completedPrjCount],
+  );
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="المشاريع التعاقدية"
         subtitle="إدارة مشاريع العملاء ودورة حياتها. كل مشروع يحتوي على تخصيصات الموظفين والمبرمجين وأسعار الخدمات."
+        icon={Briefcase}
+        badge={
+          <Badge color="green" dot>
+            {activePrjCount} مشروع نشط
+          </Badge>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportMenu
@@ -127,12 +155,57 @@ export function ProjectsPage() {
         }
       />
 
-      {/* KPI Stats Strip */}
-      <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">
-        <Stat label="إجمالي المشاريع" value={String(totalProjects)} tone="blue" hint="عقود العملاء المسجلة" />
-        <Stat label="مشاريع جارية ونشطة" value={String(activePrjCount)} tone="green" hint="قيد التطوير والفوترة" />
-        <Stat label="مشاريع معلقة" value={String(onHoldCount)} tone="amber" hint="بانتظار مستخلصات أو إفراج" />
-        <Stat label="مسودات قيد التجهيز" value={String(draftPrjCount)} tone="slate" hint="بانتظار توقيع العقد" />
+      {/* Executive KPI Stats Strip */}
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="إجمالي المشاريع" value={String(totalProjects)} tone="indigo" icon={Briefcase} hint={`${activePrjCount} مشروع نشط • ${onHoldCount} معلق`} />
+        <Stat label="الإيراد الشهري التعاقدي" value={money(totalMonthlyRev)} tone="green" icon={TrendingUp} hint="إجمالي عوائد العقود الجارية" />
+        <Stat
+          label="صافي الربح الشهري المتوقع"
+          value={money(totalMonthlyProfit)}
+          tone={totalMonthlyProfit >= 0 ? 'cyan' : 'red'}
+          icon={Wallet}
+          trend={{ text: `${overallMargin}% هامش`, positive: totalMonthlyProfit >= 0 }}
+          hint="بعد خصم رواتب الفرق والتكاليف"
+        />
+        <Stat label="مشاريع جارية ونشطة" value={String(activePrjCount)} tone="amber" icon={CheckCircle2} progress={totalProjects > 0 ? Math.round((activePrjCount / totalProjects) * 100) : 0} hint={`${draftPrjCount} مسودة قيد التجهيز`} />
+      </div>
+
+      {/* Projects Portfolio Interactive Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ExecutiveChartCard
+          title="الإيراد الشهري مقابل صافي الربح لكل مشروع"
+          subtitle="تحليل العائد التشغيلي والربحية المباشرة لمحفظة المشاريع"
+          icon={BarChart3}
+          accent="indigo"
+          className="lg:col-span-2"
+        >
+          <ExecutiveBarChart
+            categories={projectPerfChart.categories}
+            series={[
+              { name: 'الإيراد الشهري', data: projectPerfChart.revenue, color: '#4f46e5', colorEnd: '#6366f1' },
+              { name: 'صافي الربح', data: projectPerfChart.profit, color: '#10b981', colorEnd: '#059669' },
+            ]}
+            height={225}
+            unit="SAR"
+            emptyText="لا توجد إيرادات مسجلة للمشاريع بعد"
+          />
+        </ExecutiveChartCard>
+
+        <ExecutiveChartCard
+          title="توزيع حالات محفظة المشاريع"
+          subtitle="نسبة المشاريع النشطة والمعلقة والمسودات"
+          icon={PieChart}
+          accent="emerald"
+        >
+          <ExecutiveDonutChart
+            data={statusDonut}
+            centerValue={String(totalProjects)}
+            centerLabel="إجمالي المشاريع"
+            height={225}
+            unit="مشروع"
+            emptyText="لا توجد مشاريع"
+          />
+        </ExecutiveChartCard>
       </div>
 
       <div className="card overflow-hidden">

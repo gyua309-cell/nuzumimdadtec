@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowRight, Building2, Code2, Cpu, FileCheck2,
-  FileSpreadsheet, FileText, Filter, Plus, Printer, RotateCcw, Save, Send, ShieldCheck, Sparkles,
+  ArrowRight, BarChart3, Building2, Code2, Cpu, FileCheck2,
+  FileSpreadsheet, FileText, Filter, PieChart, Plus, Printer, RotateCcw, Save, Send, ShieldCheck, Sparkles,
   Terminal, Trash2, User, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
@@ -11,6 +11,7 @@ import { money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
 import { PeriodSelect, usePeriods } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { ZatcaTaxInvoiceTemplate, exportInvoiceToExcel } from '../components/ZatcaTaxInvoiceTemplate';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
@@ -178,11 +179,45 @@ export function InvoicesPage() {
 
 
 
+  const salesByClientChart = useMemo(() => {
+    const map = new Map<string, { net: number; vat: number }>();
+    for (const inv of list) {
+      if (inv.status === 'CANCELLED') continue;
+      const sign = inv.invoiceType === 'CREDIT_NOTE' ? -1 : 1;
+      const label = inv.clientName || inv.invoiceNo || 'عميل';
+      const prev = map.get(label) || { net: 0, vat: 0 };
+      prev.net += Number(inv.subtotalBase ?? inv.subtotal ?? 0) * sign;
+      prev.vat += Number(inv.vatAmountBase ?? inv.vatAmount ?? 0) * sign;
+      map.set(label, prev);
+    }
+    const entries = Array.from(map.entries()).slice(0, 8);
+    return {
+      categories: entries.map(([k]) => k),
+      net: entries.map(([, v]) => Number(v.net.toFixed(2))),
+      vat: entries.map(([, v]) => Number(v.vat.toFixed(2))),
+    };
+  }, [list]);
+
+  const invoiceStatusDonut = useMemo(() => {
+    const cancelledCount = list.filter((i: any) => i.status === 'CANCELLED').length;
+    return [
+      { name: 'مرحّلة ومعتمدة', value: postedCount, color: '#10b981' },
+      { name: 'مسودات', value: draftCount, color: '#f59e0b' },
+      { name: 'ملغاة', value: cancelledCount, color: '#f43f5e' },
+    ];
+  }, [list, postedCount, draftCount]);
+
   return (
     <div className="space-y-5">
       <PageHeader
         title="فواتير المبيعات الضريبية (الربط مع الزكاة ZATCA)"
         subtitle="إدارة فواتير العملاء وإصدار الفواتير الآلية من إيرادات وساعات الموظفين بالمشاريع المتوافقة مع متطلبات الفاتورة الإلكترونية."
+        icon={FileText}
+        badge={
+          <Badge color="green" dot>
+            ZATCA Phase 2
+          </Badge>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportMenu
@@ -215,11 +250,49 @@ export function InvoicesPage() {
       />
 
       {/* KPI Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-        <Stat label="إجمالي الفواتير" value={String(totalCount)} tone="blue" icon={FileText} hint="سجلات الفوترة الإلكترونية" />
-        <Stat label="فواتير معتمدة ومرحّلة" value={String(postedCount)} tone="green" icon={ShieldCheck} hint="معتمدة في دفاتر الحسابات" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <Stat label="إجمالي الفواتير" value={String(totalCount)} tone="indigo" icon={FileText} hint="سجلات الفوترة الإلكترونية" />
+        <Stat label="فواتير معتمدة ومرحّلة" value={String(postedCount)} tone="green" icon={ShieldCheck} progress={totalCount > 0 ? Math.round((postedCount / totalCount) * 100) : 0} hint="معتمدة في دفاتر الحسابات" />
         <Stat label="مسودات قيد المراجعة" value={String(draftCount)} tone="amber" icon={FileCheck2} hint="بانتظار الاعتماد والترحيل" />
-        <Stat label="صافي المبيعات (مع الضريبة)" value={money(totalGross)} tone="cyan" icon={Wallet} hint="الإجمالي التعاقدي الفعلي" />
+        <Stat label="صافي المبيعات (مع الضريبة)" value={money(totalGross)} tone="cyan" icon={Wallet} hint={`ضريبة 15%: ${money(totalVat)}`} />
+      </div>
+
+      {/* Sales & ZATCA Interactive Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ExecutiveChartCard
+          title="توزيع المبيعات وضريبة القيمة المضافة حسب العملاء"
+          subtitle="المبلغ الخاضع للضريبة مقابل ضريبة المخرجات 15% (ZATCA)"
+          icon={BarChart3}
+          accent="indigo"
+          className="lg:col-span-2"
+        >
+          <ExecutiveBarChart
+            categories={salesByClientChart.categories}
+            series={[
+              { name: 'صافي المبيعات', data: salesByClientChart.net, stack: 'sales', color: '#4f46e5', colorEnd: '#6366f1' },
+              { name: 'ضريبة 15%', data: salesByClientChart.vat, stack: 'sales', color: '#10b981', colorEnd: '#34d399' },
+            ]}
+            height={220}
+            unit="SAR"
+            emptyText="لا توجد فواتير مبيعات مسجلة بعد"
+          />
+        </ExecutiveChartCard>
+
+        <ExecutiveChartCard
+          title="حالة الفواتير والاعتماد الضريبي"
+          subtitle="نسبة الفواتير المرحّلة والمسودات"
+          icon={PieChart}
+          accent="emerald"
+        >
+          <ExecutiveDonutChart
+            data={invoiceStatusDonut}
+            centerValue={String(totalCount)}
+            centerLabel="إجمالي الفواتير"
+            height={220}
+            unit="فاتورة"
+            emptyText="لا توجد فواتير"
+          />
+        </ExecutiveChartCard>
       </div>
 
       {/* Filters Bar */}

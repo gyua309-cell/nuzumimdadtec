@@ -2,13 +2,15 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Calendar, Download, Printer, RefreshCw, Search, Wallet
+  BarChart3, Calendar, PieChart, Printer, RefreshCw, Search, ShieldAlert, Wallet
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
-import { downloadCsv, money, today } from '../lib/format';
+import { money, today } from '../lib/format';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
+import { ExportMenu } from '../components/ExportMenu';
 import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
-import { Badge, EmptyState, ErrorState, Loading, PageHeader, useToast } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat } from '../components/ui';
 
 export interface AgingBucketRow {
   clientId: string;
@@ -27,7 +29,6 @@ export interface AgingBucketRow {
 }
 
 export function AccountsReceivableAgingReportPage() {
-  const toast = useToast();
   const qc = useQueryClient();
   const base = useBaseCurrency();
   const [asOfDate, setAsOfDate] = useState(today());
@@ -149,53 +150,46 @@ export function AccountsReceivableAgingReportPage() {
     return { total, b0, b30, b60, b90 };
   }, [agingData]);
 
-  const handleExportCsv = () => {
-    const rows = [
-      ['تقرير أعمار الديون والذمم المدينة للعملاء (A/R Aging Report)'],
-      ['تاريخ التقرير:', asOfDate],
-      [],
-      ['كود العميل', 'اسم العميل', 'إجمالي الرصيد المستحق', 'حالي (0 - 30 يوم)', 'متأخر (31 - 60 يوم)', 'متأخر (61 - 90 يوم)', 'متأخر (> 90 يوم)', 'درجة المخاطرة'],
-      ...filteredRows.map((r) => [
-        r.clientCode,
-        r.clientNameAr,
-        r.totalReceivable,
-        r.current0to30,
-        r.days31to60,
-        r.days61to90,
-        r.over90,
-        r.riskLevel,
-      ]),
-      [],
-      ['الإجمالي العام', '—', totals.total, totals.b0, totals.b30, totals.b60, totals.b90],
-    ];
-    downloadCsv(`ar_aging_report_${today()}.csv`, rows);
-    toast.success('تم تصدير تقرير أعمار الديون كملف CSV');
-  };
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="تقرير أعمار ديون العملاء والتحصيلات (Accounts Receivable Aging)"
         subtitle="تحليل مستحقات عقود البرمجة والخدمات حسب فترات التأخير (0-30، 31-60، 61-90، وأكثر من 90 يوماً) لإدارة التدفقات النقدية وخفض مخاطر التعثر"
+        icon={Wallet}
+        badge={
+          <Badge color="amber" dot>
+            {filteredRows.length} عميل
+          </Badge>
+        }
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => refetch()}
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
+              className="btn-secondary text-xs flex items-center gap-1.5"
             >
               <RefreshCw className="size-3.5" />
               تحديث
             </button>
-            <button
-              onClick={handleExportCsv}
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
-            >
-              <Download className="size-3.5" />
-              تصدير CSV
-            </button>
+            <ExportMenu
+              title="تقرير أعمار ديون العملاء والتحصيلات"
+              filename={`ar-aging-${asOfDate}`}
+              periodLabel={`كما في ${asOfDate}`}
+              currency={base}
+              columns={[
+                { key: 'clientCode', header: 'كود العميل', width: 14 },
+                { key: 'clientNameAr', header: 'اسم العميل', width: 26 },
+                { key: 'totalReceivable', header: `إجمالي المستحق (${base})`, width: 18, type: 'currency', isTotal: true },
+                { key: 'current0to30', header: 'حالي (0-30 يوم)', width: 16, type: 'currency', isTotal: true },
+                { key: 'days31to60', header: 'متأخر (31-60)', width: 16, type: 'currency', isTotal: true },
+                { key: 'days61to90', header: 'متأخر (61-90)', width: 16, type: 'currency', isTotal: true },
+                { key: 'over90', header: 'متعثر (+90 يوم)', width: 16, type: 'currency', isTotal: true },
+                { key: 'riskLevel', header: 'درجة المخاطرة', width: 14 },
+              ]}
+              data={filteredRows}
+            />
             <button
               onClick={() => window.print()}
-              className="btn btn-primary text-xs flex items-center gap-1.5"
+              className="btn-primary text-xs flex items-center gap-1.5"
             >
               <Printer className="size-3.5" />
               طباعة التقرير
@@ -204,56 +198,60 @@ export function AccountsReceivableAgingReportPage() {
         }
       />
 
-      {/* KPI Cards Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        {/* Total Outstanding */}
-        <div className="card p-4">
-          <div className="text-xs font-semibold text-slate-500">إجمالي مستحقات العملاء</div>
-          <div className="text-xl font-black text-slate-900 dark:text-white tracking-tight font-mono mt-2">
-            {money(totals.total)} {base}
-          </div>
-          <div className="text-[11px] text-blue-700 dark:text-blue-400 font-semibold mt-1">كافة الفواتير غير المحصلة</div>
-        </div>
+      {/* Executive KPI Cards Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+        <Stat label="إجمالي مستحقات العملاء" value={`${money(totals.total)} ${base}`} tone="indigo" icon={Wallet} hint="كافة الفواتير غير المحصلة" />
+        <Stat label="حالي (0 - 30 يوماً)" value={`${money(totals.b0)} ${base}`} tone="green" progress={totals.total > 0 ? Math.round((totals.b0 / totals.total) * 100) : 0} hint={`${totals.total > 0 ? Math.round((totals.b0 / totals.total) * 100) : 0}% من إجمالي المستحقات`} />
+        <Stat label="متأخر (31 - 60 يوماً)" value={`${money(totals.b30)} ${base}`} tone="blue" progress={totals.total > 0 ? Math.round((totals.b30 / totals.total) * 100) : 0} hint="قيد المتابعة والتحصيل" />
+        <Stat label="متأخر (61 - 90 يوماً)" value={`${money(totals.b60)} ${base}`} tone="amber" progress={totals.total > 0 ? Math.round((totals.b60 / totals.total) * 100) : 0} hint="يتطلب إشعار مطالبة رسمي" />
+        <Stat label="متعثر (+90 يوماً)" value={`${money(totals.b90)} ${base}`} tone="red" icon={ShieldAlert} progress={totals.total > 0 ? Math.round((totals.b90 / totals.total) * 100) : 0} hint="مخاطر تعثر عالية" />
+      </div>
 
-        {/* Current 0-30 */}
-        <div className="card p-4 border-emerald-200 dark:border-emerald-900/50">
-          <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">حالي (0 - 30 يوماً)</div>
-          <div className="text-xl font-black text-emerald-900 dark:text-emerald-300 tracking-tight font-mono mt-2">
-            {money(totals.b0)} {base}
-          </div>
-          <div className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">
-            {totals.total > 0 ? Math.round((totals.b0 / totals.total) * 100) : 0}% من إجمالي المستحقات
-          </div>
-        </div>
+      {/* AR Aging Visual Analytics Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 print:hidden">
+        <ExecutiveChartCard
+          title="توزيع أعمار الذمم المدينة حسب فترات التأخير"
+          subtitle={`مقارنة الشرائح الزمنية للمستحقات (${base})`}
+          icon={BarChart3}
+          accent="indigo"
+          className="lg:col-span-2"
+        >
+          <ExecutiveBarChart
+            categories={['حالي (0-30 يوم)', 'متأخر (31-60 يوم)', 'متأخر (61-90 يوم)', 'متعثر (+90 يوم)']}
+            series={[
+              {
+                name: `المستحق (${base})`,
+                data: [totals.b0, totals.b30, totals.b60, totals.b90],
+                color: '#4f46e5',
+                colorEnd: '#0ea5e9',
+              },
+            ]}
+            height={220}
+            unit={base}
+            emptyText="لا توجد مستحقات غير محصلة حالياً"
+          />
+        </ExecutiveChartCard>
 
-        {/* 31-60 days */}
-        <div className="card p-4 border-blue-200 dark:border-blue-900/50">
-          <div className="text-xs font-semibold text-blue-700 dark:text-blue-400">متأخر (31 - 60 يوماً)</div>
-          <div className="text-xl font-black text-blue-900 dark:text-blue-300 tracking-tight font-mono mt-2">
-            {money(totals.b30)} {base}
-          </div>
-          <div className="text-[11px] text-blue-700 dark:text-blue-400 mt-1">
-            {totals.total > 0 ? Math.round((totals.b30 / totals.total) * 100) : 0}% قيد المتابعة والتحصيل
-          </div>
-        </div>
-
-        {/* 61-90 days */}
-        <div className="card p-4 border-amber-200 dark:border-amber-900/50">
-          <div className="text-xs font-semibold text-amber-700 dark:text-amber-400">متأخر (61 - 90 يوماً)</div>
-          <div className="text-xl font-black text-amber-900 dark:text-amber-300 tracking-tight font-mono mt-2">
-            {money(totals.b60)} {base}
-          </div>
-          <div className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">يتطلب إشعار مطالبة رسمي</div>
-        </div>
-
-        {/* Over 90 days */}
-        <div className="card p-4 border-rose-200 dark:border-rose-900/50">
-          <div className="text-xs font-semibold text-rose-700 dark:text-rose-400">متعثر (+90 يوماً)</div>
-          <div className="text-xl font-black text-rose-900 dark:text-rose-300 tracking-tight font-mono mt-2">
-            {money(totals.b90)} {base}
-          </div>
-          <div className="text-[11px] text-rose-700 dark:text-rose-400 mt-1 font-bold">مخاطر تعثر عالية وتجميد خدمات</div>
-        </div>
+        <ExecutiveChartCard
+          title="تصنيف العملاء حسب درجة المخاطرة"
+          subtitle="نسبة العملاء الآمنين مقابل ذوي المخاطر المرتفعة"
+          icon={PieChart}
+          accent="amber"
+        >
+          <ExecutiveDonutChart
+            data={[
+              { name: 'منخفضة (آمن)', value: agingData.filter((r) => r.riskLevel === 'LOW').length, color: '#10b981' },
+              { name: 'متوسطة', value: agingData.filter((r) => r.riskLevel === 'MEDIUM').length, color: '#0ea5e9' },
+              { name: 'عالية', value: agingData.filter((r) => r.riskLevel === 'HIGH').length, color: '#f59e0b' },
+              { name: 'حرجة (+90 يوم)', value: agingData.filter((r) => r.riskLevel === 'CRITICAL').length, color: '#f43f5e' },
+            ]}
+            centerValue={String(agingData.length)}
+            centerLabel="عملاء التحليل"
+            height={220}
+            unit="عميل"
+            emptyText="لا يوجد عملاء"
+          />
+        </ExecutiveChartCard>
       </div>
 
       {/* Filter and Date Strip */}

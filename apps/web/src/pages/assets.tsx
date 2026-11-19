@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Laptop, Play, Printer, Search, Trash2, Upload } from 'lucide-react';
+import { ArrowRight, BarChart3, CheckCircle2, Download, Laptop, PieChart, Play, Printer, Search, Trash2, Upload, Wallet } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { ASSET_KIND, ASSET_STATUS, DEP_METHOD, opts, RUN_STATUS } from '../lib/labels';
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
@@ -86,13 +87,41 @@ export function AssetsPage() {
   const assetItems = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
   const totalCost = assetItems.reduce((acc, a) => acc + (parseFloat(a.costBase) || 0), 0);
   const totalBookValue = assetItems.reduce((acc, a) => acc + (parseFloat(a.netBookValueBase) || 0), 0);
+  const totalAccumulated = Math.max(0, totalCost - totalBookValue);
   const activeCount = assetItems.filter((a) => a.status === 'ACTIVE').length;
+  const bookRatio = totalCost > 0 ? Math.round((totalBookValue / totalCost) * 100) : 0;
+
+  const assetCatCharts = useMemo(() => {
+    const map = new Map<string, { cost: number; nbv: number; accDep: number }>();
+    for (const a of assetItems) {
+      const cat = a.categoryName || 'أصول عامة';
+      const prev = map.get(cat) || { cost: 0, nbv: 0, accDep: 0 };
+      prev.cost += Number(a.costBase || 0);
+      prev.nbv += Number(a.netBookValueBase || 0);
+      prev.accDep += Number(a.accumulatedBase || 0);
+      map.set(cat, prev);
+    }
+    const entries = Array.from(map.entries());
+    return {
+      categories: entries.map(([k]) => k),
+      cost: entries.map(([, v]) => Number(v.cost.toFixed(2))),
+      nbv: entries.map(([, v]) => Number(v.nbv.toFixed(2))),
+      accDep: entries.map(([, v]) => Number(v.accDep.toFixed(2))),
+      donut: entries.map(([name, v]) => ({ name, value: Number(v.nbv.toFixed(2)) })),
+    };
+  }, [assetItems]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
         title="الأصول الثابتة والعهد"
         subtitle="إدارة أصول الشركة وعهد الموظفين التقنية (أجهزة، لابتوبات، تراخيص). تُحسب أقساط إهلاكها وتدخل ضمن تكلفة الموظف."
+        icon={Laptop}
+        badge={
+          <Badge color="teal" dot>
+            {activeCount} أصل نشط
+          </Badge>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportMenu
@@ -130,11 +159,50 @@ export function AssetsPage() {
       />
 
       {/* KPI Stats Strip */}
-      <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">
-        <Stat label="إجمالي الأصول" value={String(list.data?.meta.total ?? assetItems.length)} tone="blue" icon={Laptop} hint="أصول وعهد مقيدة" />
-        <Stat label="أصول نشطة وقيد الخدمة" value={String(activeCount)} tone="green" hint="تُهلك شهرياً في النظام" />
-        <Stat label={`إجمالي تكلفة الاقتناء (${base})`} value={money(totalCost)} tone="slate" hint="التكلفة التاريخية الدفترية" />
-        <Stat label={`صافي القيمة الدفترية (${base})`} value={money(totalBookValue)} tone="cyan" hint="بعد خصم مجمع الإهلاك" />
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="إجمالي الأصول" value={String(list.data?.meta.total ?? assetItems.length)} tone="indigo" icon={Laptop} hint="أصول وعهد تقنية ومكتبية" />
+        <Stat label="أصول نشطة وقيد الخدمة" value={String(activeCount)} tone="green" icon={CheckCircle2} progress={assetItems.length > 0 ? Math.round((activeCount / assetItems.length) * 100) : 0} hint="تُهلك شهرياً في النظام" />
+        <Stat label={`إجمالي تكلفة الاقتناء (${base})`} value={money(totalCost)} tone="amber" icon={Wallet} hint={`مجمع الإهلاك: ${money(totalAccumulated)}`} />
+        <Stat label={`صافي القيمة الدفترية (${base})`} value={money(totalBookValue)} tone="teal" icon={BarChart3} progress={bookRatio} hint={`${bookRatio}% من التكلفة التاريخية`} />
+      </div>
+
+      {/* Fixed Assets Analytics Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ExecutiveChartCard
+          title="تكلفة الاقتناء مقابل القيمة الدفترية ومجمع الإهلاك"
+          subtitle={`مقارنة القيم المحاسبية للأصول الثابتة حسب الفئة (${base})`}
+          icon={BarChart3}
+          accent="indigo"
+          className="lg:col-span-2"
+        >
+          <ExecutiveBarChart
+            categories={assetCatCharts.categories}
+            series={[
+              { name: 'تكلفة الاقتناء', data: assetCatCharts.cost, color: '#4f46e5', colorEnd: '#6366f1' },
+              { name: 'القيمة الدفترية', data: assetCatCharts.nbv, color: '#10b981', colorEnd: '#059669' },
+              { name: 'مجمع الإهلاك', data: assetCatCharts.accDep, color: '#f59e0b', colorEnd: '#d97706' },
+            ]}
+            height={220}
+            unit={base}
+            emptyText="لا توجد أصول ثابتة مسجلة بعد"
+          />
+        </ExecutiveChartCard>
+
+        <ExecutiveChartCard
+          title="توزيع القيمة الدفترية حسب فئة الأصل"
+          subtitle="وزن كل فئة في صافي محفظة الأصول"
+          icon={PieChart}
+          accent="emerald"
+        >
+          <ExecutiveDonutChart
+            data={assetCatCharts.donut}
+            centerValue={money(totalBookValue)}
+            centerLabel={`القيمة (${base})`}
+            height={220}
+            unit={base}
+            emptyText="لا توجد أصول"
+          />
+        </ExecutiveChartCard>
       </div>
 
       <div className="card overflow-hidden">

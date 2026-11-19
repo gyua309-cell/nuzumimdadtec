@@ -473,7 +473,7 @@ function Section({
   const isExpanded = forceOpen || open;
   const iconTint = SIDEBAR_ICON_TINT[s.color || 'indigo'];
   const base =
-    'group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-semibold transition-all duration-150';
+    'group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-semibold transition-all duration-200 cursor-pointer';
 
   if (s.to) {
     return (
@@ -484,17 +484,20 @@ function Section({
         className={({ isActive }) =>
           `${base} ${
             isActive
-              ? 'bg-indigo-600 text-white font-bold shadow-sm shadow-indigo-950/50'
-              : 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+              ? 'bg-gradient-to-l from-indigo-600 via-indigo-600 to-sky-600 text-white font-extrabold shadow-md shadow-indigo-950/60 ring-1 ring-white/15'
+              : 'text-slate-300 hover:bg-white/[0.07] hover:text-white'
           }`
         }
         title={collapsed ? s.label : undefined}
       >
         {({ isActive }) => (
           <>
+            {isActive && (
+              <span className="pointer-events-none absolute inset-y-1.5 start-0.5 w-1 rounded-full bg-amber-300 shadow-[0_0_8px_rgba(252,211,77,0.8)]" />
+            )}
             <div
-              className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-transform duration-150 group-hover:scale-105 ${
-                isActive ? 'bg-white/20 text-white' : iconTint
+              className={`flex size-7.5 shrink-0 items-center justify-center rounded-lg transition-all duration-200 group-hover:scale-105 ${
+                isActive ? 'bg-white/20 text-white shadow-inner' : `${iconTint} ring-1 ring-white/[0.06]`
               }`}
             >
               <s.icon className="size-4" />
@@ -512,15 +515,18 @@ function Section({
         type="button"
         className={`${base} ${
           active
-            ? 'bg-white/[0.09] text-white font-bold border-s-[3px] border-indigo-400'
+            ? 'bg-gradient-to-l from-indigo-500/20 via-indigo-500/12 to-transparent text-white font-bold ring-1 ring-indigo-400/25'
             : 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
         }`}
         onClick={() => setOpen(!open)}
         title={collapsed ? s.label : undefined}
       >
+        {active && (
+          <span className="pointer-events-none absolute inset-y-1.5 start-0 w-[3px] rounded-e-full bg-gradient-to-b from-indigo-400 to-sky-400 shadow-[0_0_10px_rgba(129,140,248,0.8)]" />
+        )}
         <div
-          className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-transform duration-150 group-hover:scale-105 ${
-            active ? 'bg-indigo-500/25 text-indigo-300' : iconTint
+          className={`flex size-7.5 shrink-0 items-center justify-center rounded-lg transition-all duration-200 group-hover:scale-105 ${
+            active ? 'bg-indigo-500/30 text-indigo-200 ring-1 ring-indigo-400/40' : `${iconTint} ring-1 ring-white/[0.06]`
           }`}
         >
           <s.icon className="size-4" />
@@ -529,12 +535,23 @@ function Section({
           <>
             <span className="flex flex-1 min-w-0 items-center gap-1.5 whitespace-nowrap text-start text-[13px]">
               {s.step && (
-                <span className="inline-flex h-4 min-w-[18px] shrink-0 items-center justify-center rounded bg-white/[0.08] px-1 font-mono text-[9.5px] font-bold text-slate-400">
+                <span
+                  className={`inline-flex h-4.5 min-w-[20px] shrink-0 items-center justify-center rounded-md px-1 font-mono text-[9.5px] font-extrabold ${
+                    active
+                      ? 'bg-indigo-400/25 text-indigo-200'
+                      : 'bg-white/[0.07] text-slate-400'
+                  }`}
+                >
                   {s.step}
                 </span>
               )}
-              <span>{s.label}</span>
+              <span className="truncate">{s.label}</span>
             </span>
+            {s.items && (
+              <span className="hidden sm:inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white/[0.06] px-1 font-mono text-[9px] font-bold text-slate-400">
+                {s.items.length}
+              </span>
+            )}
             <ChevronDown
               className={`size-3.5 shrink-0 text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-indigo-300' : ''}`}
             />
@@ -543,7 +560,7 @@ function Section({
       </button>
 
       {!collapsed && isExpanded && s.items && (
-        <div className="ms-5 mt-1 space-y-0.5 border-s border-white/10 ps-2.5">
+        <div className="ms-5 mt-1 space-y-0.5 border-s border-indigo-400/20 ps-2.5">
           {s.items.map((i) => (
             <NavLink
               key={i.to}
@@ -553,24 +570,24 @@ function Section({
               className={({ isActive }) =>
                 `group/sub flex items-center justify-between rounded-lg px-2.5 py-1.5 text-[12px] transition-all duration-150 ${
                   isActive
-                    ? 'bg-indigo-500/20 font-bold text-indigo-200'
+                    ? 'bg-indigo-500/22 font-bold text-white ring-1 ring-indigo-400/30 shadow-2xs'
                     : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-100 font-medium'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  <span className="flex items-center gap-2 whitespace-nowrap">
+                  <span className="flex items-center gap-2 whitespace-nowrap truncate">
                     <span
-                      className={`size-1.5 rounded-full transition-transform duration-150 ${
+                      className={`size-1.5 shrink-0 rounded-full transition-all duration-150 ${
                         isActive
-                          ? 'bg-indigo-400 scale-125'
-                          : 'bg-slate-600 group-hover/sub:bg-slate-400'
+                          ? 'bg-amber-300 scale-125 shadow-[0_0_8px_rgba(252,211,77,0.9)]'
+                          : 'bg-slate-600 group-hover/sub:bg-indigo-300'
                       }`}
                     />
-                    {i.label}
+                    <span className="truncate">{i.label}</span>
                   </span>
-                  {isActive && <span className="size-1 rounded-full bg-indigo-400" />}
+                  {isActive && <span className="size-1.5 shrink-0 rounded-full bg-indigo-400 animate-pulse" />}
                 </>
               )}
             </NavLink>
@@ -836,37 +853,42 @@ export function AppShell({ children }: { children?: ReactNode }) {
   };
 
   return (
-    <div className="flex h-full bg-[#f6f8fc] dark:bg-[#080c16] text-slate-900 dark:text-slate-100">
+    <div className="flex h-full bg-transparent text-slate-900 dark:text-slate-100">
       {/* Mobile Sidebar Backdrop */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-30 bg-slate-950/65 backdrop-blur-xs lg:hidden animate-fade-in"
+          className="fixed inset-0 z-30 bg-slate-950/70 backdrop-blur-sm lg:hidden animate-fade-in"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
 
-      {/* ─────────── Executive Dark Navy Sidebar ─────────── */}
+      {/* ─────────── Royal Midnight Navy Executive Sidebar ─────────── */}
       <aside
-        className={`fixed inset-y-0 start-0 z-40 flex shrink-0 flex-col border-e border-slate-800/90 bg-gradient-to-b from-[#0b1122] via-[#0e162b] to-[#080c18] text-slate-200 shadow-2xl transition-all duration-300 dark:border-slate-800/80 dark:from-[#080c18] dark:via-[#0a1020] dark:to-[#050811] lg:static lg:z-auto ${
-          mobileMenuOpen ? 'translate-x-0 w-[292px]' : 'max-lg:translate-x-full'
-        } ${collapsed ? 'lg:w-[74px]' : 'lg:w-[292px]'}`}
+        className={`relative fixed inset-y-0 start-0 z-40 flex shrink-0 flex-col border-e border-indigo-950/80 bg-gradient-to-b from-[#070c1b] via-[#0b1329] to-[#050914] text-slate-200 shadow-2xl shadow-slate-950/50 transition-all duration-300 dark:border-slate-800/80 dark:from-[#050812] dark:via-[#080e1f] dark:to-[#040710] lg:static lg:z-auto ${
+          mobileMenuOpen ? 'translate-x-0 w-[296px]' : 'max-lg:translate-x-full'
+        } ${collapsed ? 'lg:w-[76px]' : 'lg:w-[296px]'}`}
       >
+        {/* Ambient Top-Edge Glow Inside Sidebar */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.22),transparent_72%)]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-l from-indigo-500 via-sky-400 to-emerald-400 opacity-90" />
+
         {/* Brand Logo Header */}
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-[#0b1120] px-3.5">
-          <Link to="/" className="flex min-w-0 items-center gap-2.5">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 text-white shadow-md shadow-indigo-950/50">
+        <div className="relative flex h-16 shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#070d1d]/80 px-3.5 backdrop-blur-md">
+          <Link to="/" className="flex min-w-0 items-center gap-2.5 group">
+            <div className="relative flex size-9.5 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 text-white shadow-lg shadow-indigo-600/35 ring-1 ring-white/25 transition-transform duration-200 group-hover:scale-105">
               <Landmark className="size-4.5" />
+              <span className="absolute -bottom-0.5 -end-0.5 size-2.5 rounded-full bg-emerald-400 ring-2 ring-[#070d1d]" />
             </div>
             {(!collapsed || mobileMenuOpen) && (
               <div className="min-w-0 leading-tight animate-fade-in">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[15px] font-black tracking-tight text-white">IDHAM ERP</span>
-                  <span className="rounded-md bg-indigo-500/20 px-1.5 py-0.5 text-[9px] font-extrabold text-indigo-300 border border-indigo-400/30">
-                    PRO
+                  <span className="rounded-md bg-gradient-to-r from-amber-400/20 to-indigo-500/25 px-1.5 py-0.5 text-[9px] font-black text-amber-300 border border-amber-400/35 shadow-2xs">
+                    ROYAL PRO
                   </span>
                 </div>
-                <div className="text-[10.5px] font-medium text-slate-400">
-                  نظام الموارد البشرية والمحاسبة
+                <div className="text-[10.5px] font-medium text-slate-400 flex items-center gap-1.5 mt-0.5">
+                  <span>الموارد البشرية والمحاسبة</span>
                 </div>
               </div>
             )}
@@ -884,7 +906,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             <button
               type="button"
               onClick={toggleCollapse}
-              className="hidden lg:flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+              className="hidden lg:flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
               title={collapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
             >
               <PanelRightClose className={`size-4 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
@@ -894,21 +916,21 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
         {/* Quick Sidebar Filter Input */}
         {(!collapsed || mobileMenuOpen) && (
-          <div className="px-3 pt-3 pb-1">
+          <div className="relative px-3 pt-3 pb-1.5">
             <div className="relative">
-              <Search className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 size-3.5 text-slate-400" />
+              <Search className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 size-3.5 text-indigo-300/75" />
               <input
                 type="text"
                 value={navFilter}
                 onChange={(e) => setNavFilter(e.target.value)}
                 placeholder="تصفية القوائم والشاشات..."
-                className="w-full rounded-xl border border-white/10 bg-white/[0.06] ps-8 pe-7 py-1.5 text-xs font-medium text-slate-100 placeholder:text-slate-400 outline-none transition-all focus:border-indigo-400 focus:bg-white/[0.1]"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.06] ps-8 pe-7 py-1.5 text-xs font-medium text-slate-100 placeholder:text-slate-400/80 outline-none transition-all focus:border-indigo-400/80 focus:bg-white/[0.1] focus:ring-2 focus:ring-indigo-500/20"
               />
               {navFilter && (
                 <button
                   type="button"
                   onClick={() => setNavFilter('')}
-                  className="absolute end-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:text-white"
+                  className="absolute end-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:text-white cursor-pointer"
                   title="مسح التصفية"
                 >
                   <X className="size-3" />
@@ -920,15 +942,18 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
         {/* Quick Access Pinned Favorites (Compact 4 by default + expandable) */}
         {(!collapsed || mobileMenuOpen) && (
-          <div className="px-3 pt-2 pb-1">
-            <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5 px-1">
-              <span>الوصول السريع</span>
+          <div className="relative px-3 pt-1.5 pb-1.5">
+            <div className="flex items-center justify-between text-[10.5px] font-bold text-slate-400 mb-1.5 px-1">
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-amber-400" />
+                <span>الوصول السريع</span>
+              </span>
               <button
                 type="button"
                 onClick={() => setFavsExpanded((v) => !v)}
-                className="text-[10.5px] font-semibold text-indigo-300 hover:text-indigo-200 transition-colors cursor-pointer"
+                className="text-[10.5px] font-bold text-indigo-300 hover:text-amber-300 transition-colors cursor-pointer"
               >
-                {favsExpanded ? 'عرض أقل' : `عرض الكل (${PINNED_FAVORITES.length})`}
+                {favsExpanded ? 'عرض أقل' : `الكل (${PINNED_FAVORITES.length})`}
               </button>
             </div>
             <div className="grid grid-cols-2 gap-1.5">
@@ -940,14 +965,14 @@ export function AppShell({ children }: { children?: ReactNode }) {
                     key={fav.path}
                     to={fav.path}
                     onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all truncate ${
+                    className={`group flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150 truncate ${
                       isActive
-                        ? 'bg-indigo-600/25 text-indigo-200 border border-indigo-400/35'
-                        : 'bg-white/[0.05] hover:bg-white/[0.09] text-slate-300 hover:text-white border border-transparent'
+                        ? 'bg-gradient-to-l from-indigo-600/35 to-sky-600/20 text-white border border-indigo-400/45 shadow-sm shadow-indigo-950/40'
+                        : 'bg-white/[0.045] hover:bg-white/[0.095] text-slate-300 hover:text-white border border-white/[0.05] hover:border-white/15'
                     }`}
                     title={fav.label}
                   >
-                    <Icon className={`size-3.5 shrink-0 ${isActive ? 'text-indigo-300' : fav.color}`} />
+                    <Icon className={`size-3.5 shrink-0 transition-transform duration-150 group-hover:scale-110 ${isActive ? 'text-amber-300' : fav.color}`} />
                     <span className="truncate">{fav.label}</span>
                   </NavLink>
                 );
@@ -957,7 +982,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
         )}
 
         {/* Grouped Navigation Links with Custom Sleek Scrollbar */}
-        <nav className="flex-1 space-y-3.5 overflow-y-auto px-3 py-2.5 custom-scrollbar">
+        <nav className="relative flex-1 space-y-3.5 overflow-y-auto px-3 py-2 custom-scrollbar">
           {filteredNavGroups.length === 0 ? (
             <div className="py-8 text-center text-xs font-semibold text-slate-400">
               لا توجد شاشات مطابقة لـ «{navFilter}»
@@ -966,8 +991,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
             filteredNavGroups.map((group) => (
               <div key={group.key} className="space-y-1">
                 {(!collapsed || mobileMenuOpen) && (
-                  <div className="px-2 pt-2 pb-1 text-[10.5px] font-bold tracking-wide text-slate-400/80 uppercase">
-                    {group.label}
+                  <div className="flex items-center gap-2 px-2 pt-2.5 pb-1">
+                    <span className="text-[10px] font-extrabold tracking-wide text-slate-400/85 uppercase whitespace-nowrap">
+                      {group.label}
+                    </span>
+                    <span className="h-px flex-1 bg-gradient-to-l from-white/12 to-transparent" />
                   </div>
                 )}
                 {group.sections.map((s) => (
@@ -984,20 +1012,30 @@ export function AppShell({ children }: { children?: ReactNode }) {
           )}
         </nav>
 
-        {/* Compact Executive User Footer */}
-        <div className="border-t border-white/10 bg-[#0b1120]/70 p-2.5">
-          <div className={`flex items-center gap-2.5 rounded-xl bg-white/[0.05] p-2 ${collapsed && !mobileMenuOpen ? 'justify-center' : 'justify-between'}`}>
+        {/* System Status Pill + Compact Executive User Footer */}
+        <div className="relative border-t border-white/[0.08] bg-[#060b18]/90 p-2.5 space-y-2 backdrop-blur-md">
+          {(!collapsed || mobileMenuOpen) && (
+            <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-2.5 py-1.5 text-[10.5px]">
+              <span className="flex items-center gap-1.5 font-bold text-emerald-300">
+                <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>ZATCA Phase 2 • Auto-GL</span>
+              </span>
+              <span className="font-mono font-extrabold text-emerald-200/80">100%</span>
+            </div>
+          )}
+          <div className={`flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-white/[0.05] p-2 ${collapsed && !mobileMenuOpen ? 'justify-center' : 'justify-between'}`}>
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-sky-500 font-bold text-xs text-white shadow-xs">
+              <div className="relative flex size-8.5 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 font-black text-xs text-white shadow-sm ring-1 ring-white/20">
                 {me?.user.fullName ? me.user.fullName[0] : 'م'}
+                <span className="absolute -bottom-0.5 -end-0.5 size-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0b1329]" />
               </div>
               {(!collapsed || mobileMenuOpen) && (
                 <div className="min-w-0 text-xs animate-fade-in">
                   <div className="font-bold text-white leading-tight truncate">
                     {me?.user.fullName || 'المدير التنفيذي'}
                   </div>
-                  <div className="text-[10.5px] font-medium text-indigo-300 truncate mt-0.5">
-                    {me?.user.username === 'admin' ? 'المدير التنفيذي' : `@${me?.user.username}`}
+                  <div className="text-[10.5px] font-semibold text-indigo-300 truncate mt-0.5">
+                    {me?.user.username === 'admin' ? 'المدير التنفيذي للنظام' : `@${me?.user.username}`}
                   </div>
                 </div>
               )}
@@ -1005,7 +1043,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             {(!collapsed || mobileMenuOpen) && (
               <button
                 type="button"
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-500/15 hover:text-rose-400 transition-colors cursor-pointer"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 transition-colors cursor-pointer"
                 onClick={() => void logout()}
                 aria-label="تسجيل الخروج من النظام"
                 title="تسجيل الخروج من النظام"
@@ -1020,13 +1058,16 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
       {/* ─────────── Main Content ─────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Top Header Bar (Dual Mode: Crisp Light / Dark Obsidian) */}
-        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 overflow-x-auto border-b border-slate-200/90 bg-white/95 backdrop-blur-md px-3 sm:px-4 shadow-xs dark:border-slate-800/90 dark:bg-[#0b1120]/95 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {/* Executive Frosted Glass Top Header Bar */}
+        <header className="sticky top-0 z-20 relative flex h-16 shrink-0 items-center gap-2 overflow-x-auto border-b border-slate-200/85 bg-white/85 backdrop-blur-xl px-3 sm:px-5 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.12)] dark:border-slate-800/85 dark:bg-[#080f1f]/88 dark:shadow-[0_6px_28px_-10px_rgba(0,0,0,0.65)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* Luminous Top Edge Hairline */}
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-l from-indigo-600 via-sky-500 to-emerald-500 opacity-85" />
+
           {/* Mobile Menu Trigger */}
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}
-            className="flex lg:hidden size-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+            className="flex lg:hidden size-9 shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-slate-700 hover:bg-slate-50 shadow-2xs dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
             aria-label="فتح القائمة الجانبية"
           >
             <Menu className="size-4" />
@@ -1034,7 +1075,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
           {/* Company Switcher (only shown if user has multiple companies; never sets empty companyId) */}
           {me?.companies && me.companies.length > 1 && (
-            <div className="hidden md:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 px-2.5 text-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="hidden md:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/80 px-2.5 text-xs shadow-2xs dark:border-slate-800 dark:bg-slate-900/90">
               <Building2 className="size-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <select
                 className="bg-transparent text-xs font-bold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[160px]"
@@ -1055,12 +1096,14 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </div>
           )}
 
-          {/* Active Branch Selector */}
-          <div className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 px-2.5 text-xs dark:border-slate-800 dark:bg-slate-900">
-            <Globe className="size-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-            <span className="hidden 2xl:inline whitespace-nowrap font-semibold text-slate-500 dark:text-slate-400 text-[11px]">الفرع:</span>
+          {/* Active Branch Selector Glass Pill */}
+          <div className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/85 hover:border-indigo-300/80 px-2.5 text-xs shadow-2xs transition-colors dark:border-slate-800 dark:bg-slate-900/90 dark:hover:border-indigo-500/40">
+            <div className="flex size-5 shrink-0 items-center justify-center rounded-md bg-indigo-500/12 text-indigo-600 dark:text-indigo-400">
+              <Globe className="size-3.5" />
+            </div>
+            <span className="hidden 2xl:inline whitespace-nowrap font-bold text-slate-500 dark:text-slate-400 text-[11px]">الفرع:</span>
             <select
-              className="bg-transparent text-xs font-bold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[140px] sm:max-w-[185px] truncate"
+              className="bg-transparent text-xs font-extrabold text-slate-800 dark:text-white outline-none cursor-pointer max-w-[145px] sm:max-w-[190px] truncate"
               value={activeBranchId}
               onChange={(e) => handleBranchChange(e.target.value)}
               title={company?.nameAr || 'جميع الفروع'}
@@ -1080,10 +1123,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <button
             type="button"
             onClick={() => setCloudModalOpen(true)}
-            className={`hidden xl:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2.5 text-[11px] font-bold transition-all cursor-pointer ${
+            className={`hidden xl:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2.5 text-[11px] font-extrabold transition-all cursor-pointer shadow-2xs ${
               isCloudConfigured
-                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20'
-                : 'border-slate-200/90 bg-slate-50/90 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/18'
+                : 'border-slate-200/90 bg-slate-50/85 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:bg-slate-800'
             }`}
             title="حالة اتصال قاعدة البيانات والسيرفر السحابي (اضغط لضبط السحابة والمزامنة الفورية)"
           >
@@ -1093,44 +1136,55 @@ export function AppShell({ children }: { children?: ReactNode }) {
           </button>
 
           {/* Dual Live Clocks: Mecca & Cairo */}
-          <div className="hidden 2xl:flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 px-2.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+          <div className="hidden 2xl:flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/85 px-3 text-xs text-slate-600 shadow-2xs dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300">
             <div className="flex items-center gap-1 whitespace-nowrap font-semibold">
-              <span className="num font-mono text-slate-900 dark:text-white font-bold">{meccaTime}</span>
-              <span className="text-[11px]">مكة</span>
+              <span className="text-[11px]">🇸🇦</span>
+              <span className="num font-mono text-slate-900 dark:text-white font-extrabold">{meccaTime}</span>
+              <span className="text-[10.5px] text-slate-500 dark:text-slate-400">مكة</span>
             </div>
-            <span className="text-slate-300 dark:text-slate-700">|</span>
+            <span className="h-3.5 w-px bg-slate-200 dark:bg-slate-700" />
             <div className="flex items-center gap-1 whitespace-nowrap font-semibold">
-              <span className="num font-mono text-slate-900 dark:text-white font-bold">{cairoTime}</span>
-              <span className="text-[11px]">القاهرة</span>
+              <span className="text-[11px]">🇪🇬</span>
+              <span className="num font-mono text-slate-900 dark:text-white font-extrabold">{cairoTime}</span>
+              <span className="text-[10.5px] text-slate-500 dark:text-slate-400">القاهرة</span>
             </div>
           </div>
 
-          <div className="min-w-2 flex-1" />
-
-          {/* Global Command Search Trigger (Ctrl + K) */}
-          <button
-            type="button"
-            onClick={() => {
-              setCmdOpen(true);
-              setCmdQuery('');
-              setCmdIndex(0);
-            }}
-            className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 hover:bg-slate-100 px-2.5 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            title="البحث السريع في شاشات النظام (Ctrl+K)"
-          >
-            <Search className="size-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
-            <span className="hidden xl:inline whitespace-nowrap">بحث سريع</span>
-            <kbd className="hidden 2xl:inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-              Ctrl+K
-            </kbd>
-          </button>
+          {/* Center Spotlight Command Search Bar (Ctrl + K) */}
+          <div className="flex flex-1 justify-center px-1 min-w-[40px]">
+            <button
+              type="button"
+              onClick={() => {
+                setCmdOpen(true);
+                setCmdQuery('');
+                setCmdIndex(0);
+              }}
+              className="group flex h-9.5 w-full max-w-[290px] items-center justify-between gap-2 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 hover:bg-white hover:border-indigo-400/70 hover:shadow-sm px-3 text-xs font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:border-indigo-500/50 transition-all cursor-pointer"
+              title="البحث الشامل الفوري عن موظف، مشروع، فاتورة، قيد، أو شاشة (Ctrl+K)"
+            >
+              <span className="flex items-center gap-2 min-w-0 truncate">
+                <Search className="size-3.5 shrink-0 text-indigo-600 dark:text-indigo-400 transition-transform group-hover:scale-110" />
+                <span className="hidden md:inline truncate">ابحث عن موظف، فاتورة، قيد…</span>
+                <span className="md:hidden">بحث</span>
+              </span>
+              <kbd className="hidden xl:inline-flex shrink-0 items-center gap-0.5 rounded-md border border-slate-200/90 bg-white px-1.5 py-0.5 font-mono text-[10px] font-extrabold text-slate-500 shadow-2xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                Ctrl+K
+              </kbd>
+            </button>
+          </div>
 
           {/* Fast Command & Unified Navigation Pills */}
           <div className="flex shrink-0 items-center gap-1.5">
             {/* Smart Automation & Auto-Journal Hub CTA */}
             <NavLink
               to="/automation/hub"
-              className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-amber-400/40 bg-gradient-to-r from-amber-500/15 via-indigo-500/10 to-emerald-500/15 hover:from-amber-500/25 hover:to-indigo-500/20 text-slate-900 dark:text-amber-200 font-extrabold px-2.5 text-xs shadow-2xs transition-all active:scale-95"
+              className={({ isActive }) =>
+                `flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border font-extrabold px-2.5 text-xs shadow-2xs transition-all active:scale-95 ${
+                  isActive
+                    ? 'border-amber-500/60 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-amber-500/25'
+                    : 'border-amber-400/45 bg-gradient-to-r from-amber-500/15 via-indigo-500/10 to-emerald-500/15 hover:from-amber-500/25 hover:to-indigo-500/20 text-slate-900 dark:text-amber-200'
+                }`
+              }
               title="مركز الأتمتة الذكية والتوليد التلقائي للقيود المحاسبية"
             >
               <Zap className="size-3.5 shrink-0 text-amber-500 fill-amber-500" />
@@ -1141,48 +1195,66 @@ export function AppShell({ children }: { children?: ReactNode }) {
             {/* Primary Royal Indigo CTA: + فاتورة */}
             <NavLink
               to="/sal/invoices"
-              className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 text-xs shadow-xs shadow-indigo-600/20 transition-all active:scale-95"
+              className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-xl bg-gradient-to-b from-indigo-500 via-indigo-600 to-indigo-700 hover:brightness-110 text-white font-extrabold px-3 text-xs shadow-sm shadow-indigo-600/30 ring-1 ring-inset ring-white/15 transition-all active:scale-95"
               title="إنشاء فاتورة مبيعات / تأجير جديدة"
             >
               <Plus className="size-3.5 shrink-0 stroke-[2.75]" />
               <span className="hidden sm:inline whitespace-nowrap">فاتورة</span>
             </NavLink>
 
-            {/* Calm Surface Pill: الخزينة */}
-            <NavLink
-              to="/fin/custodies"
-              className="hidden md:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 font-semibold px-2.5 text-xs transition-all active:scale-95"
-              title="الخزينة والعهد النقدية"
-            >
-              <Coins className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-              <span className="whitespace-nowrap">الخزينة</span>
-            </NavLink>
-
-            {/* Calm Surface Pill: القيود */}
-            <NavLink
-              to="/acc/journals"
-              className="hidden lg:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 font-semibold px-2.5 text-xs transition-all active:scale-95"
-              title="دفتر قيود اليومية"
-            >
-              <FileText className="size-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
-              <span className="whitespace-nowrap">القيود</span>
-            </NavLink>
-
-            {/* Calm Surface Pill: الحسابات */}
-            <NavLink
-              to="/acc/accounts"
-              className="hidden xl:flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 font-semibold px-2.5 text-xs transition-all active:scale-95"
-              title="دليل وشجرة الحسابات المحاسبية"
-            >
-              <BookOpen className="size-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
-              <span className="whitespace-nowrap">الحسابات</span>
-            </NavLink>
+            {/* Unified Segmented Quick Shortcuts Bar (الخزينة | القيود | الحسابات) */}
+            <div className="hidden md:flex h-9 shrink-0 items-center rounded-xl border border-slate-200/90 bg-slate-50/85 p-0.5 shadow-2xs dark:border-slate-800 dark:bg-slate-900/90">
+              <NavLink
+                to="/fin/custodies"
+                className={({ isActive }) =>
+                  `flex h-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-bold transition-all ${
+                    isActive
+                      ? 'bg-white text-emerald-700 shadow-2xs dark:bg-slate-800 dark:text-emerald-300'
+                      : 'text-slate-600 hover:text-slate-950 hover:bg-white/70 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800/60'
+                  }`
+                }
+                title="الخزينة والعهد النقدية"
+              >
+                <Coins className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <span className="whitespace-nowrap">الخزينة</span>
+              </NavLink>
+              <span className="h-4 w-px bg-slate-200/90 dark:bg-slate-800" />
+              <NavLink
+                to="/acc/journals"
+                className={({ isActive }) =>
+                  `hidden lg:flex h-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-bold transition-all ${
+                    isActive
+                      ? 'bg-white text-indigo-700 shadow-2xs dark:bg-slate-800 dark:text-indigo-300'
+                      : 'text-slate-600 hover:text-slate-950 hover:bg-white/70 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800/60'
+                  }`
+                }
+                title="دفتر قيود اليومية"
+              >
+                <FileText className="size-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                <span className="whitespace-nowrap">القيود</span>
+              </NavLink>
+              <span className="hidden xl:inline-block h-4 w-px bg-slate-200/90 dark:bg-slate-800" />
+              <NavLink
+                to="/acc/accounts"
+                className={({ isActive }) =>
+                  `hidden xl:flex h-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-bold transition-all ${
+                    isActive
+                      ? 'bg-white text-sky-700 shadow-2xs dark:bg-slate-800 dark:text-sky-300'
+                      : 'text-slate-600 hover:text-slate-950 hover:bg-white/70 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800/60'
+                  }`
+                }
+                title="دليل وشجرة الحسابات المحاسبية"
+              >
+                <BookOpen className="size-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
+                <span className="whitespace-nowrap">الحسابات</span>
+              </NavLink>
+            </div>
 
             {/* Theme Toggle Pill Button */}
             <button
               type="button"
               onClick={toggle}
-              className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 hover:bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 px-2.5 text-xs font-semibold transition-all cursor-pointer"
+              className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200/90 bg-slate-50/90 hover:bg-white hover:border-indigo-300/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 px-2.5 text-xs font-bold shadow-2xs transition-all cursor-pointer"
               title={dark ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'}
             >
               {dark ? (
@@ -1207,28 +1279,33 @@ export function AppShell({ children }: { children?: ReactNode }) {
         <main className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-5 md:p-6">
           {/* Active Module Breadcrumb Bar on Non-Dashboard Screens */}
           {activeBreadcrumb && (
-            <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3.5 py-2 text-xs shadow-2xs dark:border-slate-800/80 dark:bg-[#0c1427]/90">
+            <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/85 backdrop-blur-md px-3.5 py-2 text-xs shadow-2xs dark:border-slate-800/80 dark:bg-[#0b1224]/85 animate-fade-in">
               <div className="flex flex-wrap items-center gap-1.5 text-slate-500 dark:text-slate-400">
                 <Link
                   to="/"
-                  className="inline-flex items-center gap-1 font-semibold text-slate-600 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400 transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/8 px-2 py-0.5 font-bold text-indigo-700 hover:bg-indigo-500/15 dark:text-indigo-300 transition-colors"
                 >
-                  <LayoutDashboard className="size-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <LayoutDashboard className="size-3.5" />
                   <span>لوحة المؤشرات</span>
                 </Link>
-                <ChevronLeft className="size-3.5 opacity-50" />
-                <span className="font-medium">{activeBreadcrumb.section}</span>
+                <ChevronLeft className="size-3.5 opacity-45" />
+                <span className="font-semibold text-slate-600 dark:text-slate-300">{activeBreadcrumb.section}</span>
                 {activeBreadcrumb.item && (
                   <>
-                    <ChevronLeft className="size-3.5 opacity-50" />
-                    <span className="font-bold text-indigo-600 dark:text-indigo-400">{activeBreadcrumb.item}</span>
+                    <ChevronLeft className="size-3.5 opacity-45" />
+                    <span className="rounded-lg bg-slate-100 dark:bg-slate-800/90 px-2 py-0.5 font-extrabold text-indigo-700 dark:text-indigo-300">
+                      {activeBreadcrumb.item}
+                    </span>
                   </>
                 )}
               </div>
-              <div className="hidden sm:flex items-center gap-2 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
+              <div className="hidden sm:flex items-center gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                <span className="size-1.5 rounded-full bg-emerald-500" />
                 <span>{company?.nameAr}</span>
-                <span>•</span>
-                <span className="font-mono text-indigo-600 dark:text-indigo-400">{company?.baseCurrency || 'SAR'}</span>
+                <span className="opacity-40">•</span>
+                <span className="rounded-md bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 font-mono text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300">
+                  {company?.baseCurrency || 'SAR'}
+                </span>
               </div>
             </div>
           )}

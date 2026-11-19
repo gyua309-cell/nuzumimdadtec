@@ -241,23 +241,51 @@ export function useToast() {
 }
 
 // ------------------------------------------------------------------ layout bits
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+  icon: Icon,
+  badge,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+  icon?: any;
+  badge?: ReactNode;
+}) {
   const safeTitle =
     typeof title === 'string' && title.trim() && title.trim() !== 'undefined' && title.trim() !== 'null'
       ? title.trim()
       : 'لوحة التحكم والبيانات';
   return (
-    <div className="relative mb-5 overflow-hidden rounded-2xl border border-slate-200/85 bg-gradient-to-l from-white via-white to-indigo-50/35 px-5 py-4 shadow-xs dark:border-slate-800/90 dark:from-[#0c1427] dark:via-[#0c1427] dark:to-indigo-950/20">
-      <div className="pointer-events-none absolute -top-12 -end-12 size-36 rounded-full bg-indigo-500/8 blur-2xl dark:bg-indigo-500/15" />
+    <div className="royal-banner mb-5 px-5 py-4.5 animate-fade-in">
+      {/* Subtle Top Luminous Hairline */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-l from-indigo-600 via-sky-500 to-emerald-500 opacity-85" />
+      {/* Ambient Radial Accents */}
+      <div className="pointer-events-none absolute -top-14 -end-10 size-44 rounded-full bg-indigo-500/12 blur-3xl dark:bg-indigo-500/20" />
+      <div className="pointer-events-none absolute -bottom-14 start-16 size-36 rounded-full bg-sky-500/10 blur-3xl dark:bg-sky-500/14" />
+
       <div className="relative flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-start gap-3.5 min-w-0">
-          <div className="mt-0.5 h-9 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-indigo-600 via-sky-500 to-emerald-500 shadow-xs shadow-indigo-500/30" />
-          <div className="space-y-0.5 min-w-0">
-            <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-snug">
-              {safeTitle}
-            </h1>
+          {Icon ? (
+            <div className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-sky-500 text-white shadow-md shadow-indigo-600/25 ring-1 ring-white/25">
+              <Icon className="size-5" />
+            </div>
+          ) : (
+            <div className="mt-0.5 h-10 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-indigo-600 via-sky-500 to-emerald-500 shadow-xs shadow-indigo-500/35" />
+          )}
+          <div className="space-y-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-snug">
+                {safeTitle}
+              </h1>
+              {badge}
+            </div>
             {subtitle && (
-              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-3xl leading-relaxed">{subtitle}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-3xl leading-relaxed font-medium">
+                {subtitle}
+              </p>
             )}
           </div>
         </div>
@@ -568,59 +596,88 @@ export function Pager({
 const TONES = {
   blue: {
     cyberClass: 'cyber-card-blue',
-    iconBox: 'bg-sky-500/12 text-sky-600 border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-400 dark:border-sky-500/35',
-    glow: 'bg-sky-500/10',
-    accentLine: 'bg-sky-500',
+    iconBox: 'bg-gradient-to-br from-sky-500/18 to-indigo-500/12 text-sky-600 border-sky-400/35 dark:text-sky-300 dark:border-sky-400/35 shadow-2xs shadow-sky-500/10',
+    glow: 'bg-sky-500/14',
+    accentLine: 'bg-gradient-to-l from-sky-500 to-indigo-500',
+    stroke: '#0ea5e9',
   },
   green: {
     cyberClass: 'cyber-card-emerald',
-    iconBox: 'bg-emerald-500/12 text-emerald-600 border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/35',
-    glow: 'bg-emerald-500/10',
-    accentLine: 'bg-emerald-500',
+    iconBox: 'bg-gradient-to-br from-emerald-500/18 to-teal-500/12 text-emerald-600 border-emerald-400/35 dark:text-emerald-300 dark:border-emerald-400/35 shadow-2xs shadow-emerald-500/10',
+    glow: 'bg-emerald-500/14',
+    accentLine: 'bg-gradient-to-l from-emerald-500 to-teal-500',
+    stroke: '#10b981',
   },
   red: {
     cyberClass: 'cyber-card-rose',
-    iconBox: 'bg-rose-500/12 text-rose-600 border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-400 dark:border-rose-500/35',
-    glow: 'bg-rose-500/10',
-    accentLine: 'bg-rose-500',
+    iconBox: 'bg-gradient-to-br from-rose-500/18 to-pink-500/12 text-rose-600 border-rose-400/35 dark:text-rose-300 dark:border-rose-400/35 shadow-2xs shadow-rose-500/10',
+    glow: 'bg-rose-500/14',
+    accentLine: 'bg-gradient-to-l from-rose-500 to-pink-500',
+    stroke: '#f43f5e',
   },
   amber: {
     cyberClass: 'cyber-card-amber',
-    iconBox: 'bg-amber-500/12 text-amber-600 border-amber-500/35 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/35',
-    glow: 'bg-amber-500/10',
-    accentLine: 'bg-amber-500',
+    iconBox: 'bg-gradient-to-br from-amber-500/20 to-orange-500/12 text-amber-700 border-amber-400/40 dark:text-amber-300 dark:border-amber-400/35 shadow-2xs shadow-amber-500/10',
+    glow: 'bg-amber-500/14',
+    accentLine: 'bg-gradient-to-l from-amber-500 to-orange-500',
+    stroke: '#f59e0b',
   },
   purple: {
     cyberClass: 'cyber-card-purple',
-    iconBox: 'bg-purple-500/12 text-purple-600 border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-400 dark:border-purple-500/35',
-    glow: 'bg-purple-500/10',
-    accentLine: 'bg-purple-500',
+    iconBox: 'bg-gradient-to-br from-purple-500/18 to-violet-500/12 text-purple-600 border-purple-400/35 dark:text-purple-300 dark:border-purple-400/35 shadow-2xs shadow-purple-500/10',
+    glow: 'bg-purple-500/14',
+    accentLine: 'bg-gradient-to-l from-purple-500 to-violet-500',
+    stroke: '#8b5cf6',
   },
   cyan: {
     cyberClass: 'cyber-card-cyan',
-    iconBox: 'bg-cyan-500/12 text-cyan-600 border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-400 dark:border-cyan-500/35',
-    glow: 'bg-cyan-500/10',
-    accentLine: 'bg-cyan-500',
+    iconBox: 'bg-gradient-to-br from-cyan-500/18 to-indigo-500/12 text-cyan-700 border-cyan-400/35 dark:text-cyan-300 dark:border-cyan-400/35 shadow-2xs shadow-cyan-500/10',
+    glow: 'bg-cyan-500/14',
+    accentLine: 'bg-gradient-to-l from-cyan-500 to-indigo-500',
+    stroke: '#06b6d4',
   },
   teal: {
     cyberClass: 'cyber-card-teal',
-    iconBox: 'bg-teal-500/12 text-teal-600 border-teal-500/30 dark:bg-teal-500/15 dark:text-teal-400 dark:border-teal-500/35',
-    glow: 'bg-teal-500/10',
-    accentLine: 'bg-teal-500',
+    iconBox: 'bg-gradient-to-br from-teal-500/18 to-emerald-500/12 text-teal-700 border-teal-400/35 dark:text-teal-300 dark:border-teal-400/35 shadow-2xs shadow-teal-500/10',
+    glow: 'bg-teal-500/14',
+    accentLine: 'bg-gradient-to-l from-teal-500 to-emerald-500',
+    stroke: '#14b8a6',
   },
   slate: {
     cyberClass: 'cyber-card-slate',
-    iconBox: 'bg-slate-100 text-slate-600 border-slate-300/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
-    glow: 'bg-slate-500/5',
+    iconBox: 'bg-slate-100 text-slate-600 border-slate-300/80 dark:bg-slate-800/90 dark:text-slate-300 dark:border-slate-700',
+    glow: 'bg-slate-500/8',
     accentLine: 'bg-slate-400',
+    stroke: '#64748b',
   },
   indigo: {
     cyberClass: 'cyber-card-cyan',
-    iconBox: 'bg-indigo-500/12 text-indigo-600 border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-400 dark:border-indigo-500/35',
-    glow: 'bg-indigo-500/10',
-    accentLine: 'bg-indigo-500',
+    iconBox: 'bg-gradient-to-br from-indigo-500/18 to-violet-500/12 text-indigo-600 border-indigo-400/35 dark:text-indigo-300 dark:border-indigo-400/35 shadow-2xs shadow-indigo-500/10',
+    glow: 'bg-indigo-500/15',
+    accentLine: 'bg-gradient-to-l from-indigo-600 to-violet-500',
+    stroke: '#4f46e5',
   },
 };
+
+function MiniStatSpark({ points, stroke }: { points: number[]; stroke: string }) {
+  if (!points || points.length < 2) return null;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const w = 120;
+  const h = 24;
+  const step = w / Math.max(1, points.length - 1);
+  const coords = points.map((p, i) => ({
+    x: i * step,
+    y: h - ((p - min) / range) * (h - 6) - 3,
+  }));
+  const d = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-6 w-20 shrink-0 overflow-visible opacity-90" preserveAspectRatio="none">
+      <path d={d} fill="none" stroke={stroke} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export function Stat({
   label,
@@ -629,6 +686,8 @@ export function Stat({
   tone = 'slate',
   icon: Icon,
   trend,
+  progress,
+  sparkline,
   className = '',
 }: {
   label: string;
@@ -637,35 +696,51 @@ export function Stat({
   tone?: 'green' | 'red' | 'blue' | 'amber' | 'purple' | 'cyan' | 'teal' | 'slate' | 'indigo';
   icon?: any;
   trend?: { text: string; positive?: boolean };
+  progress?: number;
+  sparkline?: number[];
   className?: string;
 }) {
   const theme = TONES[tone] || TONES.slate;
+  const safeProgress = progress !== undefined ? Math.max(0, Math.min(100, progress)) : undefined;
+
   return (
     <div
-      className={`group relative overflow-hidden rounded-2xl bg-white dark:bg-[#0c1427] ${theme.cyberClass} transition-all duration-200 hover:-translate-y-0.5 animate-count-up ${className}`}
+      className={`group relative overflow-hidden rounded-2xl bg-gradient-to-b from-white to-slate-50/40 dark:from-[#0d152a] dark:to-[#0a1020] ${theme.cyberClass} transition-all duration-200 hover:-translate-y-0.5 animate-count-up ${className}`}
     >
       {/* Subtle Ambient Corner Glow */}
-      <div className={`pointer-events-none absolute -top-8 -end-8 size-24 rounded-full ${theme.glow} blur-2xl`} />
+      <div className={`pointer-events-none absolute -top-10 -end-10 size-28 rounded-full ${theme.glow} blur-2xl transition-opacity duration-300 group-hover:opacity-100 opacity-75`} />
 
       <div className="relative p-4 sm:p-5">
         <div className="flex items-start justify-between gap-2.5">
-          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 leading-snug">{label}</span>
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300 leading-snug">{label}</span>
           {Icon && (
             <div
-              className={`flex size-9 shrink-0 items-center justify-center rounded-xl border ${theme.iconBox} transition-transform duration-200 group-hover:scale-105`}
+              className={`flex size-9.5 shrink-0 items-center justify-center rounded-xl border ${theme.iconBox} transition-transform duration-200 group-hover:scale-110`}
             >
               <Icon className="size-4.5" />
             </div>
           )}
         </div>
 
-        <div className="num mt-2.5 text-start text-2xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
-          {value}
+        <div className="mt-2.5 flex items-end justify-between gap-2">
+          <div className="num text-start text-2xl font-black tracking-tight text-slate-900 dark:text-white leading-tight truncate">
+            {value}
+          </div>
+          {sparkline && sparkline.length >= 2 && <MiniStatSpark points={sparkline} stroke={theme.stroke} />}
         </div>
 
+        {safeProgress !== undefined && (
+          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800/90">
+            <div
+              className={`h-full rounded-full ${theme.accentLine} transition-all duration-500`}
+              style={{ width: `${safeProgress}%` }}
+            />
+          </div>
+        )}
+
         {(hint || trend) && (
-          <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 dark:border-slate-800/80 pt-2.5 text-[11px] text-slate-500 dark:text-slate-400">
-            <div className="flex items-center gap-1.5 min-w-0 truncate">{hint}</div>
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100/90 dark:border-slate-800/80 pt-2.5 text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-1.5 min-w-0 truncate font-medium">{hint}</div>
             {trend && (
               <span
                 className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[10px] font-bold font-mono ${

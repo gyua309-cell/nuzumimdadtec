@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   ArrowRight,
+  BarChart3,
   Briefcase,
   Building2,
   CheckCircle2,
@@ -14,6 +15,7 @@ import {
   Mail,
   Pencil,
   Phone,
+  PieChart,
   Plus,
   Printer,
   Save,
@@ -23,6 +25,7 @@ import {
   Upload,
   User,
   UserPlus,
+  Users,
   Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
@@ -31,6 +34,7 @@ import { date, dateTime, money, today } from '../lib/format';
 import { normalizePricingBasis } from '../lib/fallback-engine';
 import { DOC_TYPE, EMPLOYEE_STATUS, EMPLOYMENT_TYPE, opts } from '../lib/labels';
 import { ActiveBadge, cleanPayload, CrudPage, CsvImportModal, EntityForm, FieldDef, fieldErrors, validateFormFields } from '../components/CrudPage';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
@@ -265,12 +269,45 @@ export function EmployeesPage() {
   const activeCount = empList.filter((x: any) => x?.status === 'ACTIVE').length;
   const billableCount = empList.filter((x: any) => x?.isBillableResource).length;
   const withProfileCount = empList.filter((x: any) => x?.costProfileId || x?.costProfileName).length;
+  const activePct = totalEmployees > 0 ? Math.round((activeCount / totalEmployees) * 100) : 0;
+  const billablePct = totalEmployees > 0 ? Math.round((billableCount / totalEmployees) * 100) : 0;
+
+  const deptDistribution = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of empList) {
+      const dept = e.departmentName || e.positionTitle || 'عام / غير مصنف';
+      map.set(dept, (map.get(dept) || 0) + 1);
+    }
+    return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
+  }, [empList]);
+
+  const salaryVsBillingChart = useMemo(() => {
+    const top = empList.slice(0, 8);
+    return {
+      categories: top.map((e: any) => e.fullNameAr || e.code || 'موظف'),
+      salaries: top.map((e: any) => Number(e.basicSalary ?? e.monthlyCostBase ?? 0)),
+      billing: top.map((e: any) => {
+        const rate = Number(e.defaultBillingRate ?? 0);
+        const basis = normalizePricingBasis(e.defaultBillingBasis);
+        if (rate <= 0) return 0;
+        if (basis === 'DAILY') return rate * 22;
+        if (basis === 'HOURLY') return rate * 176;
+        return rate;
+      }),
+    };
+  }, [empList]);
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="الموظفون والكوادر البشرية"
         subtitle="إدارة الكوادر والمطورين: الرواتب، التنسيب، ملفات التكلفة، وإسناد المشاريع وحساب الربحية المباشرة."
+        icon={Users}
+        badge={
+          <Badge color="indigo" dot>
+            {totalEmployees} كادر مسجل
+          </Badge>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportMenu
@@ -320,12 +357,50 @@ export function EmployeesPage() {
         }
       />
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="إجمالي الكوادر" value={totalEmployees} hint="في كافة الفروع والأقسام" />
-        <Stat label="الموظفون النشطون" value={activeCount} hint="على رأس العمل" tone="green" />
-        <Stat label="الكوادر المفوترة للمشاريع" value={billableCount} hint="تحقق إيرادات بيع خدمة" tone="blue" />
-        <Stat label="مرتبط بملف تكلفة" value={withProfileCount} hint="جاهز لحساب التكلفة الفعلية" tone="amber" />
+      {/* Executive KPI Cards */}
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="إجمالي الكوادر" value={totalEmployees} tone="indigo" icon={Users} hint="في كافة الفروع والأقسام" />
+        <Stat label="الموظفون النشطون" value={activeCount} tone="green" icon={CheckCircle2} progress={activePct} hint={`${activePct}% على رأس العمل حالياً`} />
+        <Stat label="الكوادر المفوترة للمشاريع" value={billableCount} tone="cyan" icon={Briefcase} progress={billablePct} hint={`${billablePct}% مورد قابل للفوترة`} />
+        <Stat label="مرتبط بملف تكلفة" value={withProfileCount} tone="amber" icon={Wallet} hint="جاهز لحساب التكلفة والربحية" />
+      </div>
+
+      {/* HR Visual Analytics Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ExecutiveChartCard
+          title="الراتب الأساسي مقابل العائد الشهري التعاقدي للكوادر"
+          subtitle="مقارنة تكلفة الكادر مقابل القيمة البيعية الشهرية المستهدفة (22 يوم عمل)"
+          icon={BarChart3}
+          accent="indigo"
+          className="lg:col-span-2"
+        >
+          <ExecutiveBarChart
+            categories={salaryVsBillingChart.categories}
+            series={[
+              { name: 'العائد الشهري المستهدف', data: salaryVsBillingChart.billing, color: '#10b981', colorEnd: '#059669' },
+              { name: 'الراتب الأساسي', data: salaryVsBillingChart.salaries, color: '#4f46e5', colorEnd: '#3730a3' },
+            ]}
+            height={225}
+            unit="SAR"
+            emptyText="أضف كوادر ورواتب لعرض مؤشر المقارنة"
+          />
+        </ExecutiveChartCard>
+
+        <ExecutiveChartCard
+          title="توزيع الكوادر حسب الأقسام والتخصص"
+          subtitle="هيكل القوى العاملة المسجلة في المنظومة"
+          icon={PieChart}
+          accent="emerald"
+        >
+          <ExecutiveDonutChart
+            data={deptDistribution}
+            centerValue={String(totalEmployees)}
+            centerLabel="إجمالي الكوادر"
+            height={225}
+            unit="موظف"
+            emptyText="لا يوجد موظفون"
+          />
+        </ExecutiveChartCard>
       </div>
 
       <div className="card">

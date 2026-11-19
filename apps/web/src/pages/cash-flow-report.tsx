@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity, ArrowLeftRight, Download, Plus, Printer, RefreshCw, TrendingUp, Wallet
+  Activity, ArrowLeftRight, BarChart3, PieChart, Plus, Printer, RefreshCw, TrendingUp, Wallet
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
-import { downloadCsv, money, today } from '../lib/format';
+import { money, today } from '../lib/format';
 import { SOURCE_MODULE_LABELS } from '../lib/labels';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
+import { ExportMenu } from '../components/ExportMenu';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
-import { Badge, EmptyState, ErrorState, Loading, PageHeader, useToast } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat } from '../components/ui';
 
 export function CashFlowReportPage() {
-  const toast = useToast();
   const base = useBaseCurrency();
   const [fromDate, setFromDate] = useState('2026-01-01');
   const [toDate, setToDate] = useState(today());
@@ -92,28 +93,6 @@ export function CashFlowReportPage() {
     }));
   }, [journalArr, base]);
 
-  const handleExportCsv = () => {
-    if (cashFlowLines.length === 0) {
-      const rows = [
-        ['بيان التدفق النقدي', 'التصنيف', 'العملة الأصلية', 'المبلغ بالعملة الأصلية', `المبلغ المعادل (${base})`],
-        ['رصيد بنوك الرياض (SAR)', 'أصول نقدية', 'SAR', money(liquidityData.sarBankBalance), money(liquidityData.sarBankBalance)],
-        ['رصيد بنوك مصر (EGP)', 'أصول نقدية', 'EGP', money(liquidityData.egpBankBalance), money(liquidityData.egpBankBalance * 0.076)],
-        ['أرصدة العهد النقدية (EGP)', 'عهد فروع', 'EGP', money(liquidityData.custodyBalanceEgp), money(liquidityData.custodyBalanceEgp * 0.076)],
-        ['صافي أرباح/خسائر فروق العملات', 'فروق عملة', base, '—', money(liquidityData.netFxGain)],
-      ];
-      downloadCsv(`cash_flow_statement_${today()}.csv`, rows);
-      toast.success('تم تصدير ملخص التدفقات النقدية الفعلي كملف CSV');
-      return;
-    }
-
-    const rows = [
-      ['سند القيد', 'بيان التدفق النقدي', 'التصنيف', 'العملة الأصلية', 'المبلغ بالعملة الأصلية', `المبلغ المعادل (${base})`],
-      ...cashFlowLines.map((l) => [l.entryNo || '—', l.title, l.category, l.currency, money(l.originalAmount), money(l.baseAmount)]),
-    ];
-    downloadCsv(`cash_flow_statement_${today()}.csv`, rows);
-    toast.success('تم تصدير تقرير التدفقات النقدية كملف CSV');
-  };
-
   const handlePrint = () => {
     window.print();
   };
@@ -123,25 +102,47 @@ export function CashFlowReportPage() {
       <PageHeader
         title="قائمة التدفقات النقدية والسيولة وفروق العملات (Cash Flow & FX Report)"
         subtitle="متابعة السيولة النقدية الفعلية لبنوك الرياض والقاهرة، وأرصدة العهد النقدية، وأثر تقلبات أسعار صرف العملات الأجنبية المحققة"
+        icon={Wallet}
+        badge={
+          <Badge color="cyan" dot>
+            سيولة SAR / EGP
+          </Badge>
+        }
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => refetch()}
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
+              className="btn-secondary text-xs flex items-center gap-1.5"
             >
               <RefreshCw className="size-3.5" />
               تحديث
             </button>
-            <button
-              onClick={handleExportCsv}
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
-            >
-              <Download className="size-3.5" />
-              تصدير CSV
-            </button>
+            <ExportMenu
+              title="قائمة التدفقات النقدية والسيولة وفروق العملات"
+              filename={`cash-flow-${fromDate}-${toDate}`}
+              periodLabel={`من ${fromDate} إلى ${toDate}`}
+              currency={base}
+              columns={[
+                { key: 'entryNo', header: 'رقم القيد', width: 14 },
+                { key: 'title', header: 'بيان التدفق النقدي', width: 32 },
+                { key: 'category', header: 'التصنيف', width: 16 },
+                { key: 'currency', header: 'العملة', width: 10 },
+                { key: 'originalAmount', header: 'المبلغ الأصلي', width: 16, type: 'currency', isTotal: true },
+                { key: 'baseAmount', header: `المعادل (${base})`, width: 16, type: 'currency', isTotal: true },
+              ]}
+              data={
+                cashFlowLines.length > 0
+                  ? cashFlowLines
+                  : [
+                      { entryNo: '1110', title: 'رصيد بنوك الرياض (SAR)', category: 'أصول نقدية', currency: 'SAR', originalAmount: liquidityData.sarBankBalance, baseAmount: liquidityData.sarBankBalance },
+                      { entryNo: '1120', title: 'رصيد بنوك مصر (EGP)', category: 'أصول نقدية', currency: 'EGP', originalAmount: liquidityData.egpBankBalance, baseAmount: liquidityData.egpBankBalance * 0.076 },
+                      { entryNo: '1310', title: 'أرصدة العهد النقدية (EGP)', category: 'عهد فروع', currency: 'EGP', originalAmount: liquidityData.custodyBalanceEgp, baseAmount: liquidityData.custodyBalanceEgp * 0.076 },
+                    ]
+              }
+            />
             <button
               onClick={handlePrint}
-              className="btn btn-primary text-xs flex items-center gap-1.5"
+              className="btn-primary text-xs flex items-center gap-1.5"
             >
               <Printer className="size-3.5" />
               طباعة التقرير
@@ -187,70 +188,90 @@ export function CashFlowReportPage() {
       ) : (
         <div className="space-y-6">
           {/* Executive Liquidity & FX Banner */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Liquidity SAR */}
-            <div className="card p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">سيولة بنوك الرياض (SAR)</span>
-                <span className="p-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-lg">
-                  <Wallet className="size-5" />
-                </span>
-              </div>
-              <div className="mt-3">
-                <div className="text-2xl font-black text-blue-900 dark:text-blue-300 tracking-tight font-mono">
-                  {money(liquidityData.sarBankBalance)} SAR
-                </div>
-                <div className="text-xs text-slate-500 mt-1">حساب 1110 (النقدية بالبنوك - ريال سعودي)</div>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <Stat
+              label="سيولة بنوك الرياض (SAR)"
+              value={`${money(liquidityData.sarBankBalance)} SAR`}
+              tone="indigo"
+              icon={Wallet}
+              hint="حساب 1110 / 10201 (ريال سعودي)"
+            />
+            <Stat
+              label="سيولة بنوك مصر (EGP)"
+              value={`${money(liquidityData.egpBankBalance)} EGP`}
+              tone="green"
+              icon={Wallet}
+              hint="حساب 1120 / 10202 (جنيه مصري)"
+            />
+            <Stat
+              label="أرصدة عهد الفروع النقدية"
+              value={`${money(liquidityData.custodyBalanceEgp)} EGP`}
+              tone="cyan"
+              icon={ArrowLeftRight}
+              hint="حساب 1310 (عهد نقدية طرف الأمناء)"
+            />
+            <Stat
+              label="صافي أرباح/خسائر فروق العملات"
+              value={`${liquidityData.netFxGain >= 0 ? `+${money(liquidityData.netFxGain)}` : money(liquidityData.netFxGain)} ${base}`}
+              tone={liquidityData.netFxGain >= 0 ? 'purple' : 'red'}
+              icon={TrendingUp}
+              hint="أرباح محققة حـ/ 4300 مقابل حـ/ 5700"
+            />
+          </div>
 
-            {/* Liquidity EGP */}
-            <div className="card p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">سيولة بنوك مصر (EGP)</span>
-                <span className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-lg">
-                  <Wallet className="size-5" />
-                </span>
-              </div>
-              <div className="mt-3">
-                <div className="text-2xl font-black text-emerald-900 dark:text-emerald-300 tracking-tight font-mono">
-                  {money(liquidityData.egpBankBalance)} EGP
-                </div>
-                <div className="text-xs text-slate-500 mt-1">حساب 1120 (النقدية بالبنوك - جنيه مصري)</div>
-              </div>
-            </div>
+          {/* Interactive Cash & Liquidity Charts */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 print:hidden">
+            <ExecutiveChartCard
+              title="مقارنة أرصدة السيولة النقدية والفروع"
+              subtitle={`القيم المعادلة بالعملة الأساسية (${base}) عبر البنوك والعهد`}
+              icon={BarChart3}
+              accent="indigo"
+              className="lg:col-span-2"
+            >
+              <ExecutiveBarChart
+                categories={['بنوك الرياض (SAR)', 'بنوك مصر (معادل SAR)', 'عهد الفروع (معادل SAR)', 'فروق العملة المحققة']}
+                series={[
+                  {
+                    name: `المعادل (${base})`,
+                    data: [
+                      Number(liquidityData.sarBankBalance.toFixed(2)),
+                      Number((liquidityData.egpBankBalance * 0.076).toFixed(2)),
+                      Number((liquidityData.custodyBalanceEgp * 0.076).toFixed(2)),
+                      Number(liquidityData.netFxGain.toFixed(2)),
+                    ],
+                    color: '#4f46e5',
+                    colorEnd: '#0ea5e9',
+                  },
+                ]}
+                height={220}
+                unit={base}
+                emptyText="لا توجد أرصدة نقدية مسجلة بعد"
+              />
+            </ExecutiveChartCard>
 
-            {/* Custody Pool */}
-            <div className="card p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">أرصدة عهد الفروع النقدية</span>
-                <span className="p-2 bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 rounded-lg">
-                  <ArrowLeftRight className="size-5" />
-                </span>
-              </div>
-              <div className="mt-3">
-                <div className="text-2xl font-black text-cyan-900 dark:text-cyan-300 tracking-tight font-mono">
-                  {money(liquidityData.custodyBalanceEgp)} EGP
-                </div>
-                <div className="text-xs text-slate-500 mt-1">حساب 1310 (عهد نقدية طرف الأمناء)</div>
-              </div>
-            </div>
-
-            {/* Net FX Gain */}
-            <div className="card p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">صافي أرباح/خسائر فروق العملات</span>
-                <span className="p-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-lg">
-                  <TrendingUp className="size-5" />
-                </span>
-              </div>
-              <div className="mt-3">
-                <div className={`text-2xl font-black tracking-tight font-mono ${liquidityData.netFxGain >= 0 ? 'text-indigo-700 dark:text-indigo-300' : 'text-rose-600'}`}>
-                  {liquidityData.netFxGain >= 0 ? `+${money(liquidityData.netFxGain)}` : money(liquidityData.netFxGain)} {base}
-                </div>
-                <div className="text-xs text-slate-500 mt-1">أرباح محققة حـ/ 4300 مقابل حـ/ 5700</div>
-              </div>
-            </div>
+            <ExecutiveChartCard
+              title="توزيع محافظ السيولة النقدية"
+              subtitle={`هيكل النقدية المتاحة (${base})`}
+              icon={PieChart}
+              accent="emerald"
+            >
+              <ExecutiveDonutChart
+                data={[
+                  { name: 'بنوك الرياض (SAR)', value: Math.max(0, liquidityData.sarBankBalance), color: '#4f46e5' },
+                  { name: 'بنوك مصر (معادل)', value: Math.max(0, Number((liquidityData.egpBankBalance * 0.076).toFixed(2))), color: '#10b981' },
+                  { name: 'عهد الفروع (معادل)', value: Math.max(0, Number((liquidityData.custodyBalanceEgp * 0.076).toFixed(2))), color: '#0ea5e9' },
+                ]}
+                centerValue={money(
+                  Math.max(0, liquidityData.sarBankBalance) +
+                    Math.max(0, liquidityData.egpBankBalance * 0.076) +
+                    Math.max(0, liquidityData.custodyBalanceEgp * 0.076),
+                )}
+                centerLabel={`إجمالي السيولة (${base})`}
+                height={220}
+                unit={base}
+                emptyText="لا توجد سيولة"
+              />
+            </ExecutiveChartCard>
           </div>
 
           {/* Section 1: Detailed FX Gains/Losses Revaluation */}

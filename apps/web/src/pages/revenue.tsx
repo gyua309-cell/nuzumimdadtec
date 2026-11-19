@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Briefcase, Building2, ChevronDown, ChevronRight, Download,
-  History, Play, Printer, Settings, Users,
+  BarChart3, Briefcase, Building2, ChevronDown, ChevronRight, Download,
+  History, PieChart, Play, Printer, Settings, Users,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
+import { ExportMenu } from '../components/ExportMenu';
 import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
@@ -347,63 +349,70 @@ export function ProfitabilityPage() {
     !empSearch || e.employeeName?.toLowerCase().includes(empSearch.toLowerCase()) || e.employeeCode?.toLowerCase().includes(empSearch.toLowerCase())
   );
 
-  const handleExportCurrentTab = () => {
-    const periodLabel = periodId ? `period-${periodId}` : today();
-    if (activeTab === 'projects') {
-      if (!filteredProjects.length) return;
-      downloadCsv(`project-profitability-${periodLabel}.csv`, [
-        ['كود المشروع', 'اسم المشروع', 'العميل', 'الإيراد', 'تكلفة الموظفين', 'متغيرات المشروع', 'المصروفات العامة', 'إجمالي التكلفة', 'الربح', 'الهامش%', 'المستهدف%'],
-        ...filteredProjects.map((p: any) => [
-          p.projectCode, p.projectName, p.clientName || '', p.revenueBase, p.employeeCostBase, p.projectVariablesBase, p.overheadBase, p.totalCostBase, p.grossProfitBase, p.grossMarginPct != null ? `${p.grossMarginPct}%` : '', p.requiredMarginPct != null ? `${p.requiredMarginPct}%` : '',
-        ]),
-      ]);
-      toast.success('تم تصدير كشف ربحية المشاريع إلى CSV بنجاح');
-    } else if (activeTab === 'employees') {
-      if (!filteredEmps.length) return;
-      downloadCsv(`employee-profitability-and-unutilized-${periodLabel}.csv`, [
-        ['كود الموظف', 'اسم الموظف', 'القسم', 'المسمى الوظيفي', 'التخصيص%', 'غير المستغل%', 'تكلفة الوقت غير المستغل', 'التكلفة المباشرة', 'المصروفات العامة', 'الإيراد المولد', 'صافي الربح', 'الهامش%'],
-        ...filteredEmps.map((e: any) => [
-          e.employeeCode, e.employeeName, e.departmentName || '', e.positionTitle || '', `${e.allocatedPct}%`, `${e.unutilizedPct}%`, e.unutilizedCostBase, e.directCostBase, e.overheadBase, e.revenueBase, e.grossProfitBase, e.grossMarginPct != null ? `${e.grossMarginPct}%` : '',
-        ]),
-      ]);
-      toast.success('تم تصدير كشف ربحية الموظفين والوقت غير المستغل إلى CSV بنجاح');
-    } else if (activeTab === 'clients') {
-      const rawC: any = clientProf.data;
-      const clientItems: any[] = Array.isArray(rawC) ? rawC : (Array.isArray(rawC?.data) ? rawC.data : []);
-      if (!clientItems.length) return;
-      downloadCsv(`client-profitability-${periodLabel}.csv`, [
-        ['كود العميل', 'اسم العميل', 'عدد المشاريع', 'إجمالي الإيراد', 'التكلفة المباشرة', 'المصروفات العامة', 'إجمالي التكلفة', 'صافي الربح', 'الهامش%'],
-        ...clientItems.map((c: any) => [
-          c.clientCode, c.clientName, c.projectCount, c.revenueBase, c.directCostBase, c.overheadBase, c.totalCostBase, c.grossProfitBase, c.grossMarginPct != null ? `${c.grossMarginPct}%` : '',
-        ]),
-      ]);
-      toast.success('تم تصدير كشف ربحية العملاء إلى CSV بنجاح');
-    } else if (activeTab === 'retroactive') {
-      const rawR: any = retroAdjustments.data;
-      const retroItems: any[] = Array.isArray(rawR) ? rawR : (Array.isArray(rawR?.data) ? rawR.data : []);
-      if (!retroItems.length) return;
-      downloadCsv(`retroactive-adjustments-${periodLabel}.csv`, [
-        ['الموظف', 'المشروع', 'العميل', 'الفترة الأصلية', 'فترة التسجيل', 'أساس الاحتساب', 'الوحدات', 'السعر', 'الإيراد المسوى', 'سبب التسوية'],
-        ...retroItems.map((r: any) => [
-          r.employeeName, r.projectName, r.clientName || '', r.originalPeriodName, r.periodName, r.pricingBasis, r.units, r.unitPrice, r.grossRevenueBase, r.adjustmentReason || '',
-        ]),
-      ]);
-      toast.success('تم تصدير كشف تسويات الأثر الرجعي إلى CSV بنجاح');
-    }
-  };
+  const rawClients: any[] = Array.isArray(clientProf.data)
+    ? clientProf.data
+    : ((clientProf.data as any)?.data ?? []);
+
+  const activeExportData =
+    activeTab === 'projects'
+      ? {
+          title: 'تقرير ربحية المشاريع التعاقدية',
+          columns: [
+            { key: 'projectCode', header: 'كود المشروع', width: 14 },
+            { key: 'projectName', header: 'اسم المشروع', width: 26 },
+            { key: 'clientName', header: 'العميل', width: 22 },
+            { key: 'revenueBase', header: 'الإيراد', width: 16, type: 'currency' as const, isTotal: true },
+            { key: 'totalCostBase', header: 'إجمالي التكلفة', width: 16, type: 'currency' as const, isTotal: true },
+            { key: 'grossProfitBase', header: 'صافي الربح', width: 16, type: 'currency' as const, isTotal: true },
+          ],
+          data: filteredProjects,
+        }
+      : activeTab === 'employees'
+      ? {
+          title: 'تقرير ربحية الكوادر والوقت غير المستغل',
+          columns: [
+            { key: 'employeeCode', header: 'الرمز', width: 12 },
+            { key: 'employeeName', header: 'الموظف', width: 24 },
+            { key: 'revenueBase', header: 'الإيراد المولد', width: 16, type: 'currency' as const, isTotal: true },
+            { key: 'directCostBase', header: 'التكلفة المباشرة', width: 16, type: 'currency' as const, isTotal: true },
+            { key: 'grossProfitBase', header: 'صافي الربح', width: 16, type: 'currency' as const, isTotal: true },
+          ],
+          data: filteredEmps,
+        }
+      : {
+          title: 'تقرير ربحية العملاء',
+          columns: [
+            { key: 'clientCode', header: 'الكود', width: 12 },
+            { key: 'clientName', header: 'العميل', width: 26 },
+            { key: 'revenueBase', header: 'الإيراد', width: 16, type: 'currency' as const, isTotal: true },
+            { key: 'totalCostBase', header: 'إجمالي التكلفة', width: 16, type: 'currency' as const, isTotal: true },
+            { key: 'grossProfitBase', header: 'صافي الربح', width: 16, type: 'currency' as const, isTotal: true },
+          ],
+          data: rawClients,
+        };
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="لوحة الربحية الشاملة والمصروفات الإدارية"
         subtitle="تحليل الربحية متعدد المستويات (المشاريع، الموظفين مع الوقت غير المستغل، والعملاء) وفق وثيقة دورة العمل Business Process."
+        icon={BarChart3}
+        badge={
+          <Badge color="emerald" dot>
+            تحليل 360° للربحية
+          </Badge>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title={activeExportData.title}
+              filename={`profitability-${activeTab}-${periodId || today()}`}
+              currency="SAR"
+              columns={activeExportData.columns}
+              data={activeExportData.data}
+            />
             <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
               <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCurrentTab} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير التبويب الحالي (CSV)
             </button>
             <button
               className="btn-secondary flex items-center gap-1.5 text-xs"
@@ -414,6 +423,92 @@ export function ProfitabilityPage() {
           </div>
         }
       />
+
+      {/* Interactive Profitability Overview Charts (Dynamic per Tab) */}
+      {(activeTab === 'projects' || activeTab === 'employees' || activeTab === 'clients') && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 print:hidden">
+          <ExecutiveChartCard
+            title={
+              activeTab === 'projects'
+                ? 'مقارنة الإيراد مقابل التكلفة وصافي الربح للمشاريع'
+                : activeTab === 'employees'
+                ? 'مقارنة الإيراد مقابل التكلفة والربح لكل كادر'
+                : 'مقارنة الإيراد مقابل التكلفة والربح لكل عميل'
+            }
+            subtitle="تحليل بياني مباشر لأداء الربحية بالريال السعودي (SAR)"
+            icon={BarChart3}
+            accent="emerald"
+            className="lg:col-span-2"
+          >
+            <ExecutiveBarChart
+              categories={(activeTab === 'projects'
+                ? filteredProjects
+                : activeTab === 'employees'
+                ? filteredEmps
+                : rawClients
+              )
+                .slice(0, 8)
+                .map((item: any) => item.projectName || item.employeeName || item.clientName || '—')}
+              series={[
+                {
+                  name: 'الإيراد',
+                  data: (activeTab === 'projects' ? filteredProjects : activeTab === 'employees' ? filteredEmps : rawClients)
+                    .slice(0, 8)
+                    .map((item: any) => Number(item.revenueBase || 0)),
+                  color: '#4f46e5',
+                  colorEnd: '#6366f1',
+                },
+                {
+                  name: 'إجمالي التكلفة',
+                  data: (activeTab === 'projects' ? filteredProjects : activeTab === 'employees' ? filteredEmps : rawClients)
+                    .slice(0, 8)
+                    .map((item: any) => Number(item.totalCostBase ?? item.directCostBase ?? 0)),
+                  color: '#f59e0b',
+                  colorEnd: '#d97706',
+                },
+                {
+                  name: 'صافي الربح',
+                  data: (activeTab === 'projects' ? filteredProjects : activeTab === 'employees' ? filteredEmps : rawClients)
+                    .slice(0, 8)
+                    .map((item: any) => Number(item.grossProfitBase || 0)),
+                  color: '#10b981',
+                  colorEnd: '#059669',
+                },
+              ]}
+              height={225}
+              unit="SAR"
+              emptyText="لا توجد بيانات ربحية مسجلة للفترة المختارة"
+            />
+          </ExecutiveChartCard>
+
+          <ExecutiveChartCard
+            title="توزيع حصة الإيرادات"
+            subtitle="أعلى العناصر مساهمة في إجمالي الإيراد"
+            icon={PieChart}
+            accent="indigo"
+          >
+            <ExecutiveDonutChart
+              data={(activeTab === 'projects' ? filteredProjects : activeTab === 'employees' ? filteredEmps : rawClients)
+                .filter((item: any) => Number(item.revenueBase || 0) > 0)
+                .slice(0, 6)
+                .map((item: any) => ({
+                  name: item.projectName || item.employeeName || item.clientName || '—',
+                  value: Number(item.revenueBase || 0),
+                }))}
+              centerValue={money(
+                (activeTab === 'projects' ? filteredProjects : activeTab === 'employees' ? filteredEmps : rawClients).reduce(
+                  (s: number, item: any) => s + Number(item.revenueBase || 0),
+                  0,
+                ),
+              )}
+              centerLabel="إجمالي الإيراد"
+              height={225}
+              unit="SAR"
+              emptyText="لا توجد إيرادات"
+            />
+          </ExecutiveChartCard>
+        </div>
+      )}
 
       {/* Period Selection & Tab Bar */}
       <div className="card p-3 flex flex-wrap items-center justify-between gap-3">

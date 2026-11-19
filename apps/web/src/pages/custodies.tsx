@@ -2,17 +2,18 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeftRight, CheckCircle2,
-  Clock, FileCheck, FileText, Layers,
-  Plus, Printer, Save, Trash2, Wallet
+  ArrowLeftRight, BarChart3, CheckCircle2,
+  Clock, Coins, FileCheck, FileText, Layers,
+  PieChart, Plus, Printer, Save, Trash2, Wallet
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date, money, today } from '../lib/format';
 import { getStoredCompany } from '../lib/storage-company';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
-import { ActionButton, ActionGroup, AddButton, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
+import { ActionButton, ActionGroup, AddButton, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, Stat, useToast } from '../components/ui';
 
 export interface CustodyTransfer {
   id: string;
@@ -337,12 +338,42 @@ export function CustodiesPage() {
   const custodies = custodiesData?.data || [];
   const kpis = reportData?.kpis;
 
+  const custodyFlowChart = useMemo(() => {
+    const top = custodies.slice(0, 8);
+    return {
+      categories: top.map((c: Custody) => c.title_ar || c.custody_no || 'عهدة'),
+      converted: top.map((c: Custody) => Number(c.converted_amount_target || c.disbursed_amount || 0)),
+      settled: top.map((c: Custody) => Number(c.total_settled_amount_target || 0)),
+      remaining: top.map((c: Custody) => Number(c.remaining_balance_target || 0)),
+    };
+  }, [custodies]);
+
+  const custodyStatusDonut = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of custodies) {
+      const label = CUSTODY_STATUS_CONFIG[c.status]?.label || c.status;
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+    return Array.from(counts.entries()).map(([name, value]) => ({ name, value }));
+  }, [custodies]);
+
+  const settledRatio =
+    Number(kpis?.totalConvertedToEgp || 0) > 0
+      ? Math.round((Number(kpis?.totalSettledEgp || 0) / Number(kpis?.totalConvertedToEgp || 1)) * 100)
+      : 0;
+
   return (
     <div className="space-y-6">
       {/* Top Header */}
       <PageHeader
         title="إدارة العهد النقدية ومصروفات الفروع متعددة العملات"
         subtitle="نظام متكامل لإصدار وتحويل عهد الريال إلى الجنيه لفرع مصر، والصرف المباشر وإثبات الفواتير الضريبية والإقفال"
+        icon={Coins}
+        badge={
+          <Badge color="cyan" dot>
+            {custodies.length} عهدة نقدية
+          </Badge>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportMenu
@@ -370,79 +401,76 @@ export function CustodiesPage() {
         }
       />
 
-      {/* KPI Cards Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1 */}
-        <div className="card p-5 bg-white border border-slate-200 shadow-sm rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">إجمالي العهد المنصرفة (SAR)</span>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-              <Wallet className="size-5" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 tracking-tight font-mono">
-              {money(kpis?.totalDisbursedSar ?? 0)} SAR
-            </div>
-            <div className="mt-1 text-xs text-slate-500 flex items-center gap-1">
-              <span>تم تحويلها من المركز الرئيسي بالرياض</span>
-            </div>
-          </div>
-        </div>
+      {/* Executive KPI Cards Banner (Dark/Light Harmonized) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <Stat
+          label="إجمالي العهد المنصرفة (SAR)"
+          value={`${money(kpis?.totalDisbursedSar ?? 0)} SAR`}
+          tone="indigo"
+          icon={Wallet}
+          hint="تم تحويلها من المركز الرئيسي بالرياض"
+        />
+        <Stat
+          label="المحول للجنيه المصري (EGP)"
+          value={`${money(kpis?.totalConvertedToEgp ?? 0)} EGP`}
+          tone="cyan"
+          icon={ArrowLeftRight}
+          hint="سيولة فرع مصر للمصروفات التشغيلية"
+        />
+        <Stat
+          label="إجمالي الفواتير المسوّاة"
+          value={`${money(kpis?.totalSettledEgp ?? 0)} EGP`}
+          tone="green"
+          icon={FileCheck}
+          progress={settledRatio}
+          hint={`تم تسوية ${settledRatio}% بفواتير وإيصالات معتمدة`}
+        />
+        <Stat
+          label="الرصيد المتبقي طرف الفروع"
+          value={`${money(kpis?.totalRemainingBalanceEgp ?? 0)} EGP`}
+          tone="amber"
+          icon={Clock}
+          hint="عهد تحت التسوية أو بانتظار الإقفال"
+        />
+      </div>
 
-        {/* KPI 2 */}
-        <div className="card p-5 bg-white border border-slate-200 shadow-sm rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">المحول للجنيه المصري (EGP)</span>
-            <span className="p-2 bg-cyan-50 text-cyan-600 rounded-lg">
-              <ArrowLeftRight className="size-5" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 tracking-tight font-mono">
-              {money(kpis?.totalConvertedToEgp ?? 0)} EGP
-            </div>
-            <div className="mt-1 text-xs text-cyan-700 font-medium">
-              سيولة فرع مصر الجاهزة للمصروفات التشغيلية
-            </div>
-          </div>
-        </div>
+      {/* Custodies Visual Analytics Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ExecutiveChartCard
+          title="موقف السيولة والتسوية لكل عهدة نقدية"
+          subtitle="مقارنة المبلغ المحول مقابل الفواتير المسوّاة والرصيد المتبقي"
+          icon={BarChart3}
+          accent="cyan"
+          className="lg:col-span-2"
+        >
+          <ExecutiveBarChart
+            categories={custodyFlowChart.categories}
+            series={[
+              { name: 'المبلغ المحوّل', data: custodyFlowChart.converted, color: '#0ea5e9', colorEnd: '#0284c7' },
+              { name: 'المسوّى الفعلي', data: custodyFlowChart.settled, color: '#10b981', colorEnd: '#059669' },
+              { name: 'الرصيد المتبقي', data: custodyFlowChart.remaining, color: '#f59e0b', colorEnd: '#d97706' },
+            ]}
+            height={220}
+            unit="EGP"
+            emptyText="لا توجد عهد نقدية مسجلة بعد"
+          />
+        </ExecutiveChartCard>
 
-        {/* KPI 3 */}
-        <div className="card p-5 bg-white border border-slate-200 shadow-sm rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">إجمالي الفواتير المسوّاة</span>
-            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
-              <FileCheck className="size-5" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 tracking-tight font-mono">
-              {money(kpis?.totalSettledEgp ?? 0)} EGP
-            </div>
-            <div className="mt-1 text-xs text-emerald-700 font-medium">
-              مصروفات موثقة بإيصالات وفواتير ضريبية
-            </div>
-          </div>
-        </div>
-
-        {/* KPI 4 */}
-        <div className="card p-5 bg-white border border-slate-200 shadow-sm rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">الرصيد المتبقي طرف الفروع</span>
-            <span className="p-2 bg-amber-50 text-amber-600 rounded-lg">
-              <Clock className="size-5" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-amber-600 tracking-tight font-mono">
-              {money(kpis?.totalRemainingBalanceEgp ?? 0)} EGP
-            </div>
-            <div className="mt-1 text-xs text-slate-500">
-              عهد تحت التسوية أو بانتظار الإقفال
-            </div>
-          </div>
-        </div>
+        <ExecutiveChartCard
+          title="توزيع حالات العهد النقدية"
+          subtitle="نسب العهد المنصرفة والمحوّلة والمسواة والمغلقة"
+          icon={PieChart}
+          accent="amber"
+        >
+          <ExecutiveDonutChart
+            data={custodyStatusDonut}
+            centerValue={String(custodies.length)}
+            centerLabel="إجمالي العهد"
+            height={220}
+            unit="عهدة"
+            emptyText="لا توجد عهد"
+          />
+        </ExecutiveChartCard>
       </div>
 
       {/* Critical Liquidity Warning for Low-Balance Custodies (<20%) */}

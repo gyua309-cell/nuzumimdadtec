@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, ArrowRight, Building2, CheckCircle2, Download, FileText,
-  Filter, Pencil, Plus, Printer, RotateCcw, Save, Search, Send, ShieldCheck,
+  AlertCircle, ArrowRight, BarChart3, Building2, CheckCircle2, Download, FileText,
+  Filter, Pencil, PieChart, Plus, Printer, RotateCcw, Save, Search, Send, ShieldCheck,
   ShoppingCart, Sparkles, Trash2, Truck, Upload, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { downloadCsv, money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
 import { CsvImportModal, FieldDef } from '../components/CrudPage';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
@@ -488,11 +489,46 @@ export function PurchaseInvoicesPage() {
     }
   };
 
+  const vendorSpendChart = useMemo(() => {
+    const map = new Map<string, { net: number; vat: number }>();
+    for (const inv of list) {
+      if (inv.status === 'CANCELLED') continue;
+      const label = inv.vendorName || inv.invoiceNo || 'مورد';
+      const prev = map.get(label) || { net: 0, vat: 0 };
+      prev.net += Number(inv.subtotal ?? 0);
+      prev.vat += Number(inv.vatAmount ?? 0);
+      map.set(label, prev);
+    }
+    const entries = Array.from(map.entries()).slice(0, 8);
+    return {
+      categories: entries.map(([k]) => k),
+      net: entries.map(([, v]) => Number(v.net.toFixed(2))),
+      vat: entries.map(([, v]) => Number(v.vat.toFixed(2))),
+    };
+  }, [list]);
+
+  const purTypeDonut = useMemo(() => {
+    const std = list.filter((x: any) => x.invoiceType === 'STANDARD_BILL' || !x.invoiceType).length;
+    const exp = list.filter((x: any) => x.invoiceType === 'EXPENSE_BILL').length;
+    const deb = list.filter((x: any) => x.invoiceType === 'DEBIT_NOTE').length;
+    return [
+      { name: 'مشتريات قياسية', value: std, color: '#4f46e5' },
+      { name: 'مصروفات تشغيلية وسحابية', value: exp, color: '#f59e0b' },
+      { name: 'إشعارات مدينة', value: deb, color: '#8b5cf6' },
+    ];
+  }, [list]);
+
   return (
     <div className="space-y-5">
       <PageHeader
         title="فواتير المشتريات ومصروفات المشاريع (مع التوليد الآلي للقيود)"
         subtitle="تسجيل فواتير الموردين ومصروفات السيرفرات والتراخيص واستشارات المشاريع. الترحيل يولّد القيد المحاسبي المزدوج آلياً في دفاتر اليومية."
+        icon={ShoppingCart}
+        badge={
+          <Badge color="amber" dot>
+            {list.length} فاتورة ومصروف
+          </Badge>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportMenu
@@ -525,11 +561,49 @@ export function PurchaseInvoicesPage() {
       />
 
       {/* KPI Stats Strip */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-        <Stat label="إجمالي فواتير المشتريات" value={String(list.length)} tone="blue" icon={ShoppingCart} hint="فواتير الموردين والمصروفات" />
-        <Stat label="فواتير مقيدة بالدفاتر" value={String(postedCount)} tone="green" icon={CheckCircle2} hint="مرحلة بقيود محاسبية آلية" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <Stat label="إجمالي فواتير المشتريات" value={String(list.length)} tone="indigo" icon={ShoppingCart} hint="فواتير الموردين والمصروفات" />
+        <Stat label="فواتير مقيدة بالدفاتر" value={String(postedCount)} tone="green" icon={CheckCircle2} progress={list.length > 0 ? Math.round((postedCount / list.length) * 100) : 0} hint="مرحلة بقيود محاسبية آلية" />
         <Stat label="مسودات قيد المراجعة" value={String(draftCount)} tone="amber" icon={AlertCircle} hint="بانتظار الاعتماد والترحيل" />
-        <Stat label="إجمالي المشتريات (مع الضريبة)" value={money(totalAmountSum)} tone="cyan" icon={Wallet} hint="إجمالي الالتزامات والمصروفات" />
+        <Stat label="إجمالي المشتريات (مع الضريبة)" value={money(totalAmountSum)} tone="red" icon={Wallet} hint={`ضريبة مدخلات 15%: ${money(totalVatSum)}`} />
+      </div>
+
+      {/* Purchases Interactive Analytics Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ExecutiveChartCard
+          title="توزيع المشتريات والمصروفات حسب الموردين"
+          subtitle="صافي تكلفة المشتريات مقابل ضريبة المدخلات المستردة 15%"
+          icon={BarChart3}
+          accent="amber"
+          className="lg:col-span-2"
+        >
+          <ExecutiveBarChart
+            categories={vendorSpendChart.categories}
+            series={[
+              { name: 'صافي المشتريات', data: vendorSpendChart.net, stack: 'pur', color: '#f59e0b', colorEnd: '#d97706' },
+              { name: 'ضريبة المدخلات 15%', data: vendorSpendChart.vat, stack: 'pur', color: '#0ea5e9', colorEnd: '#0284c7' },
+            ]}
+            height={220}
+            unit="SAR"
+            emptyText="لا توجد فواتير مشتريات مسجلة بعد"
+          />
+        </ExecutiveChartCard>
+
+        <ExecutiveChartCard
+          title="توزيع أنواع المشتريات والمصروفات"
+          subtitle="تصنيف فواتير الموردين والخدمات السحابية"
+          icon={PieChart}
+          accent="purple"
+        >
+          <ExecutiveDonutChart
+            data={purTypeDonut}
+            centerValue={String(list.length)}
+            centerLabel="إجمالي الفواتير"
+            height={220}
+            unit="فاتورة"
+            emptyText="لا توجد مشتريات"
+          />
+        </ExecutiveChartCard>
       </div>
 
       {/* Filters Bar */}

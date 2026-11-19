@@ -5,7 +5,7 @@ import ReactECharts from 'echarts-for-react';
 import {
   Activity, ArrowUpRight, BarChart3, Briefcase, Building2, Calendar,
   CheckCircle2, Clock, DollarSign, Download, FileText,
-  HelpCircle, Landmark, Layers, Lock, LockOpen, Plus, Printer, Receipt,
+  HelpCircle, Landmark, Layers, Lock, LockOpen, PieChart, Plus, Printer, Receipt,
   ShieldAlert, ShieldCheck, Sparkles, Target, TrendingUp, Users, Wallet, XCircle,
 } from 'lucide-react';
 import { api } from '../lib/api';
@@ -13,6 +13,7 @@ import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, downloadCsv, money, monthStart, today, yearStart } from '../lib/format';
 import { ACCOUNT_CLASS, CHECK_STATUS } from '../lib/labels';
 import { PeriodSelect } from '../components/forms';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { AccountSelect, useAccounts, useQueryParam } from './accounting';
@@ -563,6 +564,54 @@ export function IncomeStatementPage() {
         </div>
       )}
 
+      {/* Interactive P&L Visual Breakdown */}
+      {q.data && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 mb-5 print:hidden">
+          <ExecutiveChartCard
+            title="هيكل الإيرادات والتكاليف وصافي الربحية"
+            subtitle={`تدرج الأداء المالي خلال الفترة بالعملة الأساسية (${base})`}
+            icon={BarChart3}
+            accent="emerald"
+            className="lg:col-span-2"
+          >
+            <ExecutiveBarChart
+              categories={['الإيرادات', 'التكاليف المباشرة', 'مجمل الربح', 'المصروفات التشغيلية', 'صافي الربح']}
+              series={[
+                {
+                  name: `القيمة (${base})`,
+                  data: [rev, dc, gp, opex, np],
+                  color: '#4f46e5',
+                  colorEnd: '#0ea5e9',
+                },
+              ]}
+              height={220}
+              unit={base}
+              emptyText="لا توجد حركات مالية مرحّلة للفترة"
+            />
+          </ExecutiveChartCard>
+
+          <ExecutiveChartCard
+            title="توزيع مكونات الإيراد والتكلفة"
+            subtitle="نسبة التكاليف والمصروفات مقابل صافي الربح"
+            icon={PieChart}
+            accent="indigo"
+          >
+            <ExecutiveDonutChart
+              data={[
+                { name: 'التكاليف المباشرة', value: Math.max(0, dc), color: '#f43f5e' },
+                { name: 'المصروفات التشغيلية', value: Math.max(0, opex), color: '#f59e0b' },
+                { name: 'صافي الربح', value: Math.max(0, np), color: '#10b981' },
+              ]}
+              centerValue={netMargin}
+              centerLabel="هامش صافي الربح"
+              height={220}
+              unit={base}
+              emptyText="لا توجد بيانات"
+            />
+          </ExecutiveChartCard>
+        </div>
+      )}
+
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
         <div className="card max-w-4xl overflow-hidden shadow-sm">
           <table className="table w-full">
@@ -742,6 +791,59 @@ export function BalanceSheetPage() {
               المجموع: {money(q.data?.liabilitiesAndEquity ?? '0.00')}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Interactive Balance Sheet Visual Structure */}
+      {q.data && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 mb-5 print:hidden">
+          <ExecutiveChartCard
+            title="هيكل المركز المالي والتوازن المحاسبي"
+            subtitle={`الأصول مقابل الالتزامات وحقوق الملكية والأرباح غير المقفلة (${base})`}
+            icon={BarChart3}
+            accent="indigo"
+            className="lg:col-span-2"
+          >
+            <ExecutiveBarChart
+              categories={['إجمالي الأصول', 'إجمالي الالتزامات', 'حقوق الملكية', 'أرباح الفترة', 'الالتزامات والملكية']}
+              series={[
+                {
+                  name: `الرصيد (${base})`,
+                  data: [
+                    Number(q.data?.assets?.total ?? 0),
+                    Number(q.data?.liabilities?.total ?? 0),
+                    Number(q.data?.equity?.total ?? 0),
+                    Number(q.data?.currentEarnings ?? 0),
+                    Number(q.data?.liabilitiesAndEquity ?? 0),
+                  ],
+                  color: '#4f46e5',
+                  colorEnd: '#10b981',
+                },
+              ]}
+              height={220}
+              unit={base}
+              emptyText="لا توجد أرصدة مسجلة في الميزانية بعد"
+            />
+          </ExecutiveChartCard>
+
+          <ExecutiveChartCard
+            title="توزيع مكونات الأصول"
+            subtitle="أبرز حسابات الأصول المساهمة في المركز المالي"
+            icon={PieChart}
+            accent="emerald"
+          >
+            <ExecutiveDonutChart
+              data={(q.data?.assets?.lines ?? [])
+                .filter((l: any) => Number(l.amount) > 0)
+                .slice(0, 6)
+                .map((l: any) => ({ name: l.nameAr, value: Number(l.amount) }))}
+              centerValue={money(q.data?.assets?.total ?? 0)}
+              centerLabel={`الأصول (${base})`}
+              height={220}
+              unit={base}
+              emptyText="لا توجد أصول"
+            />
+          </ExecutiveChartCard>
         </div>
       )}
 

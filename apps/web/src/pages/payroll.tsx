@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Eye, Play, Plus, Printer, Search, Trash2, Calculator, Award, FileCheck2, CheckCircle2, Wallet, Landmark } from 'lucide-react';
+import { Download, Eye, Play, Plus, Printer, Search, Trash2, Calculator, Award, FileCheck2, CheckCircle2, Wallet, Landmark, BarChart3, PieChart, Users } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date as _date, downloadCsv, money, today } from '../lib/format';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
+import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
@@ -468,11 +469,11 @@ export function LoansPage() {
         </div>
 
         {selected && (
-          <div className="card overflow-hidden bg-white border border-slate-200 rounded-xl lg:col-span-5 shadow-md">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 bg-slate-50">
+          <div className="card overflow-hidden lg:col-span-5 shadow-md">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 bg-slate-50/80 dark:bg-slate-900/60">
               <div>
-                <h3 className="font-bold text-slate-900 text-sm">{selected.loanNo}</h3>
-                <div className="text-xs text-slate-500">{detail.data?.employeeName || selected.employeeName}</div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">{selected.loanNo}</h3>
+                <div className="text-xs text-slate-500 dark:text-slate-400">{detail.data?.employeeName || selected.employeeName}</div>
               </div>
               <div className="flex items-center gap-2">
                 {detail.data?.status === 'ACTIVE' && (
@@ -666,11 +667,42 @@ export function PayrollRunsPage() {
     } catch (e) { toast.error(e); }
   };
 
+  const runList = useMemo(
+    () => (Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? [])),
+    [runs.data],
+  );
+
+  const payrollChart = useMemo(() => {
+    const items = runList.slice(0, 8).reverse();
+    return {
+      categories: items.map((r: any) => r.periodName || r.runNo || 'فترة'),
+      salaries: items.map((r: any) => Number(r.totalSalaryBase || 0)),
+      variables: items.map((r: any) => Number(r.totalVariablesBase || 0)),
+      net: items.map((r: any) => Number(r.netPayableBase || 0)),
+    };
+  }, [runList]);
+
+  const currentMixDonut = useMemo(() => {
+    const src = preview.data || runList[0];
+    if (!src) return [];
+    return [
+      { name: 'الرواتب الأساسية', value: Number(src.totalSalaryBase || 0), color: '#4f46e5' },
+      { name: 'البدلات والمتغيرات', value: Number(src.totalVariablesBase || 0), color: '#10b981' },
+      { name: 'استقطاع السلف والقروض', value: Number(src.totalLoanDeductionsBase || 0), color: '#f59e0b' },
+    ];
+  }, [preview.data, runList]);
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
         title="مسيّر الرواتب"
         subtitle="تجميع الرواتب الأساسية والمتغيرات المعتمدة وأقساط القروض في قيد واحد شهري. قيد الرواتب لا يمكن حذفه — يُلغى بعكس قيد."
+        icon={Wallet}
+        badge={
+          <Badge color="purple" dot>
+            {runList.length} مسيّر مسجل
+          </Badge>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportMenu
@@ -686,7 +718,7 @@ export function PayrollRunsPage() {
                 { key: 'journalEntryNo', header: 'رقم القيد', width: 14 },
                 { key: 'statusLabel', header: 'الحالة', width: 12 },
               ]}
-              data={(Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? [])).map((r: any) => ({
+              data={runList.map((r: any) => ({
                 ...r,
                 journalEntryNo: r.journalEntryNo || '—',
                 statusLabel: RUN_STATUS[r.status]?.label || r.status,
@@ -703,17 +735,56 @@ export function PayrollRunsPage() {
         </div>
         {preview.isLoading && <Loading />}
         {preview.data && (
-          <div className="space-y-2">
-            {preview.data.existingRunId && <p className="text-amber-600 text-sm">تم تشغيل مسيّر هذه الفترة مسبقًا. ألغِه لإعادة التشغيل.</p>}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Stat label="الموظفون" value={String(preview.data.employeeCount ?? 0)} />
-              <Stat label="إجمالي الرواتب" value={money(preview.data.totalSalaryBase)} />
-              <Stat label="إجمالي المتغيرات" value={money(preview.data.totalVariablesBase)} tone="green" />
-              <Stat label="إجمالي القروض (خصم)" value={money(preview.data.totalLoanDeductionsBase)} hint="ليست تكلفة ربحية" />
+          <div className="space-y-3">
+            {preview.data.existingRunId && <p className="text-amber-600 dark:text-amber-400 text-sm font-bold">تم تشغيل مسيّر هذه الفترة مسبقًا. ألغِه لإعادة التشغيل.</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              <Stat label="الموظفون المشمولون" value={String(preview.data.employeeCount ?? 0)} tone="indigo" icon={Users} hint="كوادر مستحقة للراتب" />
+              <Stat label="إجمالي الرواتب الأساسية" value={money(preview.data.totalSalaryBase)} tone="blue" icon={Wallet} hint="الرواتب الأساسية" />
+              <Stat label="البدلات والمتغيرات" value={money(preview.data.totalVariablesBase)} tone="green" icon={Award} hint="معتمدة للفترة" />
+              <Stat label="استقطاع القروض والسلف" value={money(preview.data.totalLoanDeductionsBase)} tone="amber" icon={Calculator} hint="ليست تكلفة ربحية" />
+              <Stat label="صافي الاستحقاق للصرف" value={money(preview.data.netPayableBase)} tone="purple" icon={Landmark} hint="الصافي المحوّل للبنوك" />
             </div>
-            <Stat label="صافي الاستحقاق" value={money(preview.data.netPayableBase)} tone="blue" />
           </div>
         )}
+      </div>
+
+      {/* Payroll Visual Analytics Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ExecutiveChartCard
+          title="تطور مسيرات الرواتب الشهرية وصافي الاستحقاق"
+          subtitle="مقارنة الرواتب الأساسية والمتغيرات وصافي المبلغ المصروف للكوادر"
+          icon={BarChart3}
+          accent="purple"
+          className="lg:col-span-2"
+        >
+          <ExecutiveBarChart
+            categories={payrollChart.categories}
+            series={[
+              { name: 'الرواتب الأساسية', data: payrollChart.salaries, color: '#4f46e5', colorEnd: '#6366f1' },
+              { name: 'المتغيرات والبدلات', data: payrollChart.variables, color: '#10b981', colorEnd: '#059669' },
+              { name: 'صافي الاستحقاق', data: payrollChart.net, color: '#8b5cf6', colorEnd: '#7c3aed' },
+            ]}
+            height={220}
+            unit="SAR"
+            emptyText="قم بتشغيل مسير رواتب لعرض التطور الشهري"
+          />
+        </ExecutiveChartCard>
+
+        <ExecutiveChartCard
+          title="هيكل مكونات مسيّر الرواتب"
+          subtitle="نسبة الأساسي مقابل المتغيرات واستقطاعات السلف"
+          icon={PieChart}
+          accent="indigo"
+        >
+          <ExecutiveDonutChart
+            data={currentMixDonut}
+            centerValue={money((preview.data || runList[0])?.netPayableBase ?? 0)}
+            centerLabel="صافي الاستحقاق"
+            height={220}
+            unit="SAR"
+            emptyText="لا توجد بيانات"
+          />
+        </ExecutiveChartCard>
       </div>
       <div className="card overflow-hidden">
         <div className="border-b border-slate-200 px-4 py-2.5 font-semibold dark:border-slate-800">التشغيلات السابقة</div>
