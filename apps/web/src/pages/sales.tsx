@@ -1876,6 +1876,22 @@ export function CreditNotesPage() {
       <PageHeader
         title="المردودات والإشعارات الدائنة (Credit Notes)"
         subtitle="سجل الإشعارات الدائنة المعتمدة لدى هيئة الزكاة والضريبة والجمارك ومردودات المبيعات المرتبطة بالفواتير الأصلية."
+        actions={
+          <ExportMenu
+            title="سجل المردودات والإشعارات الدائنة (Credit Notes)"
+            columns={[
+              { key: 'invoiceNo', header: 'رقم الإشعار', width: 16 },
+              { key: 'clientName', header: 'العميل', width: 22 },
+              { key: 'projectName', header: 'المشروع', width: 20 },
+              { key: 'issueDate', header: 'التاريخ', width: 14 },
+              { key: 'subtotal', header: 'الصافي', width: 15, type: 'currency', isTotal: true },
+              { key: 'vatAmount', header: 'الضريبة', width: 14, type: 'currency', isTotal: true },
+              { key: 'totalAmount', header: 'الإجمالي الدائن', width: 16, type: 'currency', isTotal: true },
+              { key: 'status', header: 'الحالة', width: 12 },
+            ]}
+            data={list}
+          />
+        }
       />
 
       <div className="card overflow-hidden">

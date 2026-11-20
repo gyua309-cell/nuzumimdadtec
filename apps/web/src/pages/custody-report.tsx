@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ArrowLeftRight, Download, FileCheck,
-  PieChart, Printer, RefreshCw, TrendingUp, Users, Wallet
+  ArrowLeftRight, FileCheck,
+  PieChart, RefreshCw, TrendingUp, Users, Wallet
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { downloadCsv, money, today } from '../lib/format';
-import { Badge, ErrorState, Loading, PageHeader, useToast } from '../components/ui';
+import { money, today } from '../lib/format';
+import { ExportMenu } from '../components/ExportMenu';
+import { Badge, ErrorState, Loading, PageHeader } from '../components/ui';
 
 export function CustodyReportPage() {
-  const toast = useToast();
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [fromDate, setFromDate] = useState('2026-01-01');
   const [toDate, setToDate] = useState(today());
@@ -36,46 +36,27 @@ export function CustodyReportPage() {
   const expenseBreakdown = data?.expenseBreakdown || [];
   const custodians = data?.custodians || [];
 
-  const handleExportCsv = () => {
-    downloadCsv(`branch-custody-movement-report-${today()}.csv`, [
-      ['كشف حركة وتسوية العهد النقدية ومصروفات الفروع متعددة العملات'],
-      ['التاريخ:', today()],
-      [],
-      ['ملخص المؤشرات المالية'],
-      ['إجمالي عدد العهد', kpis?.totalCustodiesCount || 0],
-      ['إجمالي المصروف بالريال', kpis?.totalDisbursedSar || 0],
-      ['المحول للجنيه المصري', kpis?.totalConvertedToEgp || 0],
-      ['إجمالي المصروفات المسوّاة بإيصالات', kpis?.totalSettledEgp || 0],
-      ['الرصيد المتبقي طرف أمناء العهد', kpis?.totalRemainingBalanceEgp || 0],
-      [],
-      ['توزيع المصروفات حسب التصنيف المحاسبي'],
-      ['رمز الحساب', 'اسم الحساب', 'عدد الإيصالات', 'المبلغ قبل الضريبة', 'الضريبة', 'الإجمالي بالجنيه'],
-      ...expenseBreakdown.map((e: any) => [
-        e.accountCode, e.accountNameAr, e.vouchersCount, e.subtotal, e.vatAmount, e.totalAmount,
-      ]),
-      [],
-      ['أرصدة ومسؤوليات أمناء العهد'],
-      ['كود الموظف', 'اسم أمين العهدة', 'عدد العهد', 'المصروف بالريال', 'المحول بالجنيه', 'المسوّى بإيصالات', 'الرصيد المتبقي'],
-      ...custodians.map((c: any) => [
-        c.employeeCode, c.employeeNameAr, c.custodiesCount, c.disbursedSar, c.convertedEgp, c.settledEgp, c.balanceEgp,
-      ]),
-    ]);
-    toast.success('تم تصدير تقرير العهد بنجاح');
-  };
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="تقرير حركة وتسوية العهد ومصروفات الفروع متعددة العملات"
         subtitle="متابعة التدفقات النقدية المحولة من المركز الرئيسي (SAR) إلى فرع مصر (EGP) وتسويات الفواتير والأرصدة"
         actions={
-          <div className="flex items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()}>
-              <Printer className="size-3.5" /> طباعة التقرير
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv}>
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title="تقرير حركة وتسوية العهد ومصروفات الفروع"
+              periodLabel={`${fromDate} إلى ${toDate}`}
+              columns={[
+                { key: 'employeeCode', header: 'الكود', width: 12 },
+                { key: 'employeeNameAr', header: 'أمين العهدة', width: 22 },
+                { key: 'custodiesCount', header: 'عدد العهد', width: 12, type: 'number', isTotal: true },
+                { key: 'disbursedSar', header: 'المصروف (SAR)', width: 16, type: 'currency', isTotal: true },
+                { key: 'convertedEgp', header: 'المحول (EGP)', width: 16, type: 'currency', isTotal: true },
+                { key: 'settledEgp', header: 'المسوّى (EGP)', width: 16, type: 'currency', isTotal: true },
+                { key: 'balanceEgp', header: 'الرصيد المتبقي', width: 16, type: 'currency', isTotal: true },
+              ]}
+              data={custodians}
+            />
             <button className="btn-ghost text-xs p-2" onClick={() => refetch()} title="تحديث البيانات">
               <RefreshCw className="size-3.5" />
             </button>

@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, CalendarDays, Download, Globe, History, Percent, Plus, RotateCcw, Save, Trash2, Upload, Database } from 'lucide-react';
 import { api } from '../lib/api';
+import { ExportMenu } from '../components/ExportMenu';
 import { useAuth } from '../lib/auth';
 import { saveStoredCompany } from '../lib/storage-company';
 import { exportAllErpData, importAllErpData, resetSystemToZero } from '../lib/local-store';
@@ -429,7 +430,24 @@ export function CurrenciesPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="العملات وأسعار الصرف" subtitle="كل حركة مالية تحفظ عملتها وسعر الصرف المستخدم ومبلغها بالعملة الأساسية، فلا تتغير النتائج التاريخية عند تغير السعر." />
+      <PageHeader
+        title="العملات وأسعار الصرف"
+        subtitle="كل حركة مالية تحفظ عملتها وسعر الصرف المستخدم ومبلغها بالعملة الأساسية، فلا تتغير النتائج التاريخية عند تغير السعر."
+        actions={
+          <ExportMenu
+            title="جدول أسعار الصرف والعملات المعتمدة"
+            columns={[
+              { key: 'fromCurrency', header: 'من عملة', width: 12 },
+              { key: 'toCurrency', header: 'إلى عملة', width: 12 },
+              { key: 'rateType', header: 'النوع', width: 14 },
+              { key: 'rateDate', header: 'التاريخ', width: 14 },
+              { key: 'rate', header: 'سعر الصرف', width: 14, type: 'number' },
+              { key: 'source', header: 'المصدر', width: 20 },
+            ]}
+            data={Array.isArray(rates.data) ? rates.data : (Array.isArray((rates.data as any)?.data) ? (rates.data as any).data : [])}
+          />
+        }
+      />
       <div className="card p-4">
         <h3 className="mb-3 font-semibold">عملات الشركة</h3>
         <div className="mb-3 flex flex-wrap gap-2">
@@ -540,11 +558,26 @@ export function FiscalPage() {
       <PageHeader
         title="السنوات والفترات المالية"
         subtitle="كل سنة تنشأ تلقائيًا بـ 12 فترة شهرية + فترة تسويات. الإقفال يتم من شاشة الإقفال."
-        actions={<button className="btn-primary" onClick={() => {
-          const last = years.data?.[0];
-          const next = last ? new Date(Date.parse(`${last.endDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10) : `${new Date().getFullYear()}-01-01`;
-          setNewYear({ code: `FY${next.slice(0, 4)}`, startDate: next });
-        }}><Plus className="size-4" /> سنة مالية جديدة</button>}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title={`الفترات المالية — ${year.data?.code || 'السنة المالية'}`}
+              columns={[
+                { key: 'periodNo', header: 'رقم الفترة', width: 12 },
+                { key: 'name', header: 'اسم الفترة', width: 22 },
+                { key: 'startDate', header: 'من تاريخ', width: 14 },
+                { key: 'endDate', header: 'إلى تاريخ', width: 14 },
+                { key: 'status', header: 'الحالة', width: 14 },
+              ]}
+              data={year.data?.periods ?? []}
+            />
+            <button className="btn-primary" onClick={() => {
+              const last = years.data?.[0];
+              const next = last ? new Date(Date.parse(`${last.endDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10) : `${new Date().getFullYear()}-01-01`;
+              setNewYear({ code: `FY${next.slice(0, 4)}`, startDate: next });
+            }}><Plus className="size-4" /> سنة مالية جديدة</button>
+          </div>
+        }
       />
       {years.isLoading ? <Loading /> : years.data?.length === 0 ? <div className="card"><EmptyState text="لا توجد سنوات مالية بعد." /></div> : (
         <div className="grid grid-cols-[220px_1fr] gap-4">

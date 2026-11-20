@@ -1035,9 +1035,22 @@ export function EosbPage() {
         subtitle="حساب نظامي إلزامي وفقاً للمادتين 84 و 85 من نظام العمل السعودي، يشمل احتساب الإجازات المتبقية والبدلات."
         actions={
           <div className="flex items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()}>
-              <Printer className="size-3.5" /> طباعة إشعار التصفية
-            </button>
+            <ExportMenu
+              title="إشعار احتساب مكافأة نهاية الخدمة وتصفية المستحقات"
+              columns={[
+                { key: 'item', header: 'البند', width: 34 },
+                { key: 'amount', header: 'المبلغ المستحق', width: 18, type: 'currency', isTotal: true },
+              ]}
+              data={
+                result
+                  ? [
+                      { item: 'مكافأة الخمس سنوات الأولى', amount: result.first5 },
+                      { item: 'مكافأة ما بعد الخمس سنوات', amount: result.after5 },
+                      { item: 'بدل رصيد الإجازات المتبقي', amount: result.vacPay },
+                    ]
+                  : []
+              }
+            />
           </div>
         }
       />

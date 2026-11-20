@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Calculator, CheckCircle2, FileText, Printer, Save, Send, XCircle } from 'lucide-react';
+import { AlertTriangle, Calculator, CheckCircle2, FileText, Save, Send, XCircle } from 'lucide-react';
 import { api } from '../lib/api';
+import { ExportMenu } from '../components/ExportMenu';
 import { date, money, today } from '../lib/format';
 import { Badge, EmptyState, ErrorState, Field, Loading, PageHeader, ReasonDialog, Spinner, Stat, useToast } from '../components/ui';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
@@ -92,7 +93,29 @@ export function ZakatPage() {
       <PageHeader
         title="احتساب الزكاة وضريبة الدخل"
         subtitle="وعاء زكوي محتسب من دفتر الأستاذ مع تسويات يدخلها المحاسب، ثم ترحيل المخصص بقيد آلي. ورقة العمل أداة مساعدة تُراجع محاسبياً قبل التقديم للهيئة."
-        actions={<button className="btn-secondary print:hidden" onClick={() => window.print()}><Printer className="size-4" /> طباعة</button>}
+        actions={
+          <ExportMenu
+            title="إقرارات وورقة عمل الزكاة وضريبة الدخل"
+            periodLabel={`${from} إلى ${to}`}
+            columns={[
+              { key: 'returnNo', header: 'رقم الإقرار', width: 16 },
+              { key: 'periodFrom', header: 'من', width: 14 },
+              { key: 'periodTo', header: 'إلى', width: 14 },
+              { key: 'zakatBase', header: 'الوعاء الزكوي', width: 16, type: 'currency', isTotal: true },
+              { key: 'zakatDue', header: 'الزكاة المستحقة', width: 16, type: 'currency', isTotal: true },
+              { key: 'incomeTaxDue', header: 'ضريبة الدخل', width: 16, type: 'currency', isTotal: true },
+              { key: 'totalDue', header: 'الإجمالي المستحق', width: 16, type: 'currency', isTotal: true },
+              { key: 'status', header: 'الحالة', width: 14 },
+            ]}
+            data={
+              savedReturns.length > 0
+                ? savedReturns
+                : ws
+                  ? [{ returnNo: 'ورقة عمل حالية', periodFrom: from, periodTo: to, zakatBase: ws.zakatBase, zakatDue: ws.zakatDue, incomeTaxDue: ws.incomeTaxDue, totalDue: ws.totalDue, status: 'معاينة' }]
+                  : []
+            }
+          />
+        }
       />
 
       <div className="card flex flex-wrap items-end gap-x-5 gap-y-3 p-4 text-sm">

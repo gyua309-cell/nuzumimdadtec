@@ -418,71 +418,77 @@ export class ExportEngine {
         tableFooterHtml = `<tfoot><tr style="page-break-inside:avoid;">${footCells}</tr></tfoot>`;
       }
 
-      // 5. Complete Corporate A4 Report HTML
+      // 5. Complete Royal Corporate A4 PDF HTML
+      const docRef = `IDH-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
       const reportHtml = `
-        <div style="direction:rtl;font-family:'IBM Plex Sans Arabic',system-ui,Arial,sans-serif;padding:12px;color:#0f172a;background:#ffffff;">
-          <!-- Top Executive Header -->
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:14px;">
-            <div style="max-width:380px;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                <div style="width:28px;height:28px;border-radius:6px;background:#0f172a;color:#ffffff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;">ع</div>
+        <div style="direction:rtl;font-family:'Tajawal','Cairo','IBM Plex Sans Arabic',system-ui,Arial,sans-serif;padding:0;color:#0f172a;background:#ffffff;">
+          <!-- Royal Crown Gradient Strip -->
+          <div style="height:6px;width:100%;background:linear-gradient(90deg,#0f172a 0%,#4f46e5 55%,#d97706 100%);border-radius:4px 4px 0 0;margin-bottom:14px;"></div>
+
+          <!-- Top Executive Royal Header -->
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #0f172a;padding:0 8px 14px 8px;margin-bottom:16px;">
+            <div style="max-width:360px;">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">
+                <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#0f172a,#312e81);color:#fbbf24;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;border:1.5px solid #d97706;">إ</div>
                 <div>
-                  <div style="font-size:15px;font-weight:800;color:#0f172a;line-height:1.2;">${company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية'}</div>
-                  <div style="font-size:10px;color:#64748b;font-weight:600;">${company.nameEn || 'AZM TECH & DIGITAL SOLUTIONS'}</div>
+                  <div style="font-size:16px;font-weight:900;color:#0f172a;line-height:1.25;">${company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية'}</div>
+                  <div style="font-size:10.5px;color:#475569;font-weight:700;letter-spacing:0.3px;">${company.nameEn || 'MODERN SUPPLY SYSTEMS ERP'}</div>
                 </div>
               </div>
-              <div style="font-size:10px;color:#475569;margin-top:4px;line-height:1.4;">
-                الرقم الضريبي (VAT): <span style="font-family:monospace;font-weight:bold;">${company.taxNumber || '310123456700003'}</span>
-                ${company.commercialReg ? ` | س.ت: <span style="font-family:monospace;">${company.commercialReg}</span>` : ''}
+              <div style="font-size:10.5px;color:#334155;margin-top:4px;line-height:1.5;font-weight:600;">
+                الرقم الضريبي (VAT): <span style="font-family:monospace;font-weight:800;color:#0f172a;">${company.taxNumber || '310123456700003'}</span>
+                ${company.commercialReg ? ` | السجل التجاري: <span style="font-family:monospace;font-weight:700;">${company.commercialReg}</span>` : ''}
               </div>
             </div>
 
-            <div style="text-align:center;align-self:center;">
-              <div style="background:#0f172a;color:#ffffff;padding:5px 16px;border-radius:8px;font-size:13px;font-weight:800;display:inline-block;letter-spacing:0.5px;">
+            <div style="text-align:center;align-self:center;padding:0 12px;">
+              <div style="display:inline-block;background:linear-gradient(135deg,#0f172a,#1e1b4b);color:#ffffff;padding:7px 20px;border-radius:10px;font-size:14px;font-weight:900;border-bottom:3px solid #d97706;">
                 ${options.title}
               </div>
-              <div style="font-size:10.5px;color:#475569;margin-top:4px;font-weight:600;">
+              <div style="font-size:11px;color:#334155;margin-top:6px;font-weight:700;">
                 ${options.periodLabel ? `الفترة: ${options.periodLabel} • ` : ''}الفرع: ${options.branchName || 'المقر الرئيسي'}
               </div>
             </div>
 
-            <div style="text-align:left;font-size:10px;color:#64748b;line-height:1.5;">
-              <div>التاريخ: <span style="font-weight:bold;color:#0f172a;">${nowFormatted}</span></div>
-              <div>إجمالي السجلات: <span style="font-weight:bold;color:#0f172a;">${options.data.length}</span></div>
-              <div>العملة: <span style="font-weight:bold;color:#0f172a;">${currency}</span></div>
+            <div style="text-align:left;font-size:10.5px;color:#475569;line-height:1.65;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 12px;">
+              <div>المرجع: <span style="font-family:monospace;font-weight:800;color:#4f46e5;">${docRef}</span></div>
+              <div>تاريخ الإصدار: <span style="font-weight:800;color:#0f172a;">${nowFormatted}</span></div>
+              <div>عدد السجلات: <span style="font-weight:800;color:#0f172a;">${options.data.length}</span> • العملة: <span style="font-weight:800;color:#0f172a;">${currency}</span></div>
             </div>
           </div>
 
           <!-- Data Table -->
-          <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
-            <thead>
-              <tr style="page-break-inside:avoid;">${tableHeadersHtml}</tr>
-            </thead>
-            <tbody>
-              ${tableRowsHtml}
-            </tbody>
-            ${tableFooterHtml}
-          </table>
+          <div style="padding:0 6px;">
+            <table style="width:100%;border-collapse:collapse;margin-bottom:18px;border:1px solid #cbd5e1;">
+              <thead>
+                <tr style="page-break-inside:avoid;">${tableHeadersHtml}</tr>
+              </thead>
+              <tbody>
+                ${tableRowsHtml || `<tr><td colspan="${Math.max(1, options.columns.length)}" style="padding:20px;text-align:center;color:#64748b;font-weight:700;">لا توجد سجلات مسجلة ضمن الفترة المحددة</td></tr>`}
+              </tbody>
+              ${tableFooterHtml}
+            </table>
+          </div>
 
-          <!-- Official Signatures & Stamp Footer -->
-          <div style="margin-top:24px;padding-top:12px;border-top:1px solid #cbd5e1;page-break-inside:avoid;">
-            <div style="display:flex;justify-content:space-between;text-align:center;font-size:11px;margin-bottom:20px;">
-              <div style="width:28%;">
-                <div style="font-weight:bold;color:#1e293b;">إعداد المحاسب المسؤول</div>
-                <div style="margin-top:25px;border-bottom:1px dashed #94a3b8;width:80%;margin-inline:auto;"></div>
+          <!-- Official Royal Signatures & Stamp Footer -->
+          <div style="margin-top:26px;padding:14px 8px 0 8px;border-top:2px solid #cbd5e1;page-break-inside:avoid;">
+            <div style="display:flex;justify-content:space-between;text-align:center;font-size:11.5px;margin-bottom:22px;">
+              <div style="width:29%;">
+                <div style="font-weight:800;color:#0f172a;">إعداد المحاسب / المختص</div>
+                <div style="margin-top:28px;border-bottom:1.5px dashed #94a3b8;width:82%;margin-inline:auto;"></div>
               </div>
-              <div style="width:28%;">
-                <div style="font-weight:bold;color:#1e293b;">المراجعة والتدقيق المالي</div>
-                <div style="margin-top:25px;border-bottom:1px dashed #94a3b8;width:80%;margin-inline:auto;"></div>
+              <div style="width:29%;">
+                <div style="font-weight:800;color:#0f172a;">المراجعة والتدقيق المالي</div>
+                <div style="margin-top:28px;border-bottom:1.5px dashed #94a3b8;width:82%;margin-inline:auto;"></div>
               </div>
-              <div style="width:28%;">
-                <div style="font-weight:bold;color:#1e293b;">اعتماد الإدارة والختم الرسمي</div>
-                <div style="margin-top:25px;border-bottom:1px dashed #94a3b8;width:80%;margin-inline:auto;"></div>
+              <div style="width:29%;">
+                <div style="font-weight:800;color:#0f172a;">اعتماد الإدارة والختم الرسمي</div>
+                <div style="margin-top:28px;border-bottom:1.5px dashed #94a3b8;width:82%;margin-inline:auto;"></div>
               </div>
             </div>
-            <div style="display:flex;justify-content:space-between;font-size:9.5px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:6px;">
-              <span>منظومة إدهام لإدارة الموارد والمحاسبة (IDHAM ERP) • مستند رقمي رسمي معتمد</span>
-              <span>صفحة 1 من 1</span>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:8px;">
+              <span style="font-weight:700;">منظومة إدهام لإدارة الموارد والمحاسبة (IDHAM ERP PRO) • مستند PDF ملكي معتمد</span>
+              <span style="font-family:monospace;font-weight:700;">REF: ${docRef}</span>
             </div>
           </div>
         </div>

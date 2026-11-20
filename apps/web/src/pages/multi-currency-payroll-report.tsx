@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Banknote, Calendar, Download, Printer, Users
+  Banknote, Calendar, Users
 } from 'lucide-react';
+import { ExportMenu } from '../components/ExportMenu';
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
@@ -109,30 +110,6 @@ export function MultiCurrencyPayrollReportPage() {
     toast.success(`تم تصدير ملف صرف الرواتب البنكي (${cur}) بنجاح`);
   };
 
-  const handleExportFullCsv = () => {
-    downloadCsv(`multi-currency-payroll-report-${today()}.csv`, [
-      ['تقرير مسير الرواتب المجمّع متعدد العملات (SAR / EGP)'],
-      ['الفترة:', runsData?.periodName || '—'],
-      ['التاريخ:', today()],
-      [],
-      ['كود الموظف', 'اسم الموظف', 'عملة العقد', 'الراتب الأساسي', 'البدلات والمكافآت', 'الاستقطاعات والسلف', 'صافي الراتب (بالأساس)', 'عملة الصرف', 'سعر الصرف المطبق', 'صافي الصرف بالعملة', 'حالة المسير'],
-      ...lines.map((l: any) => [
-        l.employeeCode || '—',
-        l.employeeName,
-        l.contractCurrency || 'EGP',
-        l.salaryBase,
-        Number(l.bonusesBase || 0) + Number(l.allowancesBase || 0) + Number(l.overtimeBase || 0),
-        Number(l.deductionsBase || 0) + Number(l.loanDeductionsBase || 0),
-        l.netPayableBase,
-        l.payoutCurrency || 'EGP',
-        l.payoutExchangeRate || '1',
-        l.payoutAmount || l.netPayableBase,
-        runsData?.status || 'مسودة',
-      ]),
-    ]);
-    toast.success('تم تصدير مسير الرواتب المجمع بنجاح');
-  };
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -140,12 +117,20 @@ export function MultiCurrencyPayrollReportPage() {
         subtitle="إدارة وتوزيع صرف رواتب الكوادر بالريال السعودي أو الجنيه المصري مع جداول التحويل البنكي وفروق الصرف"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()}>
-              <Printer className="size-3.5" /> طباعة المسير
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportFullCsv}>
-              <Download className="size-3.5" /> تصدير شامل (Excel)
-            </button>
+            <ExportMenu
+              title="تقرير مسيّر الرواتب متعدد العملات (SAR / EGP)"
+              periodLabel={runsData?.periodName || ''}
+              columns={[
+                { key: 'employeeCode', header: 'الكود', width: 12 },
+                { key: 'employeeName', header: 'اسم الموظف', width: 22 },
+                { key: 'contractCurrency', header: 'عملة العقد', width: 10 },
+                { key: 'salaryBase', header: 'الأساسي', width: 15, type: 'currency', isTotal: true },
+                { key: 'netPayableBase', header: 'صافي الراتب (SAR)', width: 16, type: 'currency', isTotal: true },
+                { key: 'payoutCurrency', header: 'عملة الصرف', width: 10 },
+                { key: 'payoutAmount', header: 'مبلغ الصرف', width: 16, type: 'currency', isTotal: true },
+              ]}
+              data={lines}
+            />
             <button
               className="btn-primary text-xs flex items-center gap-1.5"
               onClick={() => handleExportBankFile('SAR')}

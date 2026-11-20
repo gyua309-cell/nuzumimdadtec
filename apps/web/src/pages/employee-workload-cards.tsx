@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Activity, Download, LayoutGrid, Plus, Printer, RefreshCw,
+  Activity, LayoutGrid, Plus, Printer, RefreshCw,
   Search, Table, UserCheck, Users, Wallet
 } from 'lucide-react';
+import { ExportMenu } from '../components/ExportMenu';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { isAssignmentActiveInPeriod } from '../lib/fallback-engine';
-import { downloadCsv, money, today } from '../lib/format';
+import { money, today } from '../lib/format';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
@@ -322,52 +323,6 @@ export function EmployeeWorkloadCardsPage() {
     };
   }, [employeeCards]);
 
-  const { company } = useAuth();
-
-  const handleExportCsv = () => {
-    const rows = [
-      [`تقرير كروت تتبع نسب إسناد وتفرغ وتكاليف الموظفين والمطورين - ${company?.nameAr || 'المملكة العربية السعودية'}`],
-      ['العملة الأساسية للنظام:', 'ريال سعودي (SAR)'],
-      ['سعر الصرف المعتمد:', `1 SAR = ${SAR_TO_EGP} EGP`],
-      ['تاريخ التصدير:', today()],
-      [],
-      [
-        'كود الموظف',
-        'اسم الموظف',
-        'المسمى الوظيفي',
-        'المقر والفرع',
-        'العملة التعاقدية',
-        'الراتب الشهري التعاقدي',
-        'المعادل بالريال SAR',
-        'نسبة الإسناد الإجمالية',
-        'الأيام المشغولة',
-        'نسبة التفرغ المتاحة',
-        'الأيام المتاحة',
-        'الحالة التشغيلية',
-        'هدر التفرغ بالعملة التعاقدية',
-        'هدر التفرغ بالريال SAR',
-      ],
-      ...filteredCards.map((c) => [
-        c.code,
-        c.nameAr,
-        c.jobTitle,
-        c.branchCountry === 'SA' ? '🇸🇦 المركز الرئيسي - الرياض' : '🇪🇬 مركز التطوير - القاهرة',
-        c.currency,
-        c.monthlyCost,
-        c.monthlyCostSar,
-        `${c.totalAllocatedPct}%`,
-        c.allocatedDays,
-        `${c.freeCapacityPct}%`,
-        c.freeDays,
-        c.status === 'BENCH' ? 'متفرغ 100% Bench' : c.status === 'PARTIAL' ? 'متاح للإسناد الجزئي' : c.status === 'FULL' ? 'مشغول 100%' : 'ضغط عمل زائد',
-        c.unutilizedCost,
-        c.unutilizedCostSar,
-      ]),
-    ];
-    downloadCsv(`employee_workload_capacity_multicurrency_${today()}.csv`, rows);
-    toast.success('تم تصدير كشف تتبع الموظفين والتفرغ بنجاح كملف CSV');
-  };
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -382,13 +337,20 @@ export function EmployeeWorkloadCardsPage() {
               <RefreshCw className="size-3.5" />
               تحديث
             </button>
-            <button
-              onClick={handleExportCsv}
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
-            >
-              <Download className="size-3.5" />
-              تصدير CSV
-            </button>
+            <ExportMenu
+              title="كروت تتبع الموظفين ونسب العمل والتفرغ"
+              columns={[
+                { key: 'code', header: 'كود الموظف', width: 12 },
+                { key: 'nameAr', header: 'اسم الموظف', width: 22 },
+                { key: 'jobTitle', header: 'المسمى الوظيفي', width: 20 },
+                { key: 'currency', header: 'العملة', width: 10 },
+                { key: 'monthlyCostSar', header: 'التكلفة الشهرية (SAR)', width: 16, type: 'currency', isTotal: true },
+                { key: 'totalAllocatedPct', header: 'نسبة الإسناد %', width: 12, type: 'percent' },
+                { key: 'freeCapacityPct', header: 'نسبة التفرغ %', width: 12, type: 'percent' },
+                { key: 'unutilizedCostSar', header: 'تكلفة التفرغ (SAR)', width: 16, type: 'currency', isTotal: true },
+              ]}
+              data={filteredCards}
+            />
             <button
               onClick={() => window.print()}
               className="btn btn-primary text-xs flex items-center gap-1.5"

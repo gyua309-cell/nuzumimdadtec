@@ -15,6 +15,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { ExportMenu } from '../components/ExportMenu';
 import { dateTime } from '../lib/format';
 import { Badge, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 
@@ -171,6 +172,19 @@ export function ZatcaSettingsPage() {
         subtitle="تكوين العنوان الوطني السعودي المهيكل، إدارة الفروع وأجهزة الفوترة الإلكترونية (EGS)، الشهادات الرقمية، والفصل الكامل بين بيئات Sandbox و Simulation و Production."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title="سجل أجهزة الفوترة الإلكترونية (EGS) والشهادات الرقمية"
+              columns={[
+                { key: 'deviceCode', header: 'رمز الجهاز', width: 14 },
+                { key: 'deviceName', header: 'اسم الجهاز', width: 24 },
+                { key: 'branchName', header: 'الفرع', width: 18 },
+                { key: 'environment', header: 'البيئة', width: 12 },
+                { key: 'vatNumber', header: 'الرقم الضريبي', width: 18 },
+                { key: 'certificateStatus', header: 'حالة الشهادة', width: 14 },
+                { key: 'connectionStatus', header: 'حالة الاتصال', width: 14 },
+              ]}
+              data={devices}
+            />
             <Link to="/zatca/onboarding" className="btn-secondary text-sm">
               <KeyRound className="size-4 text-emerald-600" /> معالج الربط (7 خطوات)
             </Link>

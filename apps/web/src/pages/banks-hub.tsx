@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeftRight, Building, Download,
+  ArrowLeftRight, Building,
   Landmark, Layers, Plus, Printer, RefreshCw, Wallet
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { ExportMenu } from '../components/ExportMenu';
 import { useAuth } from '../lib/auth';
-import { date, downloadCsv, money, today } from '../lib/format';
+import { date, money, today } from '../lib/format';
 import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { SearchableSelect } from '../components/SearchableSelect';
@@ -114,27 +115,6 @@ export function BanksHubPage() {
     return { sarBalance, egpBalance, nbeBalance, cashBalance };
   }, [bankAccounts]);
 
-  const handleExportCsv = () => {
-    const rows = [
-      ['كشف الحسابات البنكية والخزينة والسيولة النقدية'],
-      ['التاريخ:', today()],
-      [],
-      ['كود الحساب', 'اسم البنك / الخزينة', 'النوع', 'العملة', 'رقم الحساب', 'الآيبان IBAN', 'الحساب الدفتري المرتبط', 'الرصيد الدفتري'],
-      ...bankAccounts.map((b: BankAccount) => [
-        b.code,
-        b.name,
-        b.kind === 'BANK' ? 'حساب بنكي' : 'خزينة نقدية',
-        b.currencyCode,
-        b.accountNumber || '—',
-        b.iban || '—',
-        `${b.glAccountCode} — ${b.glAccountNameAr}`,
-        `${money(b.balance)} ${b.currencyCode}`,
-      ]),
-    ];
-    downloadCsv(`bank_accounts_directory_${today()}.csv`, rows);
-    toast.success('تم تصدير كشف الحسابات البنكية كملف CSV');
-  };
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -149,13 +129,19 @@ export function BanksHubPage() {
               <RefreshCw className="size-3.5" />
               تحديث
             </button>
-            <button
-              onClick={handleExportCsv}
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
-            >
-              <Download className="size-3.5" />
-              تصدير CSV
-            </button>
+            <ExportMenu
+              title="كشف الحسابات البنكية والخزينة والسيولة النقدية"
+              columns={[
+                { key: 'code', header: 'الكود', width: 12 },
+                { key: 'name', header: 'اسم البنك / الخزينة', width: 24 },
+                { key: 'kind', header: 'النوع', width: 12 },
+                { key: 'currencyCode', header: 'العملة', width: 10 },
+                { key: 'accountNumber', header: 'رقم الحساب', width: 20 },
+                { key: 'iban', header: 'IBAN', width: 26 },
+                { key: 'balance', header: 'الرصيد الدفتري', width: 16, type: 'currency', isTotal: true },
+              ]}
+              data={bankAccounts}
+            />
             <button
               onClick={() => setNewBankModalOpen(true)}
               className="btn btn-secondary text-xs flex items-center gap-1.5"

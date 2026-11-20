@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth';
 import { dateTime } from '../lib/format';
 import { AUDIT_ACTION } from '../lib/labels';
 import { useQueryParam } from './accounting';
+import { ExportMenu } from '../components/ExportMenu';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, Spinner, useToast } from '../components/ui';
 
 // ------------------------------------------------------------------ audit
@@ -40,7 +41,24 @@ export function AuditLogPage() {
   const [sel, setSel] = useState<any | null>(null);
   return (
     <div>
-      <PageHeader title="سجل التدقيق" subtitle="كل إضافة أو تعديل أو حذف أو ترحيل أو إقفال مسجل من قاعدة البيانات مباشرة مع المستخدم والوقت والقيم قبل وبعد. السجل غير قابل للتعديل." />
+      <PageHeader
+        title="سجل التدقيق"
+        subtitle="كل إضافة أو تعديل أو حذف أو ترحيل أو إقفال مسجل من قاعدة البيانات مباشرة مع المستخدم والوقت والقيم قبل وبعد. السجل غير قابل للتعديل."
+        actions={
+          <ExportMenu
+            title="سجل التدقيق والعمليات (Audit Log)"
+            columns={[
+              { key: 'occurredAt', header: 'الوقت', width: 20 },
+              { key: 'userName', header: 'المستخدم', width: 18 },
+              { key: 'action', header: 'العملية', width: 14 },
+              { key: 'tableName', header: 'الجدول', width: 18 },
+              { key: 'reason', header: 'السبب / البيان', width: 32 },
+              { key: 'ip', header: 'IP', width: 14 },
+            ]}
+            data={Array.isArray(q.data) ? q.data : (q.data?.data ?? [])}
+          />
+        }
+      />
       <div className="card overflow-hidden">
         <div className="flex flex-wrap gap-2 border-b border-slate-200 p-3 dark:border-slate-800">
           <input className="input w-48" dir="ltr" placeholder="الجدول (مثال: journal_entries)" value={f.table} onChange={(e) => setF({ ...f, table: e.target.value.trim() })} />
@@ -95,7 +113,22 @@ export function SecurityEventsPage() {
   const q = useQuery({ queryKey: ['security-events', page], queryFn: () => api.get<Page<any>>('/security-events', { page, pageSize: 50 }) });
   return (
     <div>
-      <PageHeader title="الأحداث الأمنية" subtitle="محاولات الدخول، القفل، تغيير كلمات المرور، إعادة استخدام رموز التحديث." />
+      <PageHeader
+        title="الأحداث الأمنية"
+        subtitle="محاولات الدخول، القفل، تغيير كلمات المرور، إعادة استخدام رموز التحديث."
+        actions={
+          <ExportMenu
+            title="تقرير الأحداث الأمنية (Security Events)"
+            columns={[
+              { key: 'occurredAt', header: 'الوقت', width: 20 },
+              { key: 'username', header: 'المستخدم', width: 18 },
+              { key: 'eventType', header: 'نوع الحدث', width: 20 },
+              { key: 'ip', header: 'عنوان IP', width: 16 },
+            ]}
+            data={Array.isArray(q.data) ? q.data : (q.data?.data ?? [])}
+          />
+        }
+      />
       <div className="card overflow-hidden">
         {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : (Array.isArray(q.data) ? q.data : (q.data?.data ?? [])).length === 0 ? <EmptyState text="لا توجد أحداث." /> : (
           <>
@@ -131,7 +164,27 @@ export function UsersPage() {
   const unassign = useMutation({ mutationFn: ({ u, a }: { u: string; a: string }) => api.del(`/users/${u}/roles/${a}`), onSuccess: inv, onError: (e) => toast.error(e) });
   return (
     <div>
-      <PageHeader title="المستخدمون" actions={<button className="btn-primary" onClick={() => setCreate({ username: '', fullName: '', email: '', password: '', preferredLocale: 'ar', mustChangePassword: true })}><Plus className="size-4" /> مستخدم جديد</button>} />
+      <PageHeader
+        title="المستخدمون"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title="دليل مستخدمي النظام والصلاحيات"
+              columns={[
+                { key: 'username', header: 'اسم المستخدم', width: 16 },
+                { key: 'fullName', header: 'الاسم الكامل', width: 24 },
+                { key: 'email', header: 'البريد الإلكتروني', width: 24 },
+                { key: 'status', header: 'الحالة', width: 12 },
+                { key: 'lastLoginAt', header: 'آخر دخول', width: 20 },
+              ]}
+              data={Array.isArray(q.data) ? q.data : (q.data?.data ?? [])}
+            />
+            <button className="btn-primary" onClick={() => setCreate({ username: '', fullName: '', email: '', password: '', preferredLocale: 'ar', mustChangePassword: true })}>
+              <Plus className="size-4" /> مستخدم جديد
+            </button>
+          </div>
+        }
+      />
       <div className="card overflow-hidden">
         {q.isLoading ? <Loading /> : q.error ? <div className="p-4"><ErrorState error={q.error} /></div> : (Array.isArray(q.data) ? q.data : (q.data?.data ?? [])).length === 0 ? <EmptyState text="لا يوجد مستخدمون." /> : (
           <>
@@ -221,7 +274,25 @@ export function RolesPage() {
   const roleList: any[] = Array.isArray(rawRoles) ? rawRoles : (rawRoles?.data ?? []);
   return (
     <div>
-      <PageHeader title="الأدوار والصلاحيات" subtitle="القوالب الجاهزة للعرض والنسخ فقط. أنشئ أدوار الشركة واختر الصلاحيات من المصفوفة." actions={<button className="btn-primary" onClick={() => open(null)}><Plus className="size-4" /> دور جديد</button>} />
+      <PageHeader
+        title="الأدوار والصلاحيات"
+        subtitle="القوالب الجاهزة للعرض والنسخ فقط. أنشئ أدوار الشركة واختر الصلاحيات من المصفوفة."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title="دليل الأدوار والصلاحيات (RBAC)"
+              columns={[
+                { key: 'code', header: 'الرمز', width: 16 },
+                { key: 'nameAr', header: 'اسم الدور', width: 24 },
+                { key: 'permissionCount', header: 'عدد الصلاحيات', width: 14, type: 'number' },
+                { key: 'userCount', header: 'عدد المستخدمين', width: 14, type: 'number' },
+              ]}
+              data={roleList}
+            />
+            <button className="btn-primary" onClick={() => open(null)}><Plus className="size-4" /> دور جديد</button>
+          </div>
+        }
+      />
       <div className="card overflow-hidden">
         {roleList.length === 0 ? <EmptyState text="لا توجد أدوار" /> : (
           <table className="table">

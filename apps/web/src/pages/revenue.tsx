@@ -69,17 +69,6 @@ export function RevenuePage() {
 
   const runList = Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? []);
 
-  const handleExportRuns = () => {
-    if (!runList.length) return;
-    downloadCsv(`revenue-runs-${today()}.csv`, [
-      ['رقم التشغيل', 'الفترة المالية', 'المشاريع', 'الموظفون', 'الخطوط', 'إجمالي الإيراد', 'رقم القيد المحاسبي', 'الحالة'],
-      ...runList.map((r: any) => [
-        r.runNo, r.periodName, r.projectCount, r.employeeCount, r.lineCount, r.totalRevenueBase, r.journalEntryNo || '—', r.status,
-      ]),
-    ]);
-    toast.success('تم تصدير تشغيلات الإيراد إلى CSV بنجاح');
-  };
-
   const handleExportPreview = () => {
     const lines = preview.data?.lines;
     if (!lines || !Array.isArray(lines) || !lines.length) return;
@@ -99,12 +88,20 @@ export function RevenuePage() {
         subtitle="يحسب ويرحّل إيرادات الخدمات بناءً على تخصيصات الموظفين وأسعار الخدمات (السعر × التخصيص % × الفترة)."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportRuns} title="تصدير السجل">
-              <Download className="size-3.5" /> تصدير سجل التشغيلات
-            </button>
+            <ExportMenu
+              title="سجل تشغيلات محرك الإيرادات التشغيلي"
+              columns={[
+                { key: 'runNo', header: 'رقم التشغيل', width: 16 },
+                { key: 'periodName', header: 'الفترة المالية', width: 18 },
+                { key: 'projectCount', header: 'المشاريع', width: 10, type: 'number' },
+                { key: 'employeeCount', header: 'الموظفون', width: 10, type: 'number' },
+                { key: 'lineCount', header: 'الخطوط', width: 10, type: 'number' },
+                { key: 'totalRevenueBase', header: 'إجمالي الإيراد', width: 16, type: 'currency', isTotal: true },
+                { key: 'journalEntryNo', header: 'القيد المحاسبي', width: 16 },
+                { key: 'status', header: 'الحالة', width: 12 },
+              ]}
+              data={runList}
+            />
           </div>
         }
       />

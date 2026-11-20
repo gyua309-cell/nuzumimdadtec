@@ -421,17 +421,6 @@ export function DepreciationPage() {
 
   const runList = Array.isArray(runs.data) ? runs.data : (runs.data?.data ?? []);
 
-  const handleExportRuns = () => {
-    if (!runList.length) return;
-    downloadCsv(`depreciation-runs-${today()}.csv`, [
-      ['رقم التشغيل', 'الفترة المالية', 'عدد الأصول', 'إجمالي الإهلاك', 'رقم القيد المحاسبي', 'الحالة'],
-      ...runList.map((r: any) => [
-        r.runNo, r.periodName, r.assetCount, r.totalAmountBase, r.journalEntryNo || '—', r.status,
-      ]),
-    ]);
-    toast.success('تم تصدير سجل تشغيلات الإهلاك إلى CSV بنجاح');
-  };
-
   const handleExportPreview = () => {
     if (!preview.data?.lines?.length) return;
     downloadCsv(`depreciation-preview-${periodId || today()}.csv`, [
@@ -450,12 +439,18 @@ export function DepreciationPage() {
         subtitle="يرحّل أقساط الإهلاك المستحقة حتى نهاية الفترة (بما فيها المتأخر) في قيد واحد، موزعة على الموظفين حسب أيام العهدة."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportRuns} title="تصدير السجل">
-              <Download className="size-3.5" /> تصدير سجل التشغيلات
-            </button>
+            <ExportMenu
+              title="سجل تشغيلات الإهلاك الشهري للأصول الثابتة"
+              columns={[
+                { key: 'runNo', header: 'رقم التشغيل', width: 16 },
+                { key: 'periodName', header: 'الفترة المالية', width: 18 },
+                { key: 'assetCount', header: 'عدد الأصول', width: 12, type: 'number', isTotal: true },
+                { key: 'totalAmountBase', header: 'إجمالي الإهلاك', width: 16, type: 'currency', isTotal: true },
+                { key: 'journalEntryNo', header: 'رقم القيد المحاسبي', width: 16 },
+                { key: 'status', header: 'الحالة', width: 12 },
+              ]}
+              data={runList}
+            />
           </div>
         }
       />

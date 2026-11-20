@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, BarChart3, Briefcase, CheckCircle2, Download, Eye, FileText, Layers, Pencil, PieChart, Plus, Printer, Search, Sparkles, Trash2, TrendingUp, Upload, Users, Wallet } from 'lucide-react';
+import { ArrowRight, BarChart3, Briefcase, CheckCircle2, Eye, FileText, Layers, Pencil, PieChart, Plus, Printer, Search, Sparkles, Trash2, TrendingUp, Upload, Users, Wallet } from 'lucide-react';
 import { api, Page } from '../lib/api';
-import { date, downloadCsv, money, today } from '../lib/format';
+import { date, money, today } from '../lib/format';
 import { normalizePricingBasis } from '../lib/fallback-engine';
 import { opts, PRICING_BASIS, PROJECT_STATUS } from '../lib/labels';
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
@@ -1032,17 +1032,6 @@ export function AssignmentsPage() {
   const activeCount = assignmentItems.filter((a) => !a.endDate || a.endDate >= today()).length;
   const overAllocatedCount = assignmentItems.filter((a) => a.isOverAllocated).length;
 
-  const handleExportCsv = () => {
-    if (!assignmentItems.length) return;
-    downloadCsv(`assignments-${today()}.csv`, [
-      ['اسم الموظف', 'كود المشروع', 'اسم المشروع', 'نسبة التخصيص%', 'تاريخ البداية', 'تاريخ النهاية', 'فائض تخصيص؟'],
-      ...assignmentItems.map((a: any) => [
-        a.employeeName, a.projectCode, a.projectName, `${a.allocationPct}%`, a.startDate || '', a.endDate || 'مفتوح', a.isOverAllocated ? 'نعم (فائض)' : 'طبيعي',
-      ]),
-    ]);
-    toast.success('تم تصدير التخصيصات إلى CSV بنجاح');
-  };
-
   const fields: FieldDef[] = [
     { name: 'employeeId', label: 'الموظف *', type: 'ref', ref: REF.employee, required: true },
     { name: 'clientId', label: 'العميل المتعاقد', type: 'ref', ref: REF.client, hint: 'اختياري: لتصفية وتحديد العميل المتعاقد' },
@@ -1101,12 +1090,19 @@ export function AssignmentsPage() {
             <Link to="/prj/allocation-days" className="btn-secondary text-xs flex items-center gap-1.5 text-brand-700 bg-brand-50 border-brand-200 hover:bg-brand-100">
               <Layers className="size-3.5 text-brand-600" /> تقرير الأيام والنسب وربط المبيعات
             </Link>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="سجل تخصيصات الموظفين على المشاريع"
+              columns={[
+                { key: 'employeeNameAr', header: 'الموظف', width: 22 },
+                { key: 'projectNameAr', header: 'المشروع', width: 22 },
+                { key: 'allocationPct', header: 'نسبة التخصيص %', width: 14, type: 'percent' },
+                { key: 'billableRate', header: 'سعر الفوترة', width: 15, type: 'currency', isTotal: true },
+                { key: 'startDate', header: 'من تاريخ', width: 14 },
+                { key: 'endDate', header: 'إلى تاريخ', width: 14 },
+                { key: 'status', header: 'الحالة', width: 12 },
+              ]}
+              data={assignmentItems}
+            />
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAdding(true)}>
               <Plus className="size-4" /> إضافة تخصيص
             </button>
@@ -1234,17 +1230,6 @@ export function ServicePricesPage() {
   const rawPrice: any = list.data;
   const priceItems: any[] = Array.isArray(rawPrice) ? rawPrice : (Array.isArray(rawPrice?.data) ? rawPrice.data : []);
 
-  const handleExportCsv = () => {
-    if (!priceItems.length) return;
-    downloadCsv(`service-prices-${today()}.csv`, [
-      ['اسم الموظف', 'أساس التسعير', 'السعر', 'العملة', 'النوع (عام أم خاص بمشروع)', 'ساري من', 'ساري حتى'],
-      ...priceItems.map((sp: any) => [
-        sp.employeeName, PRICING_BASIS[sp.pricingBasis ?? sp.basis] || sp.pricingBasis, sp.price, sp.currencyCode, sp.projectId ? 'خاص بمشروع' : 'افتراضي عام', sp.effectiveFrom || '', sp.effectiveTo || 'مفتوح',
-      ]),
-    ]);
-    toast.success('تم تصدير أسعار الخدمات إلى CSV بنجاح');
-  };
-
   const fields: FieldDef[] = [
     { name: 'employeeId', label: 'الموظف', type: 'ref', ref: REF.employee, required: true },
     { name: 'projectId', label: 'المشروع (اختياري - Override)', type: 'ref', ref: REF.project, hint: 'اتركه فارغًا ليكون السعر الافتراضي العام للموظف، أو حدد مشروعًا ليكون سعرًا خاصًا (Override)' },
@@ -1263,12 +1248,18 @@ export function ServicePricesPage() {
         subtitle="السعر الافتراضي لكل موظف. عند إسناده لمشروع يمكن تجاوزه بسعر خاص بالمشروع (Override). السعر مؤرّخ ولا يتأثر بالتغييرات المستقبلية."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="أسعار خدمات الموظفين والمبرمجين"
+              columns={[
+                { key: 'employeeName', header: 'اسم الموظف', width: 22 },
+                { key: 'pricingBasis', header: 'أساس التسعير', width: 14 },
+                { key: 'price', header: 'السعر', width: 15, type: 'currency', isTotal: true },
+                { key: 'currencyCode', header: 'العملة', width: 10 },
+                { key: 'effectiveFrom', header: 'ساري من', width: 14 },
+                { key: 'effectiveTo', header: 'ساري حتى', width: 14 },
+              ]}
+              data={priceItems}
+            />
             <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAdding(true)}>
               <Plus className="size-4" /> إضافة سعر
             </button>

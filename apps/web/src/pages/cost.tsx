@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Download, Plus, Printer, Square, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
+import { ExportMenu } from '../components/ExportMenu';
 import { useBaseCurrency } from '../lib/auth';
 import { date, downloadCsv, money, today } from '../lib/format';
 import { CALC_METHOD, COMPONENT_NATURE, COMPONENT_TYPE, COST_BEHAVIOR, opts, POSTING_TREATMENT, PROFITABILITY_TREATMENT, TAX_TREATMENT } from '../lib/labels';
@@ -187,14 +188,6 @@ export function CostSheetPage() {
   const [periodId, setPeriodId] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const sheet = useQuery({ queryKey: ['cost-sheet', periodId], queryFn: () => api.get<any>('/cost-sheet', periodId ? { periodId } : {}) });
-  const exportCsv = () => {
-    if (!sheet.data) return;
-    const rows: any[] = Array.isArray(sheet.data?.rows) ? sheet.data.rows : (Array.isArray(sheet.data) ? sheet.data : []);
-    downloadCsv(`cost-sheet-${sheet.data.period?.name || today()}.csv`, [
-      ['الرقم', 'الموظف', 'أيام العمل', 'إجمالي التكلفة', 'القابلة للتوزيع', 'الاستقطاعات'],
-      ...rows.map((r: any) => [r.code, r.fullNameAr, r.employedDays, r.totalCostBase, r.distributableCostBase, r.totalDeductionsBase]),
-    ]);
-  };
   const rows: any[] = Array.isArray(sheet.data?.rows) ? sheet.data.rows : (Array.isArray(sheet.data) ? sheet.data : []);
   return (
     <div className="space-y-4">
@@ -203,14 +196,19 @@ export function CostSheetPage() {
         subtitle="تكلفة كل موظف عن الفترة بعملة الشركة الأساسية، محسوبة من البيانات الفعلية المؤرخة."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            {sheet.data && (
-              <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={exportCsv} title="تصدير CSV">
-                <Download className="size-3.5" /> تصدير Excel/CSV
-              </button>
-            )}
+            <ExportMenu
+              title="كشف تكلفة الموظفين الشهري"
+              periodLabel={sheet.data?.period?.name || ''}
+              columns={[
+                { key: 'code', header: 'الرقم الوظيفي', width: 14 },
+                { key: 'fullNameAr', header: 'اسم الموظف', width: 24 },
+                { key: 'employedDays', header: 'أيام العمل', width: 12, type: 'number' },
+                { key: 'totalCostBase', header: 'إجمالي التكلفة', width: 16, type: 'currency', isTotal: true },
+                { key: 'distributableCostBase', header: 'القابلة للتوزيع', width: 16, type: 'currency', isTotal: true },
+                { key: 'totalDeductionsBase', header: 'الاستقطاعات', width: 16, type: 'currency', isTotal: true },
+              ]}
+              data={rows}
+            />
           </div>
         }
       />

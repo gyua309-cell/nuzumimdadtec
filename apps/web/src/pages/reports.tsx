@@ -4,13 +4,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactECharts from 'echarts-for-react';
 import {
   Activity, ArrowUpRight, BarChart3, Briefcase, Building2, Calendar,
-  CheckCircle2, Clock, DollarSign, Download, FileText,
+  CheckCircle2, Clock, DollarSign, FileText,
   HelpCircle, Landmark, Layers, Lock, LockOpen, PieChart, Plus, Printer, Receipt,
   ShieldAlert, ShieldCheck, Sparkles, Target, TrendingUp, Users, Wallet, XCircle,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
-import { date, dateTime, downloadCsv, money, monthStart, today, yearStart } from '../lib/format';
+import { date, dateTime, money, monthStart, today, yearStart } from '../lib/format';
 import { ACCOUNT_CLASS, CHECK_STATUS } from '../lib/labels';
 import { PeriodSelect } from '../components/forms';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
@@ -912,7 +912,22 @@ export function ClosingPage() {
   const p = periodItems.find((x) => x.id === periodId);
   return (
     <div>
-      <PageHeader title="إقفال الفترات" subtitle="الإقفال يتم بالترتيب بعد اجتياز الفحوصات، وينشئ لقطة تاريخية محمية ببصمة SHA-256. إعادة الفتح تتطلب صلاحية وسببًا." />
+      <PageHeader
+        title="إقفال الفترات"
+        subtitle="الإقفال يتم بالترتيب بعد اجتياز الفحوصات، وينشئ لقطة تاريخية محمية ببصمة SHA-256. إعادة الفتح تتطلب صلاحية وسببًا."
+        actions={
+          <ExportMenu
+            title={`تقرير فحوصات إقفال الفترة — ${p?.name || ''}`}
+            columns={[
+              { key: 'code', header: 'الرمز', width: 16 },
+              { key: 'titleAr', header: 'الفحص', width: 28 },
+              { key: 'status', header: 'النتيجة', width: 14 },
+              { key: 'message', header: 'التفاصيل', width: 34 },
+            ]}
+            data={checks.data?.results ?? []}
+          />
+        }
+      />
       {periodItems.length === 0 ? <div className="card"><EmptyState text="لا توجد فترات مالية. أنشئ سنة مالية أولًا." /></div> : (
         <div className="grid grid-cols-[260px_1fr] gap-4">
           <div className="card max-h-[70vh] overflow-y-auto p-2">
@@ -961,22 +976,12 @@ export function ClosingPage() {
 }
 
 export function SnapshotsPage() {
-  const toast = useToast();
   const q = useQuery({ queryKey: ['snapshots'], queryFn: () => api.get<any[]>('/snapshots') });
   const [sel, setSel] = useState<string | null>(null);
   const snap = useQuery({ queryKey: ['snapshot', sel], enabled: !!sel, queryFn: () => api.get<any>(`/snapshots/${sel}`) });
 
   const rawQ: any = q.data;
   const snapshotsList: any[] = Array.isArray(rawQ) ? rawQ : (rawQ?.data ?? []);
-
-  const handleExportCsv = () => {
-    if (!snapshotsList.length) return;
-    downloadCsv(`closing-snapshots-${today()}.csv`, [
-      ['الفترة المالية', 'رقم الإصدار', 'نوع اللقطة', 'بصمة البيانات SHA-256', 'تاريخ الإنشاء', 'بواسطة'],
-      ...snapshotsList.map((s) => [s.periodName, s.version, s.kind, s.dataHash, s.createdAt, s.createdBy]),
-    ]);
-    toast.success('تم تصدير لقطات الإقفال إلى CSV بنجاح');
-  };
 
   return (
     <div className="space-y-4">
@@ -985,14 +990,18 @@ export function SnapshotsPage() {
         subtitle="لقطة رقمية لكل فترة تم إقفالها لحفظ الأرقام التاريخية. البيانات محمية ببصمة تشفير SHA-256 يتحقق منها النظام لمنع أي تعديل لاحق."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            {snapshotsList.length > 0 && (
-              <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv} title="تصدير CSV">
-                <Download className="size-3.5" /> تصدير Excel/CSV
-              </button>
-            )}
+            <ExportMenu
+              title="سجل لقطات الإقفال التاريخية (Snapshots)"
+              columns={[
+                { key: 'periodName', header: 'الفترة المالية', width: 20 },
+                { key: 'version', header: 'الإصدار', width: 10 },
+                { key: 'kind', header: 'النوع', width: 14 },
+                { key: 'dataHash', header: 'بصمة البيانات SHA-256', width: 32 },
+                { key: 'createdAt', header: 'التاريخ', width: 18 },
+                { key: 'createdBy', header: 'بواسطة', width: 16 },
+              ]}
+              data={snapshotsList}
+            />
           </div>
         }
       />
@@ -1484,31 +1493,6 @@ export function ExecutiveIntelligencePage() {
     };
   }, [projects]);
 
-  const handleExportCsv = () => {
-    if (activeTab === 'feasibility') {
-      downloadCsv(`service-price-feasibility-${today()}.csv`, [
-        ['الكود', 'الموظف', 'الوظيفة', 'التكلفة الشهرية', 'السعر الشهري', 'أساس التسعير', 'الهامش %', 'حالة الجدوى'],
-        ...feasibilityList.map((f: any) => [
-          f.employeeCode, f.employeeName, f.positionTitle, f.monthlyCost, f.monthlyBillingRate, f.basis, f.marginOnPrice ? `${f.marginOnPrice.toFixed(1)}%` : '—', f.status,
-        ]),
-      ]);
-    } else if (activeTab === 'margin-gap') {
-      downloadCsv(`project-margin-gap-${today()}.csv`, [
-        ['الكود', 'المشروع', 'العميل', 'الإيراد', 'إجمالي التكلفة', 'الربح', 'الهامش الفعلي %', 'الهامش المستهدف %', 'فجوة الهامش (SAR)', 'الامتثال'],
-        ...targetGapProjects.map((p: any) => [
-          p.projectCode, p.projectName, p.clientName, p.revenueBase, p.totalCostBase, p.grossProfitBase, `${p.actualMargin}%`, `${p.targetMargin}%`, p.gapBase, p.meetsTarget ? 'يحقق' : 'دون الهدف',
-        ]),
-      ]);
-    } else {
-      downloadCsv(`unutilized-capacity-${today()}.csv`, [
-        ['الكود', 'الموظف', 'القسم', 'نسبة التخصيص %', 'نسبة الوقت غير المستغل %', 'تكلفة الوقت غير المستغل (SAR)', 'التكلفة المباشرة', 'الإيراد المولد'],
-        ...employees.map((e: any) => [
-          e.employeeCode, e.employeeName, e.departmentName, e.allocatedPct, e.unutilizedPct, e.unutilizedCostBase, e.directCostBase, e.revenueBase,
-        ]),
-      ]);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -1516,13 +1500,38 @@ export function ExecutiveIntelligencePage() {
         title="لوحة الرقابة والذكاء المالي والتنفيذي (Executive Intelligence)"
         subtitle="مؤشرات الأداء المالي والتشغيلي المباشر للكوادر والمشاريع وهوامش الربحية واستغلال الطاقة الاستيعابية وفق أفضل الممارسات المحاسبية العالمية."
         actions={
-          <div className="flex items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv}>
-              <Download className="size-3.5" /> تصدير CSV
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()}>
-              <Printer className="size-3.5" /> طباعة التقرير
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title="تقرير الذكاء المالي والتنفيذي (Executive Intelligence)"
+              columns={
+                activeTab === 'feasibility'
+                  ? [
+                      { key: 'employeeCode', header: 'الكود', width: 12 },
+                      { key: 'employeeName', header: 'الموظف', width: 22 },
+                      { key: 'monthlyCost', header: 'التكلفة الشهرية', width: 15, type: 'currency', isTotal: true },
+                      { key: 'monthlyBillingRate', header: 'السعر الشهري', width: 15, type: 'currency', isTotal: true },
+                      { key: 'status', header: 'الجدوى', width: 14 },
+                    ]
+                  : activeTab === 'margin-gap'
+                    ? [
+                        { key: 'projectCode', header: 'الكود', width: 12 },
+                        { key: 'projectName', header: 'المشروع', width: 22 },
+                        { key: 'revenueBase', header: 'الإيراد', width: 15, type: 'currency', isTotal: true },
+                        { key: 'totalCostBase', header: 'التكلفة', width: 15, type: 'currency', isTotal: true },
+                        { key: 'grossProfitBase', header: 'الربح', width: 15, type: 'currency', isTotal: true },
+                        { key: 'actualMargin', header: 'الهامش الفعلي %', width: 14, type: 'percent' },
+                      ]
+                    : [
+                        { key: 'employeeCode', header: 'الكود', width: 12 },
+                        { key: 'employeeName', header: 'الموظف', width: 22 },
+                        { key: 'allocatedPct', header: 'التخصيص %', width: 12, type: 'percent' },
+                        { key: 'unutilizedPct', header: 'غير المستغل %', width: 12, type: 'percent' },
+                        { key: 'unutilizedCostBase', header: 'تكلفة التفرغ', width: 15, type: 'currency', isTotal: true },
+                        { key: 'revenueBase', header: 'الإيراد', width: 15, type: 'currency', isTotal: true },
+                      ]
+              }
+              data={activeTab === 'feasibility' ? feasibilityList : activeTab === 'margin-gap' ? targetGapProjects : employees}
+            />
             <Link to="/rev/profitability" className="btn-primary bg-brand-600 hover:bg-brand-700 text-white text-xs flex items-center gap-1.5">
               <Layers className="size-3.5" /> مصفوفة الربحية الثلاثية
             </Link>

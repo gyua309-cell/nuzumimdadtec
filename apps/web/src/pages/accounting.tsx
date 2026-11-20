@@ -1200,7 +1200,27 @@ export function PostingRulesPage() {
 
   return (
     <div>
-      <PageHeader title="قواعد الترحيل" subtitle="تحدد الحسابات المستخدمة لكل حدث مالي (رواتب، إيرادات، إهلاك…). لا توجد حسابات مثبتة في الكود؛ كل التوجيه المحاسبي من هنا." actions={<button className="btn-primary" onClick={openNew}><Plus className="size-4" /> قاعدة جديدة</button>} />
+      <PageHeader
+        title="قواعد الترحيل"
+        subtitle="تحدد الحسابات المستخدمة لكل حدث مالي (رواتب، إيرادات، إهلاك…). لا توجد حسابات مثبتة في الكود؛ كل التوجيه المحاسبي من هنا."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title="دليل قواعد الترحيل المحاسبي الآلي"
+              columns={[
+                { key: 'eventCode', header: 'رمز الحدث', width: 18 },
+                { key: 'name', header: 'اسم القاعدة', width: 26 },
+                { key: 'ledger', header: 'الدفتر', width: 14 },
+                { key: 'priority', header: 'الأولوية', width: 10 },
+                { key: 'effectiveFrom', header: 'سارية من', width: 14 },
+                { key: 'isActive', header: 'نشطة', width: 10 },
+              ]}
+              data={ruleList}
+            />
+            <button className="btn-primary" onClick={openNew}><Plus className="size-4" /> قاعدة جديدة</button>
+          </div>
+        }
+      />
       <div className="card overflow-hidden">
         <table className="table">
           <thead><tr><th>الحدث</th><th>الوصف</th><th>القواعد المعرفة</th><th /></tr></thead>

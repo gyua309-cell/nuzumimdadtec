@@ -2,16 +2,16 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Award, BarChart3, Calculator, Download,
-  Printer, RefreshCw, Search, TrendingUp, Users, Briefcase, Building2
+  Award, BarChart3, Calculator,
+  RefreshCw, Search, TrendingUp, Users, Briefcase, Building2
 } from 'lucide-react';
+import { ExportMenu } from '../components/ExportMenu';
 import { api } from '../lib/api';
-import { downloadCsv, money, today } from '../lib/format';
+import { money } from '../lib/format';
 import { PeriodSelect } from '../components/forms';
-import { Badge, Loading, PageHeader, useToast } from '../components/ui';
+import { Badge, Loading, PageHeader } from '../components/ui';
 
 export function EmployeeProfitabilityReportPage() {
-  const toast = useToast();
   const [periodId, setPeriodId] = useState('');
   const [activeTab, setActiveTab] = useState<'employees' | 'projects' | 'clients'>('employees');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'TOP_PERFORMER' | 'PROFITABLE' | 'LOSS_MAKER'>('ALL');
@@ -92,79 +92,6 @@ export function EmployeeProfitabilityReportPage() {
     });
   }, [clients, search]);
 
-  const handleExportCsv = () => {
-    if (activeTab === 'employees') {
-      const rows = [
-        ['تقرير مصفوفة ربحية الكوادر البشرية والوقت غير المستغل (Business Process L1)'],
-        ['تاريخ الاستخراج:', today()],
-        [],
-        ['كود الموظف', 'اسم الموظف', 'القسم', 'المسمى الوظيفي', 'التخصيص%', 'غير المستغل%', 'تكلفة التفرغ (Bench)', 'التكلفة المباشرة', 'المصروفات الإدارية 10%', 'إجمالي التكلفة', 'الإيراد المفوتر', 'صافي الربح', 'هامش الربح%', 'المستهدف%', 'الحالة'],
-        ...filteredEmployees.map((e) => [
-          e.employeeCode || e.code,
-          e.employeeName || e.nameAr,
-          e.departmentName || '',
-          e.positionTitle || '',
-          `${e.allocatedPct}%`,
-          `${e.unutilizedPct}%`,
-          e.unutilizedCostBase,
-          e.directCostBase,
-          e.overheadBase || e.overheadCostBase,
-          e.totalCostBase,
-          e.revenueBase,
-          e.grossProfitBase,
-          `${e.grossMarginPct}%`,
-          `${e.targetMarginPct}%`,
-          e.status === 'TOP_PERFORMER' ? 'ممتاز (فوق المستهدف)' : e.status === 'PROFITABLE' ? 'رابح' : 'خاسر',
-        ]),
-      ];
-      downloadCsv(`Employee_Profitability_${today()}.csv`, rows);
-      toast.success('تم تصدير تقرير ربحية الكوادر بنجاح');
-    } else if (activeTab === 'projects') {
-      const rows = [
-        ['تقرير ربحية المشاريع التعاقدية (Business Process L2)'],
-        ['تاريخ الاستخراج:', today()],
-        [],
-        ['كود المشروع', 'اسم المشروع', 'العميل', 'عدد الكوادر', 'إيرادات المشروع', 'تكلفة الكوادر المحملة', 'المصروفات الإدارية', 'إجمالي التكلفة', 'صافي الربح', 'هامش الربح%', 'المستهدف%', 'الحالة'],
-        ...filteredProjects.map((p) => [
-          p.projectCode || p.code,
-          p.projectName || p.nameAr,
-          p.clientName || '',
-          p.teamCount,
-          p.revenueBase,
-          p.directCostBase || p.employeeCostBase,
-          p.overheadBase || p.overheadCostBase,
-          p.totalCostBase,
-          p.grossProfitBase,
-          `${p.grossMarginPct}%`,
-          `${p.requiredMarginPct || p.targetMarginPct}%`,
-          p.profitabilityStatus || p.status,
-        ]),
-      ];
-      downloadCsv(`Project_Profitability_${today()}.csv`, rows);
-      toast.success('تم تصدير تقرير ربحية المشاريع بنجاح');
-    } else {
-      const rows = [
-        ['تقرير ربحية حسابات العملاء (Business Process L3)'],
-        ['تاريخ الاستخراج:', today()],
-        [],
-        ['كود العميل', 'اسم العميل', 'عدد المشاريع', 'إجمالي الإيرادات', 'التكلفة المباشرة', 'المصروفات الإدارية', 'إجمالي التكلفة', 'صافي الربح', 'هامش الربح%'],
-        ...filteredClients.map((c) => [
-          c.clientCode || c.code,
-          c.clientName || c.nameAr,
-          c.projectCount || c.projectsCount,
-          c.revenueBase,
-          c.directCostBase,
-          c.overheadBase,
-          c.totalCostBase,
-          c.grossProfitBase,
-          `${c.grossMarginPct}%`,
-        ]),
-      ];
-      downloadCsv(`Client_Profitability_${today()}.csv`, rows);
-      toast.success('تم تصدير تقرير ربحية العملاء بنجاح');
-    }
-  };
-
   const refetchAll = () => {
     empQ.refetch();
     prjQ.refetch();
@@ -177,16 +104,48 @@ export function EmployeeProfitabilityReportPage() {
         title="مصفوفة الربحية ثلاثية المستويات (Profitability Intelligence Hub)"
         subtitle="تحليل اقتصادي متكامل يربط (العميل ← المشروع ← الموظف ← التخصيص ← الإيراد والتكلفة ← الربحية الفعلية) وفق وثيقة Business Process."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button onClick={refetchAll} className="btn-secondary text-xs flex items-center gap-1.5">
               <RefreshCw className="size-3.5" /> تحديث
             </button>
-            <button onClick={handleExportCsv} className="btn-secondary text-xs flex items-center gap-1.5">
-              <Download className="size-3.5" /> تصدير CSV
-            </button>
-            <button onClick={() => window.print()} className="btn-primary text-xs flex items-center gap-1.5">
-              <Printer className="size-3.5" /> طباعة التقرير
-            </button>
+            <ExportMenu
+              title={
+                activeTab === 'employees'
+                  ? 'تقرير ربحية الكوادر البشرية والوقت غير المستغل'
+                  : activeTab === 'projects'
+                    ? 'تقرير ربحية المشاريع التعاقدية'
+                    : 'تقرير ربحية العملاء'
+              }
+              columns={
+                activeTab === 'employees'
+                  ? [
+                      { key: 'employeeCode', header: 'الكود', width: 12 },
+                      { key: 'employeeName', header: 'الموظف', width: 22 },
+                      { key: 'allocatedPct', header: 'التخصيص %', width: 12, type: 'percent' },
+                      { key: 'directCostBase', header: 'التكلفة المباشرة', width: 15, type: 'currency', isTotal: true },
+                      { key: 'totalCostBase', header: 'إجمالي التكلفة', width: 15, type: 'currency', isTotal: true },
+                      { key: 'revenueBase', header: 'الإيراد المفوتر', width: 15, type: 'currency', isTotal: true },
+                      { key: 'grossProfitBase', header: 'صافي الربح', width: 15, type: 'currency', isTotal: true },
+                    ]
+                  : activeTab === 'projects'
+                    ? [
+                        { key: 'projectCode', header: 'كود المشروع', width: 14 },
+                        { key: 'projectName', header: 'اسم المشروع', width: 24 },
+                        { key: 'clientName', header: 'العميل', width: 20 },
+                        { key: 'revenueBase', header: 'الإيرادات', width: 15, type: 'currency', isTotal: true },
+                        { key: 'totalCostBase', header: 'إجمالي التكلفة', width: 15, type: 'currency', isTotal: true },
+                        { key: 'grossProfitBase', header: 'صافي الربح', width: 15, type: 'currency', isTotal: true },
+                      ]
+                    : [
+                        { key: 'clientCode', header: 'كود العميل', width: 14 },
+                        { key: 'clientName', header: 'العميل', width: 24 },
+                        { key: 'revenueBase', header: 'الإيرادات', width: 15, type: 'currency', isTotal: true },
+                        { key: 'totalCostBase', header: 'إجمالي التكلفة', width: 15, type: 'currency', isTotal: true },
+                        { key: 'grossProfitBase', header: 'صافي الربح', width: 15, type: 'currency', isTotal: true },
+                      ]
+              }
+              data={activeTab === 'employees' ? filteredEmployees : activeTab === 'projects' ? filteredProjects : filteredClients}
+            />
           </div>
         }
       />

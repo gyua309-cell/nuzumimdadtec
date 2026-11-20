@@ -24,6 +24,7 @@ import {
 import { api } from '../lib/api';
 import { dateTime, money } from '../lib/format';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
+import { ExportMenu } from '../components/ExportMenu';
 import { Badge, ErrorState, Loading, PageHeader, Spinner, Stat, useToast } from '../components/ui';
 
 const ENV_META: Record<string, { label: string; color: 'amber' | 'blue' | 'green' }> = {
@@ -171,6 +172,19 @@ export function ZatcaHubPage() {
         subtitle="لوحة القيادة التنفيذية لمرحلة الربط والتكامل المباشر (Clearance & Reporting)، إدارة أجهزة EGS، الشهادات الرقمية، ومراقبة حالة الامتثال."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              title="ملخص لوحة الفوترة الإلكترونية وسجل الإرسال (ZATCA Phase 2)"
+              columns={[
+                { key: 'invoiceNo', header: 'رقم الفاتورة', width: 16 },
+                { key: 'clientName', header: 'العميل', width: 22 },
+                { key: 'mode', header: 'المسار', width: 14 },
+                { key: 'environment', header: 'البيئة', width: 12 },
+                { key: 'status', header: 'الحالة', width: 14 },
+                { key: 'responseCode', header: 'كود الهيئة', width: 14 },
+                { key: 'responseMessage', header: 'رسالة الهيئة', width: 32 },
+              ]}
+              data={submissions}
+            />
             <button
               className="btn-secondary text-sm"
               disabled={testConn.isPending}

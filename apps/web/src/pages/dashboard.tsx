@@ -4,10 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import ReactECharts from 'echarts-for-react';
 import {
   Activity, ArrowUpRight, Briefcase, Calendar, CheckCircle2, Clock,
-  ExternalLink, FileText, Landmark, Plus, Printer, Receipt,
+  ExternalLink, FileText, Landmark, Plus, Receipt,
   ShieldCheck, ShoppingCart, TrendingUp, Users, Wallet, Zap,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { ExportMenu } from '../components/ExportMenu';
 import { money, today, yearStart, monthStart } from '../lib/format';
 import { useAuth, useBaseCurrency } from '../lib/auth';
 import { Badge, Loading, Stat } from '../components/ui';
@@ -656,15 +657,24 @@ export function DashboardPage() {
           >
             ZATCA Phase 2 جاهز
           </Link>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="no-print inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white/95 hover:bg-slate-50 px-2.5 py-1 font-bold text-slate-700 dark:border-slate-800 dark:bg-[#080d1a] dark:text-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer shadow-2xs"
-            title="طباعة لوحة المؤشرات"
-          >
-            <Printer className="size-3.5" />
-            <span>طباعة</span>
-          </button>
+          <ExportMenu
+            title="الملخص التنفيذي للوحة المؤشرات المالية والتشغيلية"
+            currency={base}
+            columns={[
+              { key: 'metric', header: 'المؤشر التنفيذي', width: 32 },
+              { key: 'value', header: 'القيمة', width: 20, type: 'currency' },
+              { key: 'unit', header: 'الوحدة / البيان', width: 20 },
+            ]}
+            data={[
+              { metric: 'صافي الإيرادات التعاقدية والمفوترة', value: Number(effectiveRevenue || 0), unit: base },
+              { metric: 'إجمالي التكاليف والمصروفات المباشرة', value: Number(effectiveDirectCost || 0), unit: base },
+              { metric: 'صافي الربح التشغيلي', value: Number(effectiveRevenue || 0) - Number(effectiveDirectCost || 0), unit: base },
+              { metric: 'عدد الموظفين والكوادر النشطة', value: Number(totalEmployees || 0), unit: 'موظف' },
+              { metric: 'عدد المشاريع والعقود السارية', value: Number(totalProjects || 0), unit: 'مشروع' },
+              { metric: 'كروت الإسناد الفعالة', value: Number(assignedRows.length || 0), unit: 'تخصيص' },
+              { metric: 'الفواتير المعتمدة والمرحّلة', value: Number(postedInvoicesCount || 0), unit: 'فاتورة' },
+            ]}
+          />
         </div>
       </div>
 

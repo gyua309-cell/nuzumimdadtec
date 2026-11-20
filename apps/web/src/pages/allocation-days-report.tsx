@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowRight, Calendar, CheckCircle2, Clock, Download, ExternalLink,
-  FileText, Printer, Search, Sparkles, Zap,
+  ArrowRight, Calendar, CheckCircle2, Clock, ExternalLink,
+  FileText, Search, Sparkles, Zap,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { downloadCsv, money, today } from '../lib/format';
+import { money, today } from '../lib/format';
+import { ExportMenu } from '../components/ExportMenu';
 import { usePeriods } from '../components/forms';
 import { Badge, EmptyState, ErrorState, Loading, Modal, PageHeader, Spinner, Stat, useToast } from '../components/ui';
 
@@ -136,63 +137,6 @@ export function EmployeeAllocationDaysReportPage() {
     });
   }, [rows, searchTerm, invoiceFilter, basisFilter]);
 
-  const handleExportCsv = () => {
-    if (!filteredRows.length) {
-      toast.error('لا توجد بيانات للتصدير');
-      return;
-    }
-    const headers = [
-      'كود الموظف',
-      'اسم الموظف',
-      'المسمى الوظيفي',
-      'كود المشروع',
-      'اسم المشروع',
-      'العميل',
-      'أساس التوزيع',
-      'أيام الشهر',
-      'الأيام المخصصة',
-      'نسبة التخصيص %',
-      'الأيام غير المستغلة (متفرغ)',
-      'نسبة التفرغ %',
-      'أساس التسعير للخدمة',
-      'سعر الوحدة (ر.س)',
-      'إجمالي تكلفة الموظف الشهرية (ر.س)',
-      'حصة المشروع من التكلفة (ر.س)',
-      'الإيراد التعاقدي المتوقع (ر.س)',
-      'مجمل الربح (ر.س)',
-      'هامش الربح %',
-      'حالة الفاتورة',
-      'رقم الفاتورة المرتبطة',
-    ];
-
-    const dataRows = filteredRows.map((r) => [
-      r.employeeCode,
-      r.employeeName,
-      r.positionTitle,
-      r.projectCode,
-      r.projectName,
-      r.clientName,
-      r.allocationBasis === 'DAYS' ? 'أيام عمل' : 'نسبة مئوية',
-      r.workingDaysInMonth,
-      r.allocatedDays,
-      `${r.allocationPct}%`,
-      r.unutilizedDays,
-      `${r.unutilizedPct}%`,
-      r.pricingBasis === 'DAILY' ? 'يومي' : r.pricingBasis === 'HOURLY' ? 'بالساعة' : 'شهري',
-      r.unitPrice,
-      r.employeeMonthlyCost,
-      r.projectCostShare,
-      r.revenueGenerated,
-      r.grossProfit,
-      `${r.marginPct}%`,
-      r.invoiceStatus === 'UNINVOICED' ? 'بانتظار الفوترة' : 'مفوتر',
-      r.invoiceNo || '—',
-    ]);
-
-    downloadCsv(`employee-allocation-days-report-${today()}.csv`, [headers, ...dataRows]);
-    toast.success('تم تصدير تقرير توزيع الموظفين بالأيام إلى ملف CSV بنجاح');
-  };
-
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -201,20 +145,21 @@ export function EmployeeAllocationDaysReportPage() {
         subtitle="تحليل تأجير وتوزيع المبرمجين والموظفين على المشاريع بالأيام الفعلية (مثال: 18 يوم بمشروع A، و3 أيام بمشروع B) ونسب التكلفة والإيرادات وربطها الفوري بفواتير المبيعات."
         actions={
           <div className="flex flex-wrap items-center gap-2 print:hidden">
-            <button
-              className="btn-secondary text-xs flex items-center gap-1.5"
-              onClick={() => window.print()}
-              title="طباعة التقرير"
-            >
-              <Printer className="size-3.5" /> طباعة رسمية
-            </button>
-            <button
-              className="btn-secondary text-xs flex items-center gap-1.5"
-              onClick={handleExportCsv}
-              title="تصدير إلى Excel / CSV"
-            >
-              <Download className="size-3.5" /> تصدير Excel / CSV
-            </button>
+            <ExportMenu
+              title="تقرير توزيع الموظفين بالأيام والنسب وربط المبيعات"
+              columns={[
+                { key: 'employeeCode', header: 'كود الموظف', width: 14 },
+                { key: 'employeeName', header: 'اسم الموظف', width: 22 },
+                { key: 'projectName', header: 'المشروع', width: 22 },
+                { key: 'clientName', header: 'العميل', width: 20 },
+                { key: 'allocatedDays', header: 'الأيام المخصصة', width: 12, type: 'number' },
+                { key: 'allocationPct', header: 'نسبة التخصيص %', width: 12, type: 'percent' },
+                { key: 'projectCostShare', header: 'حصة التكلفة', width: 15, type: 'currency', isTotal: true },
+                { key: 'revenueGenerated', header: 'الإيراد التعاقدي', width: 15, type: 'currency', isTotal: true },
+                { key: 'grossProfit', header: 'صافي الربح', width: 15, type: 'currency', isTotal: true },
+              ]}
+              data={filteredRows}
+            />
             <Link
               to="/sal/invoices"
               className="btn-primary text-xs flex items-center gap-1.5"

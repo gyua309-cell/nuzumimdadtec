@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, ArrowRight, BarChart3, Building2, CheckCircle2, Download, FileText,
+  AlertCircle, ArrowRight, BarChart3, Building2, CheckCircle2, FileText,
   Filter, Pencil, PieChart, Plus, Printer, RotateCcw, Save, Search, Send, ShieldCheck,
   ShoppingCart, Sparkles, Trash2, Truck, Upload, Wallet,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
-import { downloadCsv, money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
+import { money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
 import { CsvImportModal, FieldDef } from '../components/CrudPage';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
@@ -1490,16 +1490,6 @@ export function PurchaseDebitNotesPage() {
 
   const list = Array.isArray(debitNotes.data) ? debitNotes.data : (debitNotes.data?.data ?? []);
 
-  const handleExport = () => {
-    downloadCsv(`purchase-debit-notes-${today()}.csv`, [
-      ['رقم الإشعار المدين', 'المورد', 'المشروع', 'تاريخ الإصدار', 'المبلغ المسترد قبل الضريبة', 'الضريبة المستردة', 'الإجمالي', 'القيد المحاسبي', 'الحالة'],
-      ...list.map((d) => [
-        d.invoiceNo, d.vendorName, d.projectName || '', d.issueDate, d.subtotal, d.vatAmount, d.totalAmount, d.journalEntryNo || '—', d.status,
-      ]),
-    ]);
-    toast.success('تم تصدير الإشعارات المدينة إلى CSV بنجاح');
-  };
-
   return (
     <div className="space-y-5">
       <PageHeader
@@ -1507,12 +1497,20 @@ export function PurchaseDebitNotesPage() {
         subtitle="سجل مردودات المشتريات والتخفيضات المعتمدة من الموردين، مع القيود المحاسبية العكسية التلقائية."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
-            </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExport} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير Excel/CSV
-            </button>
+            <ExportMenu
+              title="إشعارات مدينة ومردودات المشتريات"
+              columns={[
+                { key: 'invoiceNo', header: 'رقم الإشعار المدين', width: 16 },
+                { key: 'vendorName', header: 'المورد', width: 22 },
+                { key: 'projectName', header: 'المشروع', width: 20 },
+                { key: 'issueDate', header: 'تاريخ الإصدار', width: 14 },
+                { key: 'subtotal', header: 'قبل الضريبة', width: 15, type: 'currency', isTotal: true },
+                { key: 'vatAmount', header: 'الضريبة', width: 14, type: 'currency', isTotal: true },
+                { key: 'totalAmount', header: 'الإجمالي', width: 16, type: 'currency', isTotal: true },
+                { key: 'status', header: 'الحالة', width: 12 },
+              ]}
+              data={list}
+            />
           </div>
         }
       />

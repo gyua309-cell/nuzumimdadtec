@@ -1,13 +1,23 @@
 /**
- * IDHAM ERP - Universal Export & Print Menu Component
- * Provides a standardized dropdown menu for Print, Excel (.xlsx), CSV, and PDF
- * across all ERP screens and reports.
+ * IDHAM ERP - Universal Royal Export & Print Menu Component
+ * Renders a 1-click "PDF ملكي" button + floating Portal-based Export/Print dropdown
+ * (z-[9999], position: fixed) so it NEVER clips behind PageHeader or KPI cards.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Download, FileDown, FileSpreadsheet, FileText, Printer, Share2, ChevronDown, Settings2 } from 'lucide-react';
-import { ExportEngine, ExportColumnDef } from '../engine/export-engine';
-import { PrintEngine, PaperSize, PageOrientation } from '../engine/print-engine';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  ChevronDown,
+  Download,
+  FileDown,
+  FileSpreadsheet,
+  FileText,
+  Printer,
+  Settings2,
+  Share2,
+} from 'lucide-react';
+import { ExportColumnDef, ExportEngine } from '../engine/export-engine';
+import { PageOrientation, PaperSize, PrintEngine } from '../engine/print-engine';
 import { Modal, Spinner, useToast } from './ui';
 
 export interface ExportMenuProps {
@@ -22,8 +32,19 @@ export interface ExportMenuProps {
   pageSize?: PaperSize;
   orientation?: PageOrientation;
   onCustomPrint?: () => void;
+  showQuickPdf?: boolean;
   className?: string;
 }
+
+interface PopoverCoords {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+}
+
+const MENU_WIDTH = 288; // w-72
+const MENU_EST_HEIGHT = 340;
 
 export const ExportMenu: React.FC<ExportMenuProps> = ({
   title,
@@ -37,66 +58,121 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   pageSize = 'A4',
   orientation = 'portrait',
   onCustomPrint,
+  showQuickPdf = true,
   className = '',
 }) => {
   const [open, setOpen] = useState(false);
   const [loadingType, setLoadingType] = useState<'excel' | 'pdf' | 'csv' | 'print' | null>(null);
   const [colModalOpen, setColModalOpen] = useState(false);
   const [selectedColKeys, setSelectedColKeys] = useState<string[]>(columns.map((c) => c.key));
+  const [coords, setCoords] = useState<PopoverCoords | null>(null);
 
-  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerWrapRef = useRef<HTMLDivElement>(null);
+  const dropdownBtnRef = useRef<HTMLButtonElement>(null);
+  const portalMenuRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
 
   useEffect(() => {
     setSelectedColKeys(columns.map((c) => c.key));
   }, [columns]);
 
-  // Click outside listener
+  const computeCoords = useCallback(() => {
+    const anchor = dropdownBtnRef.current || triggerWrapRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const pad = 12;
+
+    const menuWidth = Math.min(MENU_WIDTH, vw - pad * 2);
+    // Align menu edge with button edge (in RTL prefer aligning left edge or clamping safely inside viewport)
+    let left = rect.left;
+    if (left + menuWidth > vw - pad) {
+      left = Math.max(pad, rect.right - menuWidth);
+    }
+    if (left < pad) left = pad;
+
+    const spaceBelow = vh - rect.bottom - pad;
+    const spaceAbove = rect.top - pad;
+    let top = rect.bottom + 8;
+    let maxHeight = Math.max(220, spaceBelow);
+
+    if (spaceBelow < Math.min(MENU_EST_HEIGHT, 280) && spaceAbove > spaceBelow) {
+      const actualH = Math.min(MENU_EST_HEIGHT, spaceAbove);
+      top = Math.max(pad, rect.top - actualH - 8);
+      maxHeight = Math.max(220, spaceAbove);
+    }
+
+    setCoords({ top, left, width: menuWidth, maxHeight });
+  }, []);
+
+  // Recompute coords when opened & on scroll/resize
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+    if (!open) return;
+    computeCoords();
+
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        triggerWrapRef.current &&
+        !triggerWrapRef.current.contains(target) &&
+        portalMenuRef.current &&
+        !portalMenuRef.current.contains(target)
+      ) {
         setOpen(false);
       }
     };
-    if (open) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open]);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    const handleReposition = () => computeCoords();
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleKey);
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKey);
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [open, computeCoords]);
 
   const activeColumns = columns.filter((c) => selectedColKeys.includes(c.key));
+  const safeRows = Array.isArray(data) ? data : [];
 
   const handleExportPdf = async () => {
     setLoadingType('pdf');
     setOpen(false);
     try {
       if (elementIdToPrint) {
-        // If an element ID is given, print that element directly (e.g., formal invoice/receipt)
         await PrintEngine.print({
           elementId: elementIdToPrint,
           title,
           pageSize,
           orientation,
         });
-        toast.success(`تم فتح مستند PDF (${title}) للطباعة والحفظ`);
+        toast.success(`تم تجهيز مستند PDF الملكي (${title}) للطباعة والحفظ`);
       } else {
         const ok = await ExportEngine.exportPdf({
           title,
           filename,
           columns: activeColumns,
-          data,
+          data: safeRows,
           periodLabel,
           branchName,
           currency,
         });
         if (ok) {
-          toast.success(`تم إنشاء مستند PDF معتمد (${title}) بنجاح`);
+          toast.success(`تم إنشاء مستند PDF الملكي (${title}) بنجاح`);
         } else {
           toast.error('حدث خطأ أثناء تصدير مستند PDF');
         }
       }
     } catch (err: any) {
-      toast.error(err.message || 'فشل تصدير PDF');
+      toast.error(err?.message || 'فشل تصدير PDF');
     } finally {
       setLoadingType(null);
     }
@@ -110,7 +186,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         title,
         filename,
         columns: activeColumns,
-        data,
+        data: safeRows,
         periodLabel,
         branchName,
         currency,
@@ -121,7 +197,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         toast.error('حدث خطأ أثناء تصدير ملف الإكسل');
       }
     } catch (err: any) {
-      toast.error(err.message || 'فشل التصدير');
+      toast.error(err?.message || 'فشل التصدير');
     } finally {
       setLoadingType(null);
     }
@@ -135,7 +211,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         title,
         filename,
         columns: activeColumns,
-        data,
+        data: safeRows,
       });
       if (ok) {
         toast.success(`تم تصدير ملف CSV (${title}) بنجاح`);
@@ -143,7 +219,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         toast.error('حدث خطأ أثناء تصدير ملف CSV');
       }
     } catch (err: any) {
-      toast.error(err.message || 'فشل التصدير');
+      toast.error(err?.message || 'فشل التصدير');
     } finally {
       setLoadingType(null);
     }
@@ -163,12 +239,11 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           orientation,
         });
       } else {
-        // Fallback to table print via ExportEngine PDF/Print wrapper
         await ExportEngine.exportPdf({
           title,
           filename,
           columns: activeColumns,
-          data,
+          data: safeRows,
           periodLabel,
           branchName,
           currency,
@@ -181,128 +256,190 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
 
   const handleShareWhatsApp = () => {
     setOpen(false);
-    const text = encodeURIComponent(`*تقرير ${title}*\nتاريخ: ${new Date().toLocaleDateString('ar-SA')}\nإجمالي السجلات: ${data.length}\nالمنظومة: نظام إدهام ERP`);
+    const text = encodeURIComponent(
+      `*تقرير ${title}*\nتاريخ: ${new Date().toLocaleDateString('ar-SA')}\nإجمالي السجلات: ${safeRows.length}\nالمنظومة: نظام إدهام ERP`,
+    );
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
+  const portalDropdown =
+    open && coords && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={portalMenuRef}
+            dir="rtl"
+            style={{
+              position: 'fixed',
+              top: coords.top,
+              left: coords.left,
+              width: coords.width,
+              maxHeight: coords.maxHeight,
+              zIndex: 9999,
+            }}
+            className="overflow-y-auto overflow-x-hidden rounded-2xl bg-white dark:bg-[#0c1427] border border-slate-200/95 dark:border-slate-700/90 shadow-[0_24px_60px_-15px_rgba(15,23,42,0.38)] pb-1.5 text-xs animate-scale-in"
+          >
+            <div className="h-1.5 w-full bg-gradient-to-l from-indigo-600 via-amber-500 to-rose-500" />
+            <div className="px-3.5 py-2.5 text-[11px] font-black text-slate-700 dark:text-slate-200 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900/50">
+              <span>خيارات الطباعة والتصدير الملكي</span>
+              <span className="font-mono bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 px-2 py-0.5 rounded-md text-[10.5px] font-extrabold">
+                {safeRows.length} سجل
+              </span>
+            </div>
+
+            {/* 1. Royal PDF Export */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-rose-50/70 dark:hover:bg-rose-950/30 transition-colors text-start group"
+              onClick={handleExportPdf}
+            >
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-rose-500/12 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 border border-rose-500/30 group-hover:scale-105 transition-transform">
+                <FileDown className="size-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>تصدير PDF ملكي معتمد</span>
+                  <span className="text-[9.5px] bg-rose-600 text-white px-1.5 py-0.2 rounded font-extrabold">
+                    A4
+                  </span>
+                </div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-snug">
+                  ترويسة ملكية مذهبة، مجاميع وتوقيعات رسمية
+                </div>
+              </div>
+            </button>
+
+            {/* 2. Excel Export */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/30 transition-colors text-start group"
+              onClick={handleExportExcel}
+            >
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-500/30 group-hover:scale-105 transition-transform">
+                <FileSpreadsheet className="size-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>تصدير Excel (.xlsx)</span>
+                  <span className="text-[9.5px] bg-emerald-600 text-white px-1.5 py-0.2 rounded font-extrabold">
+                    RTL
+                  </span>
+                </div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-snug">
+                  منسق محاسبياً مع معادلات SUM وتجميد العناوين
+                </div>
+              </div>
+            </button>
+
+            {/* 3. Direct Print */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-sky-50/70 dark:hover:bg-sky-950/30 transition-colors text-start group"
+              onClick={handlePrint}
+            >
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400 border border-sky-500/30 group-hover:scale-105 transition-transform">
+                <Printer className="size-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-extrabold text-slate-900 dark:text-white">معاينة وطباعة فورية</div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-snug">
+                  طباعة نظيفة A4 أو طابعة إيصالات حرارية
+                </div>
+              </div>
+            </button>
+
+            {/* 4. CSV Export */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-3.5 py-2 text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start group"
+              onClick={handleExportCsv}
+            >
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300/70 dark:border-slate-700 group-hover:scale-105 transition-transform">
+                <FileText className="size-3.5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-slate-800 dark:text-slate-200">تصدير CSV (UTF-8)</div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-snug">
+                  ملف نصي متوافق مع كافة المنظومات المحاسبية
+                </div>
+              </div>
+            </button>
+
+            <div className="border-t border-slate-100 dark:border-slate-800/80 my-1" />
+
+            {/* 5. Column Customizer */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-2.5 px-3.5 py-2 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
+              onClick={() => {
+                setOpen(false);
+                setColModalOpen(true);
+              }}
+            >
+              <Settings2 className="size-3.5 text-amber-500 shrink-0" />
+              <span>
+                تحديد الأعمدة المصدّرة ({selectedColKeys.length}/{columns.length})
+              </span>
+            </button>
+
+            {/* 6. WhatsApp Share */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-2.5 px-3.5 py-2 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
+              onClick={handleShareWhatsApp}
+            >
+              <Share2 className="size-3.5 text-emerald-500 shrink-0" />
+              <span>مشاركة ملخص التقرير عبر واتساب</span>
+            </button>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
-    <div className={`relative inline-block text-start ${className}`} ref={menuRef}>
+    <div className={`inline-flex items-center gap-1.5 text-start ${className}`} ref={triggerWrapRef}>
+      {/* Direct 1-Click Royal PDF Button */}
+      {showQuickPdf && (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200/90 bg-gradient-to-b from-rose-50 to-white px-3 py-2 text-xs font-extrabold text-rose-700 shadow-2xs hover:border-rose-400 hover:bg-rose-50 hover:shadow-sm transition-all dark:border-rose-800/80 dark:from-rose-950/50 dark:to-slate-900 dark:text-rose-300 dark:hover:border-rose-600 disabled:opacity-50"
+          onClick={handleExportPdf}
+          disabled={loadingType !== null}
+          title={`تصدير مستند PDF ملكي رسمي (${title})`}
+        >
+          {loadingType === 'pdf' ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <FileDown className="size-3.5 text-rose-600 dark:text-rose-400" />
+          )}
+          <span>PDF ملكي</span>
+        </button>
+      )}
+
+      {/* Full Export & Print Dropdown Trigger (renders Portal on document.body z-[9999]) */}
       <button
+        ref={dropdownBtnRef}
         type="button"
-        className="btn-secondary text-xs flex items-center gap-2 shadow-2xs hover:border-amber-500/60 dark:hover:border-amber-400/50 transition-all font-semibold"
-        onClick={() => setOpen(!open)}
+        className={`btn-secondary text-xs flex items-center gap-1.5 shadow-2xs hover:border-amber-500/70 dark:hover:border-amber-400/60 transition-all font-extrabold ${
+          open ? 'ring-2 ring-indigo-500/30 border-indigo-400' : ''
+        }`}
+        onClick={() => setOpen((prev) => !prev)}
         disabled={loadingType !== null}
-        title="طباعة وتصدير البيانات بعدة صيغ (PDF, Excel, CSV)"
+        aria-expanded={open}
+        title="خيارات الطباعة والتصدير (PDF ملكي، Excel، CSV، طباعة)"
       >
-        {loadingType ? (
+        {loadingType && loadingType !== 'pdf' ? (
           <Spinner className="size-3.5" />
         ) : (
           <Download className="size-3.5 text-amber-600 dark:text-amber-400" />
         )}
         <span>طباعة وتصدير</span>
-        <ChevronDown className="size-3 text-slate-400 transition-transform duration-200" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
+        <ChevronDown
+          className="size-3.5 text-slate-500 transition-transform duration-200"
+          style={{ transform: open ? 'rotate(180deg)' : 'none' }}
+        />
       </button>
 
-      {open && (
-        <div className="absolute end-0 mt-1.5 w-68 overflow-hidden rounded-2xl bg-white dark:bg-[#0c1427] border border-slate-200/90 dark:border-slate-800 shadow-2xl z-50 pb-1.5 text-xs animate-scale-in">
-          <div className="h-1 w-full bg-gradient-to-l from-amber-500 via-sky-500 to-emerald-500" />
-          <div className="px-3.5 py-2 text-[10.5px] font-black text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-            <span>خيارات الطباعة والتصدير</span>
-            <span className="font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[10px] text-slate-600 dark:text-slate-300 font-bold">{data.length} سجل</span>
-          </div>
-
-          {/* 1. PDF Export */}
-          <button
-            type="button"
-            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-700 dark:text-slate-200 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 transition-colors text-start group"
-            onClick={handleExportPdf}
-          >
-            <div className="flex size-7.5 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 border border-rose-500/30 group-hover:scale-105 transition-transform">
-              <FileDown className="size-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                <span>تصدير مستند PDF</span>
-                <span className="text-[9px] bg-rose-500/15 text-rose-700 dark:text-rose-300 px-1 rounded font-bold">A4</span>
-              </div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">مستند رسمي معتمد بختم وترويسة ومجاميع</div>
-            </div>
-          </button>
-
-          {/* 2. Excel Export */}
-          <button
-            type="button"
-            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-700 dark:text-slate-200 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-colors text-start group"
-            onClick={handleExportExcel}
-          >
-            <div className="flex size-7.5 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-500/30 group-hover:scale-105 transition-transform">
-              <FileSpreadsheet className="size-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                <span>تصدير Excel (.xlsx)</span>
-                <span className="text-[9px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-1 rounded font-bold">RTL</span>
-              </div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">منسق محاسبياً مع معادلات SUM وتجميد العناوين</div>
-            </div>
-          </button>
-
-          {/* 3. Direct Print */}
-          <button
-            type="button"
-            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-700 dark:text-slate-200 hover:bg-sky-50/50 dark:hover:bg-sky-950/20 transition-colors text-start group"
-            onClick={handlePrint}
-          >
-            <div className="flex size-7.5 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400 border border-sky-500/30 group-hover:scale-105 transition-transform">
-              <Printer className="size-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-bold text-slate-900 dark:text-white">معاينة وطباعة فورية</div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">طباعة نظيفة A4 أو طابعة إيصالات حرارية</div>
-            </div>
-          </button>
-
-          {/* 4. CSV Export */}
-          <button
-            type="button"
-            className="w-full flex items-center gap-3 px-3.5 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start group"
-            onClick={handleExportCsv}
-          >
-            <div className="flex size-7.5 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-300/60 dark:border-slate-700 group-hover:scale-105 transition-transform">
-              <FileText className="size-3.5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-slate-800 dark:text-slate-200">تصدير CSV (UTF-8)</div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">ملف نصي متوافق مع كافة المنظومات المحاسبية</div>
-            </div>
-          </button>
-
-          <div className="border-t border-slate-100 dark:border-slate-800/80 my-1" />
-
-          {/* 5. Column Customizer */}
-          <button
-            type="button"
-            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
-            onClick={() => {
-              setOpen(false);
-              setColModalOpen(true);
-            }}
-          >
-            <Settings2 className="size-3.5 text-amber-500" />
-            <span>تحديد الأعمدة المصدّرة ({selectedColKeys.length}/{columns.length})</span>
-          </button>
-
-          {/* 6. WhatsApp Share */}
-          <button
-            type="button"
-            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-start"
-            onClick={handleShareWhatsApp}
-          >
-            <Share2 className="size-3.5 text-emerald-500" />
-            <span>مشاركة ملخص التقرير عبر واتساب</span>
-          </button>
-        </div>
-      )}
+      {portalDropdown}
 
       {/* Columns Filter Modal */}
       <Modal
@@ -325,7 +462,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
             <span className="text-xs text-slate-500">اختر الحقول التي ترغب في تضمينها في الملف:</span>
             <button
               type="button"
-              className="text-xs text-cyan-600 hover:underline font-bold"
+              className="text-xs text-indigo-600 hover:underline font-bold"
               onClick={() => setSelectedColKeys(columns.map((c) => c.key))}
             >
               تحديد الكل
@@ -346,15 +483,13 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                     onChange={(e) => {
                       if (e.target.checked) {
                         setSelectedColKeys([...selectedColKeys, col.key]);
-                      } else {
-                        if (selectedColKeys.length > 1) {
-                          setSelectedColKeys(selectedColKeys.filter((k) => k !== col.key));
-                        }
+                      } else if (selectedColKeys.length > 1) {
+                        setSelectedColKeys(selectedColKeys.filter((k) => k !== col.key));
                       }
                     }}
-                    className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                   />
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">{col.header}</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200">{col.header}</span>
                 </label>
               );
             })}
