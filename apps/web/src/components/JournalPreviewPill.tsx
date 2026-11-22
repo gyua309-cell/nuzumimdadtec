@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, ExternalLink, Landmark, Printer, Sparkles } from 'lucide-react';
+import { CheckCircle2, ExternalLink, FileSpreadsheet, Landmark, Printer, Sparkles } from 'lucide-react';
 import { api } from '../lib/api';
 import { date, money } from '../lib/format';
 import { JOURNAL_TYPE, SOURCE_MODULE_LABELS, SOURCE_TYPE_LABELS } from '../lib/labels';
+import { ExportEngine, RoyalDetailDocumentOptions } from '../engine/export-engine';
 import { Badge, Loading, Modal } from './ui';
 
 export function JournalLinkBadge({
@@ -41,6 +42,53 @@ export function JournalLinkBadge({
   const displayNo = entryNo || 'JE-AUTO';
   const je = jeQuery.data;
   const lines: any[] = Array.isArray(je?.lines) ? je.lines : [];
+
+  const buildJournalRoyalDoc = (): RoyalDetailDocumentOptions | null => {
+    if (!je) return null;
+    return {
+      title: `سند قيد يومية آلي معتمد — ${je.entryNo || displayNo}`,
+      subtitle: je.description || 'سند قيد مزدوج مرحّل تلقائياً في الأستاذ العام',
+      filename: `Journal-${je.entryNo || displayNo}`,
+      docNo: je.entryNo || displayNo,
+      docDate: date(je.entryDate),
+      periodLabel: je.periodName || '—',
+      statusLabel: je.status === 'POSTED' ? 'مرحّل ومتزن' : je.status || 'مرحّل',
+      statusTone: je.status === 'CANCELLED' ? 'red' : je.status === 'DRAFT' ? 'amber' : 'green',
+      watermark: je.status === 'CANCELLED' ? 'CANCELLED' : je.status === 'DRAFT' ? 'DRAFT' : 'NONE',
+      kpis: [
+        { label: 'إجمالي المدين', value: `${money(je.totalDebitBase)} SAR`, tone: 'emerald' },
+        { label: 'إجمالي الدائن', value: `${money(je.totalCreditBase)} SAR`, tone: 'rose' },
+        { label: 'عدد السطور', value: `${lines.length} سطر`, tone: 'indigo' },
+      ],
+      metaFields: [
+        { label: 'رقم القيد', value: je.entryNo || displayNo },
+        { label: 'تاريخ الترحيل', value: date(je.entryDate) },
+        { label: 'الفترة المالية', value: je.periodName || '—' },
+        { label: 'نوع القيد', value: JOURNAL_TYPE[je.journalType] || je.journalType || 'آلي' },
+        { label: 'الوحدة المصدر', value: `${SOURCE_MODULE_LABELS[je.sourceModule] || je.sourceModule || '—'} / ${SOURCE_TYPE_LABELS[je.sourceType] || je.sourceType || '—'}` },
+        { label: 'البيان', value: je.description || '—' },
+      ],
+      sections: [
+        {
+          title: 'سطور القيد المحاسبي المزدوج',
+          columns: [
+            { key: 'lineNo', header: '#', width: 6, type: 'number' },
+            { key: 'accountCode', header: 'رمز الحساب', width: 13 },
+            { key: 'accountNameAr', header: 'اسم الحساب', width: 26 },
+            { key: 'debitBase', header: 'مدين (SAR)', width: 16, type: 'currency', isTotal: true },
+            { key: 'creditBase', header: 'دائن (SAR)', width: 16, type: 'currency', isTotal: true },
+            { key: 'description', header: 'البيان', width: 28 },
+          ],
+          data: lines.map((l: any, idx: number) => ({
+            ...l,
+            lineNo: l.lineNo ?? idx + 1,
+          })),
+        },
+      ],
+      totalAmountForTafqeet: Number(je.totalDebitBase || 0),
+      signatureLabels: ['المحاسب المسؤول', 'المراجعة والتدقيق', 'اعتماد الإدارة المالية'],
+    };
+  };
 
   return (
     <>
@@ -85,11 +133,27 @@ export function JournalLinkBadge({
                 )}
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="btn-secondary text-xs flex items-center gap-1.5"
+                  disabled={!je}
+                  onClick={() => {
+                    const doc = buildJournalRoyalDoc();
+                    if (doc) void ExportEngine.exportDetailPdf(doc);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all disabled:opacity-50"
                 >
                   <Printer className="size-3.5" />
-                  <span>طباعة السند</span>
+                  <span>PDF / طباعة ملكية</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={!je}
+                  onClick={() => {
+                    const doc = buildJournalRoyalDoc();
+                    if (doc) void ExportEngine.exportDetailExcel(doc);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all disabled:opacity-50"
+                >
+                  <FileSpreadsheet className="size-3.5" />
+                  <span>Excel ملكي</span>
                 </button>
                 <button type="button" onClick={() => setOpen(false)} className="btn-primary text-xs">
                   إغلاق

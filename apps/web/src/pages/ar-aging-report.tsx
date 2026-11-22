@@ -9,6 +9,7 @@ import { useBaseCurrency } from '../lib/auth';
 import { money, today } from '../lib/format';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
 import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat } from '../components/ui';
 
@@ -172,9 +173,16 @@ export function AccountsReceivableAgingReportPage() {
             </button>
             <ExportMenu
               title="تقرير أعمار ديون العملاء والتحصيلات"
+              subtitle="تحليل مستحقات العملاء حسب شرائح التأخير الزمني وإدارة مخاطر التحصيل"
               filename={`ar-aging-${asOfDate}`}
               periodLabel={`كما في ${asOfDate}`}
               currency={base}
+              summaryKpis={[
+                { label: 'إجمالي المستحقات', value: `${money(totals.total)} ${base}`, tone: 'indigo' },
+                { label: 'حالي (0-30)', value: `${money(totals.b0)} ${base}`, tone: 'emerald' },
+                { label: 'متأخر (31-90)', value: `${money(totals.b30 + totals.b60)} ${base}`, tone: 'amber' },
+                { label: 'متعثر (+90)', value: `${money(totals.b90)} ${base}`, tone: 'rose' },
+              ]}
               columns={[
                 { key: 'clientCode', header: 'كود العميل', width: 14 },
                 { key: 'clientNameAr', header: 'اسم العميل', width: 26 },
@@ -188,11 +196,35 @@ export function AccountsReceivableAgingReportPage() {
               data={filteredRows}
             />
             <button
-              onClick={() => window.print()}
+              onClick={() =>
+                void ExportEngine.exportPdf({
+                  title: 'تقرير أعمار ديون العملاء والتحصيلات',
+                  subtitle: 'تحليل مستحقات العملاء حسب شرائح التأخير (0-30، 31-60، 61-90، +90 يوماً)',
+                  periodLabel: `كما في ${asOfDate}`,
+                  currency: base,
+                  summaryKpis: [
+                    { label: 'إجمالي المستحقات', value: `${money(totals.total)} ${base}`, tone: 'indigo' },
+                    { label: 'حالي (0-30)', value: `${money(totals.b0)} ${base}`, tone: 'emerald' },
+                    { label: 'متأخر (31-90)', value: `${money(totals.b30 + totals.b60)} ${base}`, tone: 'amber' },
+                    { label: 'متعثر (+90)', value: `${money(totals.b90)} ${base}`, tone: 'rose' },
+                  ],
+                  columns: [
+                    { key: 'clientCode', header: 'كود العميل', width: 14 },
+                    { key: 'clientNameAr', header: 'اسم العميل', width: 26 },
+                    { key: 'totalReceivable', header: `إجمالي المستحق (${base})`, width: 18, type: 'currency', isTotal: true },
+                    { key: 'current0to30', header: 'حالي (0-30 يوم)', width: 16, type: 'currency', isTotal: true },
+                    { key: 'days31to60', header: 'متأخر (31-60)', width: 16, type: 'currency', isTotal: true },
+                    { key: 'days61to90', header: 'متأخر (61-90)', width: 16, type: 'currency', isTotal: true },
+                    { key: 'over90', header: 'متعثر (+90 يوم)', width: 16, type: 'currency', isTotal: true },
+                    { key: 'riskLevel', header: 'درجة المخاطرة', width: 14 },
+                  ],
+                  data: filteredRows,
+                })
+              }
               className="btn-primary text-xs flex items-center gap-1.5"
             >
               <Printer className="size-3.5" />
-              طباعة التقرير
+              طباعة التقرير الملكي
             </button>
           </div>
         }

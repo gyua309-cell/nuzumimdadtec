@@ -15,6 +15,7 @@ import { ACCOUNT_CLASS, CHECK_STATUS } from '../lib/labels';
 import { PeriodSelect } from '../components/forms';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { AccountSelect, useAccounts, useQueryParam } from './accounting';
 import { PERIOD_STATUS } from './org';
@@ -90,9 +91,16 @@ export function TrialBalancePage() {
           <div className="flex items-center gap-2">
             <ExportMenu
               title="ميزان المراجعة"
+              subtitle={`ميزان المراجعة الموحد — دفتر ${ledger === 'FINANCIAL' ? 'مالي' : 'إداري'} (${isBalanced ? 'متوازن 100%' : 'غير متوازن'})`}
               filename={`trial-balance-${from}-${to}`}
               periodLabel={`${from} إلى ${to}`}
               currency={base}
+              summaryKpis={[
+                { label: 'عدد الحسابات', value: String(rows.length), tone: 'indigo' },
+                { label: 'مدين ختامي', value: `${money(q.data?.totals?.closingDebit ?? 0)} ${base}`, tone: 'emerald' },
+                { label: 'دائن ختامي', value: `${money(q.data?.totals?.closingCredit ?? 0)} ${base}`, tone: 'rose' },
+                { label: 'التوازن', value: isBalanced ? 'متوازن 100%' : 'غير متوازن', tone: isBalanced ? 'emerald' : 'rose' },
+              ]}
               columns={[
                 { key: 'code', header: 'الرمز', type: 'text', width: 14 },
                 { key: 'nameAr', header: 'الحساب', type: 'text', width: 28 },
@@ -105,8 +113,36 @@ export function TrialBalancePage() {
               ]}
               data={rows}
             />
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة فورية">
-              <Printer className="size-3.5" /> طباعة فورية (A4)
+            <button
+              className="btn-secondary text-xs flex items-center gap-1.5"
+              onClick={() =>
+                void ExportEngine.exportPdf({
+                  title: 'ميزان المراجعة',
+                  subtitle: `ميزان المراجعة الموحد — دفتر ${ledger === 'FINANCIAL' ? 'مالي' : 'إداري'}`,
+                  periodLabel: `${from} إلى ${to}`,
+                  currency: base,
+                  summaryKpis: [
+                    { label: 'عدد الحسابات', value: String(rows.length), tone: 'indigo' },
+                    { label: 'مدين ختامي', value: `${money(q.data?.totals?.closingDebit ?? 0)} ${base}`, tone: 'emerald' },
+                    { label: 'دائن ختامي', value: `${money(q.data?.totals?.closingCredit ?? 0)} ${base}`, tone: 'rose' },
+                    { label: 'حالة التوازن', value: isBalanced ? 'متوازن' : 'غير متوازن', tone: isBalanced ? 'emerald' : 'rose' },
+                  ],
+                  columns: [
+                    { key: 'code', header: 'الرمز', type: 'text', width: 14 },
+                    { key: 'nameAr', header: 'الحساب', type: 'text', width: 28 },
+                    { key: 'openingDebit', header: 'مدين افتتاحي', type: 'currency', width: 16, isTotal: true },
+                    { key: 'openingCredit', header: 'دائن افتتاحي', type: 'currency', width: 16, isTotal: true },
+                    { key: 'periodDebit', header: 'مدين الفترة', type: 'currency', width: 16, isTotal: true },
+                    { key: 'periodCredit', header: 'دائن الفترة', type: 'currency', width: 16, isTotal: true },
+                    { key: 'closingDebit', header: 'مدين ختامي', type: 'currency', width: 16, isTotal: true },
+                    { key: 'closingCredit', header: 'دائن ختامي', type: 'currency', width: 16, isTotal: true },
+                  ],
+                  data: rows,
+                })
+              }
+              title="طباعة ملكية A4 لميزان المراجعة"
+            >
+              <Printer className="size-3.5" /> طباعة ملكية (A4)
             </button>
           </div>
         }
@@ -259,29 +295,67 @@ export function AccountStatementPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {q.data && (
-              <ExportMenu
-                title={`كشف حساب - ${acc?.nameAr || ''} (${acc?.code || ''})`}
-                filename={`statement-${acc?.code || 'acc'}-${from}-${to}`}
-                periodLabel={`من ${from} إلى ${to}`}
-                currency={acc?.currencyCode || 'SAR'}
-                columns={[
-                  { key: 'entryDate', header: 'التاريخ', width: 14, type: 'date' },
-                  { key: 'entryNo', header: 'رقم القيد', width: 14 },
-                  { key: 'lineDescription', header: 'البيان والتفاصيل', width: 34 },
-                  { key: 'currencyCode', header: 'العملة', width: 10 },
-                  { key: 'debitBase', header: 'مدين (SAR)', width: 16, type: 'currency', isTotal: true },
-                  { key: 'creditBase', header: 'دائن (SAR)', width: 16, type: 'currency', isTotal: true },
-                  { key: 'runningBalance', header: 'الرصيد الجاري', width: 18, type: 'currency' },
-                ]}
-                data={statementRows.map((l: any) => ({
-                  ...l,
-                  lineDescription: l.lineDescription ?? l.description ?? '',
-                }))}
-              />
+              <>
+                <ExportMenu
+                  title={`كشف حساب - ${acc?.nameAr || ''} (${acc?.code || ''})`}
+                  subtitle={`حركات الأستاذ العام والرصيد الجاري التراكمي — الرصيد الختامي: ${money(closeBal)} ${acc?.currencyCode || 'SAR'}`}
+                  filename={`statement-${acc?.code || 'acc'}-${from}-${to}`}
+                  periodLabel={`من ${from} إلى ${to}`}
+                  currency={acc?.currencyCode || 'SAR'}
+                  summaryKpis={[
+                    { label: 'إجمالي المدين', value: `${money(pDebit)} ${acc?.currencyCode || 'SAR'}`, tone: 'emerald' },
+                    { label: 'إجمالي الدائن', value: `${money(pCredit)} ${acc?.currencyCode || 'SAR'}`, tone: 'rose' },
+                    { label: 'صافي الحركة', value: `${money(netMovement)} ${acc?.currencyCode || 'SAR'}`, tone: 'indigo' },
+                    { label: 'الرصيد الختامي', value: `${money(closeBal)} ${acc?.currencyCode || 'SAR'}`, tone: 'navy' },
+                  ]}
+                  columns={[
+                    { key: 'entryDate', header: 'التاريخ', width: 14, type: 'date' },
+                    { key: 'entryNo', header: 'رقم القيد', width: 14 },
+                    { key: 'lineDescription', header: 'البيان والتفاصيل', width: 34 },
+                    { key: 'currencyCode', header: 'العملة', width: 10 },
+                    { key: 'debitBase', header: 'مدين (SAR)', width: 16, type: 'currency', isTotal: true },
+                    { key: 'creditBase', header: 'دائن (SAR)', width: 16, type: 'currency', isTotal: true },
+                    { key: 'runningBalance', header: 'الرصيد الجاري', width: 18, type: 'currency' },
+                  ]}
+                  data={statementRows.map((l: any) => ({
+                    ...l,
+                    lineDescription: l.lineDescription ?? l.description ?? '',
+                  }))}
+                />
+                <button
+                  className="btn-secondary text-xs flex items-center gap-1.5"
+                  onClick={() =>
+                    void ExportEngine.exportPdf({
+                      title: `كشف حساب - ${acc?.nameAr || ''} (${acc?.code || ''})`,
+                      subtitle: `الرصيد الافتتاحي + الحركات المدينة والدائنة + الرصيد الختامي: ${money(closeBal)}`,
+                      periodLabel: `من ${from} إلى ${to}`,
+                      currency: acc?.currencyCode || 'SAR',
+                      summaryKpis: [
+                        { label: 'إجمالي المدين', value: `${money(pDebit)} ${acc?.currencyCode || 'SAR'}`, tone: 'emerald' },
+                        { label: 'إجمالي الدائن', value: `${money(pCredit)} ${acc?.currencyCode || 'SAR'}`, tone: 'rose' },
+                        { label: 'الرصيد الختامي', value: `${money(closeBal)} ${acc?.currencyCode || 'SAR'}`, tone: 'navy' },
+                      ],
+                      columns: [
+                        { key: 'entryDate', header: 'التاريخ', width: 14, type: 'date' },
+                        { key: 'entryNo', header: 'رقم القيد', width: 14 },
+                        { key: 'lineDescription', header: 'البيان والتفاصيل', width: 34 },
+                        { key: 'currencyCode', header: 'العملة', width: 10 },
+                        { key: 'debitBase', header: 'مدين (SAR)', width: 16, type: 'currency', isTotal: true },
+                        { key: 'creditBase', header: 'دائن (SAR)', width: 16, type: 'currency', isTotal: true },
+                        { key: 'runningBalance', header: 'الرصيد الجاري', width: 18, type: 'currency' },
+                      ],
+                      data: statementRows.map((l: any) => ({
+                        ...l,
+                        lineDescription: l.lineDescription ?? l.description ?? '',
+                      })),
+                    })
+                  }
+                  title="طباعة ملكية A4 لكشف الحساب"
+                >
+                  <Printer className="size-3.5" /> طباعة ملكية (A4)
+                </button>
+              </>
             )}
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة فورية">
-              <Printer className="size-3.5" /> طباعة فورية (A4)
-            </button>
           </div>
         }
       />
@@ -503,26 +577,62 @@ export function IncomeStatementPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {q.data && (
-              <ExportMenu
-                title="قائمة الدخل - الأرباح والخسائر"
-                filename={`income-statement-${from}-${to}`}
-                periodLabel={`من ${from} إلى ${to}`}
-                currency={base}
-                columns={[
-                  { key: 'code', header: 'رمز الحساب', width: 14 },
-                  { key: 'nameAr', header: 'الحساب', width: 30 },
-                  { key: 'classLabel', header: 'التصنيف المالي', width: 22 },
-                  { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
-                ]}
-                data={(q.data?.lines ?? []).map((l: any) => ({
-                  ...l,
-                  classLabel: ACCOUNT_CLASS[l.accountClass] || l.accountClass,
-                }))}
-              />
+              <>
+                <ExportMenu
+                  title="قائمة الدخل - الأرباح والخسائر"
+                  subtitle={`قياس الأداء التشغيلي والربحية بالعملة الأساسية (${base})`}
+                  filename={`income-statement-${from}-${to}`}
+                  periodLabel={`من ${from} إلى ${to}`}
+                  currency={base}
+                  summaryKpis={[
+                    { label: 'إجمالي الإيرادات', value: `${money(rev)} ${base}`, tone: 'emerald' },
+                    { label: 'التكاليف المباشرة', value: `${money(dc)} ${base}`, tone: 'rose' },
+                    { label: 'مجمل الربح', value: `${money(gp)} ${base}`, tone: 'indigo' },
+                    { label: 'صافي الربح', value: `${money(q.data?.netProfit ?? 0)} ${base}`, tone: Number(q.data?.netProfit ?? 0) >= 0 ? 'emerald' : 'rose' },
+                  ]}
+                  columns={[
+                    { key: 'code', header: 'رمز الحساب', width: 14 },
+                    { key: 'nameAr', header: 'الحساب', width: 30 },
+                    { key: 'classLabel', header: 'التصنيف المالي', width: 22 },
+                    { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
+                  ]}
+                  data={(q.data?.lines ?? []).map((l: any) => ({
+                    ...l,
+                    classLabel: ACCOUNT_CLASS[l.accountClass] || l.accountClass,
+                  }))}
+                />
+                <button
+                  className="btn-secondary text-xs flex items-center gap-1.5"
+                  onClick={() =>
+                    void ExportEngine.exportPdf({
+                      title: 'قائمة الدخل (الأرباح والخسائر)',
+                      subtitle: `قياس الأداء التشغيلي والربحية للفترة المحددة (${base})`,
+                      periodLabel: `من ${from} إلى ${to}`,
+                      currency: base,
+                      summaryKpis: [
+                        { label: 'إجمالي الإيرادات', value: `${money(rev)} ${base}`, tone: 'emerald' },
+                        { label: 'التكاليف المباشرة', value: `${money(dc)} ${base}`, tone: 'rose' },
+                        { label: 'مجمل الربح', value: `${money(gp)} ${base}`, tone: 'indigo' },
+                        { label: 'صافي الربح', value: `${money(q.data?.netProfit ?? 0)} ${base}`, tone: Number(q.data?.netProfit ?? 0) >= 0 ? 'emerald' : 'rose' },
+                      ],
+                      columns: [
+                        { key: 'code', header: 'رمز الحساب', width: 14 },
+                        { key: 'nameAr', header: 'الحساب', width: 30 },
+                        { key: 'classLabel', header: 'التصنيف المالي', width: 22 },
+                        { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
+                      ],
+                      data: (q.data?.lines ?? []).map((l: any) => ({
+                        ...l,
+                        classLabel: ACCOUNT_CLASS[l.accountClass] || l.accountClass,
+                      })),
+                    })
+                  }
+                  title="طباعة ملكية A4 لقائمة الدخل"
+                >
+                  <Printer className="size-3.5" /> طباعة ملكية (A4)
+                </button>
+              </>
             )}
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة فورية">
-              <Printer className="size-3.5" /> طباعة فورية (A4)
-            </button>
           </div>
         }
       />
@@ -704,27 +814,63 @@ export function BalanceSheetPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {q.data && (
-              <ExportMenu
-                title="قائمة المركز المالي"
-                filename={`balance-sheet-${asOf}`}
-                periodLabel={`كما في ${asOf}`}
-                currency={base}
-                columns={[
-                  { key: 'section', header: 'القسم', width: 20 },
-                  { key: 'code', header: 'رمز الحساب', width: 14 },
-                  { key: 'nameAr', header: 'الحساب', width: 30 },
-                  { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
-                ]}
-                data={[
-                  ...(q.data?.assets?.lines ?? []).map((l: any) => ({ ...l, section: 'الأصول' })),
-                  ...(q.data?.liabilities?.lines ?? []).map((l: any) => ({ ...l, section: 'الالتزامات' })),
-                  ...(q.data?.equity?.lines ?? []).map((l: any) => ({ ...l, section: 'حقوق الملكية' })),
-                ]}
-              />
+              <>
+                <ExportMenu
+                  title="قائمة المركز المالي (الميزانية العمومية)"
+                  subtitle={`الأصول = الالتزامات + حقوق الملكية (${isBalanced ? 'المعادلة متوازنة 100%' : 'يوجد فرق'})`}
+                  filename={`balance-sheet-${asOf}`}
+                  periodLabel={`كما في ${asOf}`}
+                  currency={base}
+                  summaryKpis={[
+                    { label: 'إجمالي الأصول', value: `${money(q.data?.assets?.total ?? 0)} ${base}`, tone: 'indigo' },
+                    { label: 'إجمالي الالتزامات', value: `${money(q.data?.liabilities?.total ?? 0)} ${base}`, tone: 'amber' },
+                    { label: 'حقوق الملكية', value: `${money(q.data?.equity?.total ?? 0)} ${base}`, tone: 'emerald' },
+                    { label: 'توازن الميزانية', value: isBalanced ? 'متوازنة 100%' : 'غير متوازنة', tone: isBalanced ? 'emerald' : 'rose' },
+                  ]}
+                  columns={[
+                    { key: 'section', header: 'القسم', width: 20 },
+                    { key: 'code', header: 'رمز الحساب', width: 14 },
+                    { key: 'nameAr', header: 'الحساب', width: 30 },
+                    { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
+                  ]}
+                  data={[
+                    ...(q.data?.assets?.lines ?? []).map((l: any) => ({ ...l, section: 'الأصول' })),
+                    ...(q.data?.liabilities?.lines ?? []).map((l: any) => ({ ...l, section: 'الالتزامات' })),
+                    ...(q.data?.equity?.lines ?? []).map((l: any) => ({ ...l, section: 'حقوق الملكية' })),
+                  ]}
+                />
+                <button
+                  className="btn-secondary text-xs flex items-center gap-1.5"
+                  onClick={() =>
+                    void ExportEngine.exportPdf({
+                      title: 'قائمة المركز المالي (الميزانية العمومية)',
+                      subtitle: `الأصول = الالتزامات + حقوق الملكية (${base})`,
+                      periodLabel: `كما في ${asOf}`,
+                      currency: base,
+                      summaryKpis: [
+                        { label: 'إجمالي الأصول', value: `${money(q.data?.assets?.total ?? 0)} ${base}`, tone: 'indigo' },
+                        { label: 'إجمالي الالتزامات', value: `${money(q.data?.liabilities?.total ?? 0)} ${base}`, tone: 'amber' },
+                        { label: 'حقوق الملكية', value: `${money(q.data?.equity?.total ?? 0)} ${base}`, tone: 'emerald' },
+                      ],
+                      columns: [
+                        { key: 'section', header: 'القسم', width: 20 },
+                        { key: 'code', header: 'رمز الحساب', width: 14 },
+                        { key: 'nameAr', header: 'الحساب', width: 30 },
+                        { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
+                      ],
+                      data: [
+                        ...(q.data?.assets?.lines ?? []).map((l: any) => ({ ...l, section: 'الأصول' })),
+                        ...(q.data?.liabilities?.lines ?? []).map((l: any) => ({ ...l, section: 'الالتزامات' })),
+                        ...(q.data?.equity?.lines ?? []).map((l: any) => ({ ...l, section: 'حقوق الملكية' })),
+                      ],
+                    })
+                  }
+                  title="طباعة ملكية A4 للميزانية العمومية"
+                >
+                  <Printer className="size-3.5" /> طباعة ملكية (A4)
+                </button>
+              </>
             )}
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة فورية">
-              <Printer className="size-3.5" /> طباعة فورية (A4)
-            </button>
           </div>
         }
       />
@@ -1099,10 +1245,46 @@ export function DashboardPage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             className="btn btn-secondary text-xs h-8.5 gap-1.5 shadow-xs hover:border-slate-500"
-            onClick={() => window.print()}
-            title="طباعة لوحة المؤشرات"
+            onClick={() =>
+              void ExportEngine.exportDetailPdf({
+                title: 'الملخص التنفيذي للوحة المؤشرات المالية',
+                subtitle: 'تقرير حي للأداء المالي والمركز المالي والقيود المحاسبية للعام الجاري',
+                filename: `executive-dashboard-${today()}`,
+                docDate: today(),
+                periodLabel: `من ${yearStart()} إلى ${today()}`,
+                currency: base,
+                kpis: [
+                  { label: `إجمالي الأصول (${base})`, value: money(bs.data?.assets?.total ?? 0), tone: 'indigo' },
+                  { label: `إيرادات العام (${base})`, value: money(ytd.data?.revenue ?? 0), tone: 'emerald' },
+                  { label: `صافي الربح (${base})`, value: money(ytd.data?.netProfit ?? 0), tone: Number(ytd.data?.netProfit ?? 0) >= 0 ? 'emerald' : 'rose' },
+                  { label: 'الموظفون / المشاريع', value: `${emps.data?.meta?.total ?? 0} موظف • ${prjs.data?.meta?.total ?? 0} مشروع`, tone: 'sky' },
+                ],
+                sections: [
+                  {
+                    title: 'ملخص مؤشرات الأداء المالي والمركز المالي',
+                    columns: [
+                      { key: 'metric', header: 'المؤشر المالي / التشغيلي', width: 32 },
+                      { key: 'category', header: 'التصنيف', width: 18 },
+                      { key: 'value', header: `القيمة (${base})`, width: 20, type: 'currency' },
+                    ],
+                    data: [
+                      { metric: 'إجمالي الأصول', category: 'المركز المالي', value: Number(bs.data?.assets?.total ?? 0) },
+                      { metric: 'إجمالي الالتزامات', category: 'المركز المالي', value: Number(bs.data?.liabilities?.total ?? 0) },
+                      { metric: 'إجمالي حقوق الملكية', category: 'المركز المالي', value: Number(bs.data?.equity?.total ?? 0) },
+                      { metric: 'إيرادات السنة حتى تاريخه (YTD)', category: 'قائمة الدخل', value: Number(ytd.data?.revenue ?? 0) },
+                      { metric: 'التكاليف المباشرة (YTD)', category: 'قائمة الدخل', value: Number(ytd.data?.directCost ?? 0) },
+                      { metric: 'مجمل الربح (Gross Profit)', category: 'قائمة الدخل', value: Number(ytd.data?.grossProfit ?? 0) },
+                      { metric: 'المصروفات التشغيلية (OpEx)', category: 'قائمة الدخل', value: Number(ytd.data?.operatingExpenses ?? 0) },
+                      { metric: 'صافي الربح التشغيلي (Net Profit)', category: 'قائمة الدخل', value: Number(ytd.data?.netProfit ?? 0) },
+                    ],
+                  },
+                ],
+                signatureLabels: ['إعداد الإدارة المالية', 'مراجعة المدير المالي', 'اعتماد الإدارة العليا'],
+              })
+            }
+            title="طباعة / PDF ملكي للملخص التنفيذي"
           >
-            <Printer className="size-3.5 text-slate-600 dark:text-slate-300" /> طباعة الملخص
+            <Printer className="size-3.5 text-slate-600 dark:text-slate-300" /> طباعة الملخص الملكي
           </button>
           <Link
             to="/acc/journals/new"

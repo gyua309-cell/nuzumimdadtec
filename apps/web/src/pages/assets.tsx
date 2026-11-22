@@ -9,6 +9,7 @@ import { ASSET_KIND, ASSET_STATUS, DEP_METHOD, opts, RUN_STATUS } from '../lib/l
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, Loading, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
@@ -325,8 +326,70 @@ export function AssetDetailPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <AssetStatus s={a.status} />
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة البطاقة
+            <button
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+              onClick={() =>
+                void ExportEngine.exportDetailPdf({
+                  title: `بطاقة أصل ثابت معتمدة: ${a.name}`,
+                  subtitle: `رقم الأصل: ${a.assetNo} • الفئة: ${a.categoryName || '—'}`,
+                  filename: `asset-${a.assetNo}-${today()}`,
+                  docNo: a.assetNo,
+                  docDate: date(a.purchaseDate),
+                  currency: base,
+                  statusLabel: ASSET_STATUS[a.status]?.label ?? a.status,
+                  statusTone: a.status === 'ACTIVE' ? 'green' : a.status === 'DISPOSED' ? 'red' : 'amber',
+                  kpis: [
+                    { label: 'تكلفة الاقتناء', value: `${money(a.costBase)} ${base}`, tone: 'navy' },
+                    { label: 'مجمع الإهلاك', value: `${money(a.accumulatedBase)} ${base}`, tone: 'amber' },
+                    { label: 'القيمة الدفترية', value: `${money(a.netBookValueBase)} ${base}`, tone: 'emerald' },
+                    { label: 'العمر الإنتاجي', value: `${a.usefulLifeMonths} شهر`, tone: 'indigo' },
+                  ],
+                  metaFields: [
+                    { label: 'رقم الأصل', value: a.assetNo },
+                    { label: 'اسم الأصل', value: a.name },
+                    { label: 'الفئة', value: a.categoryName || '—' },
+                    { label: 'النوع', value: ASSET_KIND[a.assetKind] ?? a.assetKind },
+                    { label: 'تاريخ الشراء', value: date(a.purchaseDate) },
+                    { label: 'طريقة الإهلاك', value: DEP_METHOD[a.depreciationMethod] ?? a.depreciationMethod },
+                    { label: 'بداية / نهاية الإهلاك', value: `${date(a.depreciationStart)} ← ${date(a.depreciationEnd)}` },
+                    { label: 'العهدة الحالية', value: custodian ? custodian.employeeName : 'غير مسند لعهدة' },
+                  ],
+                  sections: [
+                    ...(custodies.length > 0
+                      ? [
+                          {
+                            title: 'سجل تسليم واسترجاع العهدة',
+                            columns: [
+                              { key: 'employeeName', header: 'الموظف', width: 24 },
+                              { key: 'effectiveFrom', header: 'من تاريخ', width: 16, type: 'date' as const },
+                              { key: 'effectiveTo', header: 'إلى تاريخ', width: 16 },
+                              { key: 'notes', header: 'ملاحظات', width: 28 },
+                            ],
+                            data: custodies.map((c: any) => ({ ...c, effectiveTo: c.effectiveTo ? date(c.effectiveTo) : 'مستمر' })),
+                          },
+                        ]
+                      : []),
+                    ...(schedule.length > 0
+                      ? [
+                          {
+                            title: 'جدول الإهلاك الدوري',
+                            columns: [
+                              { key: 'periodName', header: 'الفترة', width: 18 },
+                              { key: 'amountBase', header: `قسط الإهلاك (${base})`, width: 18, type: 'currency' as const, isTotal: true },
+                              { key: 'status', header: 'الحالة', width: 14 },
+                            ],
+                            data: schedule,
+                          },
+                        ]
+                      : []),
+                  ],
+                  totalAmountForTafqeet: Number(a.costBase || 0),
+                  signatureLabels: ['مسؤول الأصول والعهد', 'الموظف المستلم', 'الاعتماد المالي'],
+                })
+              }
+              title="طباعة وتصدير PDF ملكي لبطاقة الأصل الثابت"
+            >
+              <Printer className="size-3.5" /> طباعة البطاقة الملكية
             </button>
             {draft && <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setModal('activate')}><Play className="size-3.5" /> تفعيل الأصل</button>}
             {a.status !== 'DISPOSED' && !draft && <button className="btn-secondary text-xs" onClick={() => setModal('dispose')}>استبعاد</button>}

@@ -1,11 +1,12 @@
 import { Fragment, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Plus, Printer, Square, Trash2 } from 'lucide-react';
+import { ArrowRight, FileSpreadsheet, Plus, Printer, Square, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { useBaseCurrency } from '../lib/auth';
-import { date, downloadCsv, money, today } from '../lib/format';
+import { date, money, today } from '../lib/format';
 import { CALC_METHOD, COMPONENT_NATURE, COMPONENT_TYPE, COST_BEHAVIOR, opts, POSTING_TREATMENT, PROFITABILITY_TREATMENT, TAX_TREATMENT } from '../lib/labels';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
@@ -99,16 +100,41 @@ export function CostProfileDetailPage() {
   const p = q.data;
   const lines: any[] = Array.isArray(p?.lines) ? p.lines : (Array.isArray(p?.components) ? p.components : []);
   const t = today();
-  const handleExportCsv = () => {
-    if (!lines.length) return;
-    downloadCsv(`cost-profile-${p.code}-${today()}.csv`, [
-      ['كود المكون', 'اسم المكون', 'طريقة الحساب', 'الطبيعة', 'النسبة%', 'المبلغ', 'العملة', 'حد أدنى', 'حد أقصى', 'ساري من', 'ساري حتى'],
-      ...lines.map((l: any) => [
-        l.componentCode, l.componentName, CALC_METHOD[l.calcMethod] || l.calcMethod, COMPONENT_NATURE[l.nature] || l.nature, l.ratePct ? `${l.ratePct}%` : '', l.amount || '', l.currencyCode || '', l.minAmount || '', l.maxAmount || '', l.effectiveFrom || '', l.effectiveTo || 'مفتوح',
-      ]),
-    ]);
-    toast.success('تم تصدير مكونات ملف التكلفة إلى CSV بنجاح');
-  };
+  const buildCostProfileRoyalDoc = () => ({
+    title: `ملف تكلفة الموظفين: ${p.nameAr}`,
+    subtitle: `رمز الملف: ${p.code} • عدد الموظفين المرتبطين: ${p.activeEmployees ?? 0} موظف`,
+    filename: `cost-profile-${p.code}-${today()}`,
+    docNo: p.code,
+    docDate: today(),
+    kpis: [
+      { label: 'رمز الملف', value: p.code, tone: 'navy' as const },
+      { label: 'الموظفون المرتبطون', value: `${p.activeEmployees ?? 0} موظف`, tone: 'indigo' as const },
+      { label: 'عدد المكونات', value: `${lines.length} مكون`, tone: 'emerald' as const },
+    ],
+    sections: [
+      {
+        title: 'مكونات وتفاصيل ملف التكلفة',
+        columns: [
+          { key: 'componentCode', header: 'الكود', width: 12 },
+          { key: 'componentName', header: 'اسم المكون', width: 24 },
+          { key: 'calcMethodLabel', header: 'طريقة الحساب', width: 18 },
+          { key: 'natureLabel', header: 'الطبيعة', width: 14 },
+          { key: 'rateDisplay', header: 'النسبة %', width: 10 },
+          { key: 'amount', header: 'المبلغ', width: 14, type: 'currency' as const, isTotal: true },
+          { key: 'currencyCode', header: 'العملة', width: 10 },
+          { key: 'effectiveRange', header: 'السريان', width: 22 },
+        ],
+        data: lines.map((l: any) => ({
+          ...l,
+          calcMethodLabel: CALC_METHOD[l.calcMethod] || l.calcMethod,
+          natureLabel: COMPONENT_NATURE[l.nature] || l.nature,
+          rateDisplay: l.ratePct ? `${l.ratePct}%` : '—',
+          effectiveRange: `${l.effectiveFrom || '—'} ← ${l.effectiveTo || 'مفتوح'}`,
+        })),
+      },
+    ],
+    signatureLabels: ['إدارة الموارد البشرية', 'المراقب المالي', 'الاعتماد'] as [string, string, string],
+  });
 
   return (
     <div className="space-y-4">
@@ -117,11 +143,22 @@ export function CostProfileDetailPage() {
         subtitle={`${p.activeEmployees} موظف على هذا الملف حاليًا. التغييرات تنشئ إصدارات جديدة بتاريخ سريان ولا تعدّل الماضي.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
+            <button
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+              onClick={() => void ExportEngine.exportDetailPdf(buildCostProfileRoyalDoc())}
+              title="طباعة وتصدير PDF ملكي لملف التكلفة"
+            >
+              <Printer className="size-3.5" /> طباعة / PDF ملكي
             </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={handleExportCsv} title="تصدير CSV">
-              <Download className="size-3.5" /> تصدير CSV
+            <button
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+              onClick={async () => {
+                const ok = await ExportEngine.exportDetailExcel(buildCostProfileRoyalDoc());
+                if (ok) toast.success('تم تصدير مكونات ملف التكلفة إلى Excel الملكي بنجاح');
+              }}
+              title="تصدير ملف التكلفة إلى Excel الملكي"
+            >
+              <FileSpreadsheet className="size-3.5" /> تصدير Excel ملكي
             </button>
             <Link to="/cost/profiles" className="btn-secondary text-xs flex items-center gap-1.5"><ArrowRight className="size-3.5" /> الملفات</Link>
           </div>

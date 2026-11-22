@@ -8,7 +8,7 @@ import { api, ApiError, Page } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { downloadCsv, parseCsv, today } from '../lib/format';
 import { ExportMenu } from './ExportMenu';
-import { ExportColumnDef } from '../engine/export-engine';
+import { ExportColumnDef, ExportEngine } from '../engine/export-engine';
 import { SearchableSelect } from './SearchableSelect';
 import {
   FormSection,
@@ -1011,22 +1011,30 @@ export function CrudPage({
         : 'text',
   }));
 
+  const buildRecordRoyalDoc = (row: any) => {
+    const recName = row?.nameAr || row?.fullNameAr || row?.name || row?.code || row?.id || '';
+    const metaFields = fields.map((f) => {
+      const rawVal = row?.[f.name];
+      let display: string;
+      if (f.type === 'bool') display = rawVal ? 'نعم (نشط)' : 'لا';
+      else if (f.type === 'select' && f.options) display = f.options.find((o) => o.value === rawVal)?.label ?? String(rawVal ?? '—');
+      else display = rawVal !== null && rawVal !== undefined && rawVal !== '' ? String(rawVal) : '—';
+      return { label: f.label, value: display };
+    });
+    return {
+      title: `بطاقة ${entityLabel}: ${recName}`,
+      subtitle: subtitle || `تقرير تفصيلي رسمي من سجل ${title}`,
+      filename: `${entityLabel}-${row?.code || row?.id || today()}`,
+      docNo: row?.code || row?.employeeCode || row?.id?.slice(0, 8),
+      docDate: today(),
+      currency: company?.baseCurrency || 'SAR',
+      metaFields,
+      signatureLabels: ['المعد', 'المراجعة والتدقيق', 'الاعتماد'] as [string, string, string],
+    };
+  };
+
   return (
     <div className="animate-fade-in">
-      {/* Official Print Header */}
-      <div className="print-only mb-6 border-b-2 border-slate-900 pb-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-black text-slate-900">{company?.nameAr}</h1>
-            <div className="text-xs text-slate-600 font-mono">العملة الأساسية: {company?.baseCurrency || '—'}</div>
-          </div>
-          <div className="text-end">
-            <div className="text-base font-bold text-slate-900">{title}</div>
-            <div className="text-xs text-slate-500 font-mono">تاريخ الطباعة: {today()}</div>
-          </div>
-        </div>
-      </div>
-
       <PageHeader
         title={title}
         subtitle={subtitle}
@@ -1035,10 +1043,18 @@ export function CrudPage({
             <button
               type="button"
               className="btn-secondary text-xs flex items-center gap-1.5"
-              onClick={() => window.print()}
-              title="طباعة الجدول والتقرير"
+              onClick={() =>
+                void ExportEngine.exportPdf({
+                  title,
+                  subtitle,
+                  columns: exportColumns,
+                  data: rows,
+                  currency: company?.baseCurrency || 'SAR',
+                })
+              }
+              title="طباعة ملكية A4 للجدول والتقرير"
             >
-              <Printer className="size-3.5 text-slate-600 dark:text-slate-300" /> طباعة
+              <Printer className="size-3.5 text-slate-600 dark:text-slate-300" /> طباعة ملكية
             </button>
             <ExportMenu
               title={title}
@@ -1191,11 +1207,8 @@ export function CrudPage({
                           />
                           <ActionButton
                             variant="print"
-                            title="طباعة بطاقة السجل"
-                            onClick={() => {
-                              setViewing(row);
-                              setTimeout(() => window.print(), 300);
-                            }}
+                            title="طباعة بطاقة السجل (ملكي A4)"
+                            onClick={() => void ExportEngine.exportDetailPdf(buildRecordRoyalDoc(row))}
                           />
                           {deletable && (
                             <ActionButton
@@ -1252,10 +1265,17 @@ export function CrudPage({
             </button>
             <button
               type="button"
-              className="btn-secondary flex items-center gap-1.5"
-              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+              onClick={() => viewing && void ExportEngine.exportDetailPdf(buildRecordRoyalDoc(viewing))}
             >
-              <Printer className="size-3.5" /> طباعة
+              <Printer className="size-3.5" /> طباعة / PDF ملكي
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+              onClick={() => viewing && void ExportEngine.exportDetailExcel(buildRecordRoyalDoc(viewing))}
+            >
+              <FileSpreadsheet className="size-3.5" /> Excel ملكي
             </button>
             <button
               type="button"

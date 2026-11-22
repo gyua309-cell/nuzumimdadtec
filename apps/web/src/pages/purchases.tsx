@@ -11,6 +11,7 @@ import { money, tafqeetArabic, tafqeetEnglish, today } from '../lib/format';
 import { CsvImportModal, FieldDef } from '../components/CrudPage';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { TreasuryPaymentModal } from '../components/TreasuryPaymentModal';
@@ -199,11 +200,30 @@ export function VendorsPage() {
                         />
                         <ActionButton
                           variant="print"
-                          title="طباعة بطاقة المورد"
-                          onClick={() => {
-                            setViewingVendor(v);
-                            setTimeout(() => window.print(), 300);
-                          }}
+                          title="طباعة بطاقة المورد (ملكي A4)"
+                          onClick={() =>
+                            void ExportEngine.exportDetailPdf({
+                              title: `بطاقة بيانات مورد معتمد: ${v.nameAr}`,
+                              subtitle: `كود المورد: ${v.code || '—'}`,
+                              filename: `vendor-${v.code || v.id}-${today()}`,
+                              docNo: v.code || v.id?.slice(0, 8),
+                              docDate: today(),
+                              statusLabel: v.isActive ? 'مورد نشط' : 'مورد معطل',
+                              statusTone: v.isActive ? 'green' : 'slate',
+                              metaFields: [
+                                { label: 'كود المورد', value: v.code },
+                                { label: 'اسم المورد (عربي)', value: v.nameAr },
+                                { label: 'اسم المورد (إنجليزي)', value: v.nameEn || '—' },
+                                { label: 'الرقم الضريبي (VAT)', value: v.taxRegistrationNo || '—' },
+                                { label: 'السجل التجاري', value: v.commercialRegNo || '—' },
+                                { label: 'شروط السداد', value: `${v.paymentTermsDays ?? 30} يوم` },
+                                { label: 'البريد الإلكتروني', value: v.email || '—' },
+                                { label: 'الهاتف / الجوال', value: v.phone || '—' },
+                                { label: 'العنوان', value: v.address || '—' },
+                              ],
+                              signatureLabels: ['إدارة المشتريات', 'المحاسبة والموردين', 'الاعتماد'],
+                            })
+                          }
                         />
                         <ActionButton
                           variant="delete"
@@ -1271,8 +1291,60 @@ export function PurchaseInvoiceDetailPage() {
             }))}
           />
 
-          <button className="btn-secondary flex items-center gap-1.5 text-xs" onClick={() => window.print()}>
-            <Printer className="size-3.5" /> طباعة سند استحقاق المشتريات (A4)
+          <button
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+            onClick={() =>
+              void ExportEngine.exportDetailPdf({
+                title: isDebitNote ? `إشعار مدين / مردودات مشتريات ${inv.invoiceNo}` : `سند استحقاق فاتورة مشتريات ${inv.invoiceNo}`,
+                subtitle: 'مستند التزام رسمي معتمد ومثبت بالدفاتر المحاسبية العامة',
+                filename: `Purchase-Voucher-${inv.invoiceNo}-${inv.issueDate}`,
+                docNo: inv.invoiceNo,
+                docDate: inv.issueDate,
+                currency: inv.currency || 'SAR',
+                statusLabel: inv.status === 'POSTED' ? 'مرحّلة ومعتمدة' : inv.status === 'CANCELLED' ? 'ملغاة' : 'مسودة',
+                statusTone: inv.status === 'POSTED' ? 'green' : inv.status === 'CANCELLED' ? 'red' : 'amber',
+                watermark: inv.status === 'CANCELLED' ? 'CANCELLED' : inv.status === 'DRAFT' ? 'DRAFT' : 'NONE',
+                kpis: [
+                  { label: 'المبلغ قبل الضريبة', value: `${money(inv.subtotal)} ${inv.currency || 'SAR'}`, tone: 'navy' },
+                  { label: 'ضريبة القيمة المضافة 15%', value: `${money(inv.vatAmount)} ${inv.currency || 'SAR'}`, tone: 'amber' },
+                  { label: 'الإجمالي شامل الضريبة', value: `${money(inv.totalAmount)} ${inv.currency || 'SAR'}`, tone: 'emerald' },
+                  { label: 'حالة السداد', value: inv.paymentStatus === 'PAID' ? 'مسددة بالكامل' : 'مستحقة السداد', tone: inv.paymentStatus === 'PAID' ? 'emerald' : 'rose' },
+                ],
+                metaFields: [
+                  { label: 'رقم السند الداخلي', value: inv.invoiceNo },
+                  { label: 'فاتورة المورد الأصلية', value: inv.vendorInvoiceNo || '—' },
+                  { label: 'اسم المورد', value: inv.vendorName || '—' },
+                  { label: 'تاريخ الإصدار', value: inv.issueDate },
+                  { label: 'تاريخ الاستحقاق', value: inv.dueDate || '—' },
+                  { label: 'رقم القيد المحاسبي', value: inv.journalEntryNo || '—' },
+                ],
+                sections: [
+                  {
+                    title: 'بنود المشتريات والمصروفات المحاسبية',
+                    columns: [
+                      { key: 'lineNo', header: '#', width: 6, type: 'number' },
+                      { key: 'description', header: 'البيان والتفاصيل', width: 30 },
+                      { key: 'accountName', header: 'حساب المصروف', width: 22 },
+                      { key: 'quantity', header: 'الكمية', width: 10, type: 'number' },
+                      { key: 'unitPrice', header: 'سعر الوحدة', width: 14, type: 'currency' },
+                      { key: 'subtotal', header: 'قبل الضريبة', width: 15, type: 'currency', isTotal: true },
+                      { key: 'vatAmount', header: 'الضريبة 15%', width: 14, type: 'currency', isTotal: true },
+                      { key: 'totalAmount', header: 'الإجمالي', width: 16, type: 'currency', isTotal: true },
+                    ],
+                    data: (inv.lines ?? []).map((l: any, idx: number) => ({
+                      ...l,
+                      lineNo: idx + 1,
+                      accountName: l.accountNameAr || l.accountName || l.accountId,
+                    })),
+                  },
+                ],
+                totalAmountForTafqeet: Number(inv.totalAmount || 0),
+                notes: inv.notes || undefined,
+                signatureLabels: ['مسؤول المشتريات', 'المحاسب المالي', 'اعتماد الإدارة المالية'],
+              })
+            }
+          >
+            <Printer className="size-3.5" /> طباعة السند الملكي (A4)
           </button>
 
           {inv.status !== 'CANCELLED' && (

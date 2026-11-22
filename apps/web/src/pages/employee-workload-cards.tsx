@@ -5,6 +5,7 @@ import {
   Search, Table, UserCheck, Users, Wallet
 } from 'lucide-react';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { isAssignmentActiveInPeriod } from '../lib/fallback-engine';
@@ -352,11 +353,34 @@ export function EmployeeWorkloadCardsPage() {
               data={filteredCards}
             />
             <button
-              onClick={() => window.print()}
+              onClick={() =>
+                void ExportEngine.exportPdf({
+                  title: 'كروت تتبع الموظفين ونسب العمل والتفرغ والمشاريع',
+                  subtitle: 'تحليل معدلات الإسناد والوقت المتاح (Bench Capacity) وتكلفة التفرغ بالريال السعودي',
+                  currency: 'SAR',
+                  summaryKpis: [
+                    { label: 'إجمالي الكوادر', value: `${summary.totalStaff} مهندس ومطور`, tone: 'indigo' },
+                    { label: 'الرياض / القاهرة', value: `${summary.saudiStaffCount} الرياض • ${summary.egyptStaffCount} القاهرة`, tone: 'sky' },
+                    { label: 'الأيام المتاحة', value: `${summary.freeDaysTotal} يوم`, tone: 'emerald' },
+                    { label: 'تكلفة التفرغ (SAR)', value: `${money(summary.totalUnutilizedSar)} SAR`, tone: 'amber' },
+                  ],
+                  columns: [
+                    { key: 'code', header: 'كود الموظف', width: 12 },
+                    { key: 'nameAr', header: 'اسم الموظف', width: 22 },
+                    { key: 'jobTitle', header: 'المسمى الوظيفي', width: 20 },
+                    { key: 'currency', header: 'العملة', width: 10 },
+                    { key: 'monthlyCostSar', header: 'التكلفة الشهرية (SAR)', width: 16, type: 'currency', isTotal: true },
+                    { key: 'totalAllocatedPct', header: 'نسبة الإسناد %', width: 12, type: 'percent' },
+                    { key: 'freeCapacityPct', header: 'نسبة التفرغ %', width: 12, type: 'percent' },
+                    { key: 'unutilizedCostSar', header: 'تكلفة التفرغ (SAR)', width: 16, type: 'currency', isTotal: true },
+                  ],
+                  data: filteredCards,
+                })
+              }
               className="btn btn-primary text-xs flex items-center gap-1.5"
             >
               <Printer className="size-3.5" />
-              طباعة الكروت
+              طباعة الكروت الملكية
             </button>
           </div>
         }
@@ -1016,8 +1040,96 @@ function PrintEmployeeCardModal({
       footer={
         <div className="flex items-center gap-2">
           <button className="btn-secondary text-xs" onClick={onClose}>إغلاق</button>
-          <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => window.print()}>
-            <Printer className="size-3.5" /> طباعة البطاقة
+          <button
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+            onClick={() =>
+              void ExportEngine.exportDetailPdf({
+                title: `بطاقة تشغيل وتفرغ الكادر: ${employee.nameAr}`,
+                subtitle: `${employee.jobTitle} • ${employee.departmentName} • ${employee.branchCountry === 'SA' ? 'الرياض' : 'القاهرة'}`,
+                filename: `employee-card-${employee.code}-${today()}`,
+                docNo: `CRD-${employee.code}`,
+                docDate: today(),
+                currency: 'SAR',
+                statusLabel: employee.status === 'BENCH' ? 'متفرغ 100%' : employee.status === 'FULL' ? 'مستغل كلياً 100%' : employee.status === 'OVERALLOCATED' ? 'محمّل فوق الطاقة' : `مستغل جزئياً ${employee.totalAllocatedPct}%`,
+                statusTone: employee.status === 'FULL' ? 'green' : employee.status === 'OVERALLOCATED' ? 'red' : 'amber',
+                kpis: [
+                  { label: 'نسبة الإسناد', value: `${employee.totalAllocatedPct}%`, tone: 'indigo' },
+                  { label: 'نسبة التفرغ', value: `${employee.freeCapacityPct}%`, tone: employee.freeCapacityPct > 0 ? 'amber' : 'emerald' },
+                  { label: 'التكلفة الشهرية (SAR)', value: `${money(employee.monthlyCostSar)} SAR`, tone: 'navy' },
+                  { label: 'تكلفة الوقت غير المستغل', value: `${money(employee.unutilizedCostSar)} SAR`, tone: 'rose' },
+                ],
+                metaFields: [
+                  { label: 'كود الموظف', value: employee.code },
+                  { label: 'اسم الموظف', value: employee.nameAr },
+                  { label: 'المسمى الوظيفي', value: employee.jobTitle },
+                  { label: 'القسم', value: employee.departmentName },
+                  { label: 'الفرع', value: employee.branchName },
+                  { label: 'الأيام المشغولة / المتاحة', value: `${employee.allocatedDays} مشغول / ${employee.freeDays} متاح` },
+                ],
+                sections:
+                  employee.assignments && employee.assignments.length > 0
+                    ? [
+                        {
+                          title: 'المشاريع المسند إليها الموظف حالياً',
+                          columns: [
+                            { key: 'projectCode', header: 'كود المشروع', width: 14 },
+                            { key: 'projectNameAr', header: 'اسم المشروع', width: 26 },
+                            { key: 'clientNameAr', header: 'العميل', width: 22 },
+                            { key: 'allocationPct', header: 'نسبة التخصيص %', width: 14, type: 'percent' },
+                            { key: 'allocatedDays', header: 'الأيام', width: 12, type: 'number' },
+                          ],
+                          data: employee.assignments,
+                        },
+                      ]
+                    : [],
+                signatureLabels: ['إدارة الموارد والتشغيل', 'مدير المشاريع', 'الاعتماد المالي'],
+              })
+            }
+          >
+            <Printer className="size-3.5" /> طباعة / PDF ملكي
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+            onClick={() =>
+              void ExportEngine.exportDetailExcel({
+                title: `بطاقة الكادر ${employee.nameAr}`,
+                filename: `employee-card-${employee.code}-${today()}`,
+                docNo: `CRD-${employee.code}`,
+                currency: 'SAR',
+                kpis: [
+                  { label: 'نسبة الإسناد', value: `${employee.totalAllocatedPct}%` },
+                  { label: 'التكلفة الشهرية', value: `${money(employee.monthlyCostSar)} SAR` },
+                ],
+                metaFields: [
+                  { label: 'الكود', value: employee.code },
+                  { label: 'الاسم', value: employee.nameAr },
+                  { label: 'المسمى الوظيفي', value: employee.jobTitle },
+                  { label: 'الفرع', value: employee.branchName },
+                  { label: 'نسبة الإسناد %', value: employee.totalAllocatedPct },
+                  { label: 'نسبة التفرغ %', value: employee.freeCapacityPct },
+                  { label: 'التكلفة الشهرية (SAR)', value: employee.monthlyCostSar },
+                  { label: 'تكلفة التفرغ (SAR)', value: employee.unutilizedCostSar },
+                ],
+                sections:
+                  employee.assignments && employee.assignments.length > 0
+                    ? [
+                        {
+                          title: 'المشاريع المسندة',
+                          columns: [
+                            { key: 'projectCode', header: 'كود المشروع', width: 14 },
+                            { key: 'projectNameAr', header: 'اسم المشروع', width: 26 },
+                            { key: 'clientNameAr', header: 'العميل', width: 22 },
+                            { key: 'allocationPct', header: 'نسبة التخصيص %', width: 14, type: 'percent' },
+                            { key: 'allocatedDays', header: 'الأيام', width: 12, type: 'number' },
+                          ],
+                          data: employee.assignments,
+                        },
+                      ]
+                    : [],
+              })
+            }
+          >
+            Excel ملكي
           </button>
         </div>
       }

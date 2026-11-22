@@ -11,6 +11,7 @@ import {
   ActionButton, ActionGroup, AddButton, Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, useToast,
 } from '../components/ui';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 
 export interface ServiceItem {
   id: string;
@@ -415,10 +416,32 @@ export function ServiceCatalogPage() {
             </button>
             <button
               className="btn-secondary text-xs flex items-center gap-1.5 shadow-xs"
-              onClick={() => window.print()}
-              title="طباعة الدليل"
+              onClick={() =>
+                void ExportEngine.exportPdf({
+                  title: 'دليل الخدمات والأسعار القياسية',
+                  subtitle: 'المخزون الخدمي والتسعير المعتمد لخدمات التطوير والاستشارات',
+                  currency: 'SAR',
+                  columns: [
+                    { key: 'code', header: 'رمز الخدمة', width: 12 },
+                    { key: 'nameAr', header: 'اسم الخدمة', width: 26 },
+                    { key: 'categoryLabel', header: 'التصنيف', width: 20 },
+                    { key: 'billingBasisLabel', header: 'أساس الفوترة', width: 14 },
+                    { key: 'defaultUnitPrice', header: 'السعر القياسي', width: 14, type: 'currency' },
+                    { key: 'currencyCode', header: 'العملة', width: 10 },
+                    { key: 'vatRate', header: 'الضريبة %', width: 10 },
+                    { key: 'statusLabel', header: 'الحالة', width: 10 },
+                  ],
+                  data: (query.data || INITIAL_SERVICES).map((s) => ({
+                    ...s,
+                    categoryLabel: CATEGORY_LABELS[s.category]?.label || s.category,
+                    billingBasisLabel: BILLING_BASIS_LABELS[s.billingBasis] || s.billingBasis,
+                    statusLabel: s.isActive ? 'نشط' : 'معطل',
+                  })),
+                })
+              }
+              title="طباعة ملكية A4 لدليل الخدمات"
             >
-              <Printer className="size-3.5" /> طباعة
+              <Printer className="size-3.5" /> طباعة ملكية
             </button>
             <AddButton
               label="إضافة خدمة جديدة"
@@ -578,11 +601,35 @@ export function ServiceCatalogPage() {
                           />
                           <ActionButton
                             variant="print"
-                            title="طباعة بطاقة الخدمة"
-                            onClick={() => {
-                              setViewingService(item);
-                              setTimeout(() => window.print(), 300);
-                            }}
+                            title="طباعة بطاقة الخدمة (ملكي A4)"
+                            onClick={() =>
+                              void ExportEngine.exportDetailPdf({
+                                title: `بطاقة خدمة معتمدة: ${item.nameAr}`,
+                                subtitle: `رمز الخدمة: ${item.code} • ${CATEGORY_LABELS[item.category]?.label || item.category}`,
+                                filename: `service-${item.code}-${today()}`,
+                                docNo: item.code,
+                                docDate: today(),
+                                currency: item.currencyCode || 'SAR',
+                                statusLabel: item.isActive ? 'خدمة نشطة' : 'معطلة',
+                                statusTone: item.isActive ? 'green' : 'slate',
+                                kpis: [
+                                  { label: 'السعر القياسي', value: `${money(item.defaultUnitPrice)} ${item.currencyCode}`, tone: 'emerald' },
+                                  { label: 'أساس الفوترة', value: BILLING_BASIS_LABELS[item.billingBasis] || item.billingBasis, tone: 'indigo' },
+                                  { label: 'ضريبة ZATCA', value: `${item.vatRate}%`, tone: 'amber' },
+                                ],
+                                metaFields: [
+                                  { label: 'رمز الخدمة', value: item.code },
+                                  { label: 'الاسم بالعربية', value: item.nameAr },
+                                  { label: 'الاسم بالإنجليزية', value: item.nameEn || '—' },
+                                  { label: 'التصنيف', value: CATEGORY_LABELS[item.category]?.label || item.category },
+                                  { label: 'حساب الإيراد', value: item.glAccountId || '40101' },
+                                  { label: 'الحالة', value: item.isActive ? 'نشط' : 'معطل' },
+                                ],
+                                notes: item.description || undefined,
+                                totalAmountForTafqeet: Number(item.defaultUnitPrice || 0),
+                                signatureLabels: ['الإدارة التجارية', 'المراجعة المالية', 'الاعتماد'],
+                              })
+                            }
                           />
                           <ActionButton
                             variant="delete"
@@ -772,12 +819,67 @@ export function ServiceCatalogPage() {
         wide
         footer={
           <div className="flex items-center justify-between w-full">
-            <button
-              className="btn-secondary text-xs"
-              onClick={() => window.print()}
-            >
-              <Printer className="size-3.5" /> طباعة بطاقة الخدمة
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+                onClick={() => {
+                  if (!viewingService) return;
+                  void ExportEngine.exportDetailPdf({
+                    title: `بطاقة خدمة معتمدة: ${viewingService.nameAr}`,
+                    subtitle: `رمز الخدمة: ${viewingService.code} • ${CATEGORY_LABELS[viewingService.category]?.label || viewingService.category}`,
+                    filename: `service-${viewingService.code}-${today()}`,
+                    docNo: viewingService.code,
+                    docDate: today(),
+                    currency: viewingService.currencyCode || 'SAR',
+                    statusLabel: viewingService.isActive ? 'خدمة نشطة' : 'معطلة',
+                    statusTone: viewingService.isActive ? 'green' : 'slate',
+                    kpis: [
+                      { label: 'السعر القياسي', value: `${money(viewingService.defaultUnitPrice)} ${viewingService.currencyCode}`, tone: 'emerald' },
+                      { label: 'أساس الفوترة', value: BILLING_BASIS_LABELS[viewingService.billingBasis] || viewingService.billingBasis, tone: 'indigo' },
+                      { label: 'ضريبة ZATCA', value: `${viewingService.vatRate}%`, tone: 'amber' },
+                    ],
+                    metaFields: [
+                      { label: 'رمز الخدمة', value: viewingService.code },
+                      { label: 'الاسم بالعربية', value: viewingService.nameAr },
+                      { label: 'الاسم بالإنجليزية', value: viewingService.nameEn || '—' },
+                      { label: 'التصنيف', value: CATEGORY_LABELS[viewingService.category]?.label || viewingService.category },
+                      { label: 'حساب الإيراد', value: viewingService.glAccountId || '40101' },
+                      { label: 'الحالة', value: viewingService.isActive ? 'نشط' : 'معطل' },
+                    ],
+                    notes: viewingService.description || undefined,
+                    totalAmountForTafqeet: Number(viewingService.defaultUnitPrice || 0),
+                    signatureLabels: ['الإدارة التجارية', 'المراجعة المالية', 'الاعتماد'],
+                  });
+                }}
+              >
+                <Printer className="size-3.5" /> طباعة / PDF ملكي
+              </button>
+              <button
+                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+                onClick={() => {
+                  if (!viewingService) return;
+                  void ExportEngine.exportDetailExcel({
+                    title: `بطاقة خدمة: ${viewingService.nameAr}`,
+                    filename: `service-${viewingService.code}-${today()}`,
+                    docNo: viewingService.code,
+                    currency: viewingService.currencyCode || 'SAR',
+                    metaFields: [
+                      { label: 'رمز الخدمة', value: viewingService.code },
+                      { label: 'اسم الخدمة بالعربية', value: viewingService.nameAr },
+                      { label: 'اسم الخدمة بالإنجليزية', value: viewingService.nameEn || '—' },
+                      { label: 'التصنيف', value: CATEGORY_LABELS[viewingService.category]?.label || viewingService.category },
+                      { label: 'أساس الفوترة', value: BILLING_BASIS_LABELS[viewingService.billingBasis] || viewingService.billingBasis },
+                      { label: 'السعر القياسي', value: `${money(viewingService.defaultUnitPrice)} ${viewingService.currencyCode}` },
+                      { label: 'نسبة الضريبة', value: `${viewingService.vatRate}%` },
+                      { label: 'حساب الإيراد', value: viewingService.glAccountId || '40101' },
+                      { label: 'الوصف', value: viewingService.description || '—' },
+                    ],
+                  });
+                }}
+              >
+                <FileSpreadsheet className="size-3.5" /> Excel ملكي
+              </button>
+            </div>
             <div className="flex gap-2">
               <button
                 className="btn-primary text-xs"

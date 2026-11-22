@@ -1,7 +1,8 @@
 /**
- * IDHAM ERP - Enterprise Export Engine (ExcelJS & CSV)
- * Creates professional RTL Excel workbooks with true numeric types,
- * live SUM formulas, frozen headers, zebra stripes, and anti-formula injection.
+ * IDHAM ERP - Royal Enterprise Export & Print Engine (Royal PDF, Royal ExcelJS, CSV)
+ * Produces executive Royal Navy & Gold corporate printouts/PDFs and styled RTL Excel workbooks
+ * with true numeric types, live SUM formulas, frozen headers, A4 page setup, Arabic Tafqeet,
+ * Executive KPI strips, Official Signatures, and anti-formula injection.
  */
 
 import ExcelJS from 'exceljs';
@@ -9,6 +10,7 @@ import { getPlatformAdapter } from './platform-adapter';
 import { sanitizeForSpreadsheet } from './formatters';
 import { createJob, updateJob } from './jobs-center';
 import { getStoredCompany } from '../lib/storage-company';
+import { tafqeetArabic } from '../lib/format';
 
 export interface ExportColumnDef {
   key: string;
@@ -17,6 +19,12 @@ export interface ExportColumnDef {
   type?: 'text' | 'number' | 'currency' | 'date' | 'percent';
   format?: string;
   isTotal?: boolean; // include in SUM formula footer
+}
+
+export interface RoyalKpiItem {
+  label: string;
+  value: string;
+  tone?: 'navy' | 'emerald' | 'amber' | 'rose' | 'indigo' | 'sky';
 }
 
 export interface ExportReportOptions {
@@ -28,9 +36,13 @@ export interface ExportReportOptions {
   periodLabel?: string;
   columns: ExportColumnDef[];
   data: Array<Record<string, any>>;
+  summaryKpis?: RoyalKpiItem[];
   summaryRows?: Array<Record<string, any>>;
   includeHeaderBanner?: boolean;
   sheetName?: string;
+  signatureLabels?: [string, string, string];
+  notes?: string;
+  watermark?: 'NONE' | 'DRAFT' | 'CANCELLED' | 'DUPLICATE';
   additionalSheets?: Array<{
     sheetName: string;
     title: string;
@@ -39,35 +51,301 @@ export interface ExportReportOptions {
   }>;
 }
 
+export interface RoyalDetailSection {
+  title: string;
+  columns: ExportColumnDef[];
+  data: Array<Record<string, any>>;
+}
+
+export interface RoyalDetailDocumentOptions {
+  title: string;
+  subtitle?: string;
+  filename?: string;
+  docNo?: string;
+  docDate?: string;
+  statusLabel?: string;
+  statusTone?: 'green' | 'amber' | 'red' | 'blue' | 'slate';
+  branchName?: string;
+  periodLabel?: string;
+  currency?: string;
+  kpis?: RoyalKpiItem[];
+  metaFields?: Array<{ label: string; value: string | number | null | undefined }>;
+  sections?: RoyalDetailSection[];
+  totalAmountForTafqeet?: number;
+  notes?: string;
+  signatureLabels?: [string, string, string];
+  watermark?: 'NONE' | 'DRAFT' | 'CANCELLED' | 'DUPLICATE';
+}
+
+function escapeHtml(val: unknown): string {
+  return String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatNum(val: unknown, decimals = 2): string {
+  const num = typeof val === 'number' ? val : Number(val);
+  if (isNaN(num)) return String(val ?? '—');
+  return num.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+function kpiAccentStyle(tone?: RoyalKpiItem['tone']): { border: string; text: string; bg: string } {
+  switch (tone) {
+    case 'emerald':
+      return { border: '#10b981', text: '#047857', bg: '#ecfdf5' };
+    case 'amber':
+      return { border: '#d97706', text: '#b45309', bg: '#fffbeb' };
+    case 'rose':
+      return { border: '#e11d48', text: '#be123c', bg: '#fff1f2' };
+    case 'sky':
+      return { border: '#0284c7', text: '#0369a1', bg: '#f0f9ff' };
+    case 'indigo':
+      return { border: '#4f46e5', text: '#3730a3', bg: '#eef2ff' };
+    default:
+      return { border: '#0f172a', text: '#0f172a', bg: '#f8fafc' };
+  }
+}
+
+function renderRoyalHeaderHtml(params: {
+  company: any;
+  title: string;
+  subtitle?: string;
+  docRef: string;
+  docNo?: string;
+  docDate?: string;
+  statusLabel?: string;
+  statusTone?: string;
+  periodLabel?: string;
+  branchName?: string;
+  currency: string;
+  recordCount?: number;
+  nowFormatted: string;
+}): string {
+  const { company, title, subtitle, docRef, docNo, docDate, statusLabel, statusTone, periodLabel, branchName, currency, recordCount, nowFormatted } = params;
+  const statusColors: Record<string, { bg: string; fg: string; bd: string }> = {
+    green: { bg: '#059669', fg: '#ffffff', bd: '#34d399' },
+    amber: { bg: '#d97706', fg: '#ffffff', bd: '#fbbf24' },
+    red: { bg: '#e11d48', fg: '#ffffff', bd: '#fb7185' },
+    blue: { bg: '#2563eb', fg: '#ffffff', bd: '#60a5fa' },
+    slate: { bg: '#475569', fg: '#ffffff', bd: '#94a3b8' },
+  };
+  const stStyle = statusColors[statusTone || 'blue'] || statusColors.blue;
+
+  return `
+    <div style="border-radius:14px;overflow:hidden;border:1.5px solid #0f172a;margin-bottom:16px;page-break-inside:avoid;">
+      <!-- Gold Royal Crown Bar -->
+      <div style="height:6px;width:100%;background:linear-gradient(90deg,#b45309 0%,#f59e0b 35%,#4f46e5 70%,#0f172a 100%);"></div>
+
+      <!-- Deep Midnight Navy Executive Banner -->
+      <div style="background:linear-gradient(135deg,#0b1224 0%,#17203d 55%,#0f172a 100%);color:#ffffff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:14px;">
+        <!-- Right: Company Royal Identity -->
+        <div style="max-width:42%;">
+          <div style="display:flex;align-items:center;gap:11px;">
+            <div style="width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#0b1224;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;border:2px solid #fde68a;flex-shrink:0;">إ</div>
+            <div>
+              <div style="font-size:15.5px;font-weight:900;color:#ffffff;line-height:1.25;">${escapeHtml(company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية')}</div>
+              <div style="font-size:10px;color:#cbd5e1;font-weight:700;letter-spacing:0.4px;margin-top:2px;">${escapeHtml(company.nameEn || 'MODERN SUPPLY SYSTEMS • IDHAM ERP PRO')}</div>
+            </div>
+          </div>
+          <div style="font-size:10px;color:#e2e8f0;margin-top:7px;line-height:1.5;font-weight:600;">
+            الرقم الضريبي (VAT): <span style="font-family:monospace;font-weight:800;color:#fbbf24;">${escapeHtml(company.taxNumber || '310123456700003')}</span>
+            ${company.commercialReg ? ` &nbsp;|&nbsp; س.ت: <span style="font-family:monospace;font-weight:700;color:#f8fafc;">${escapeHtml(company.commercialReg)}</span>` : ''}
+          </div>
+        </div>
+
+        <!-- Center: Document Title & Royal Badge -->
+        <div style="text-align:center;flex:1;">
+          <div style="display:inline-block;background:rgba(255,255,255,0.08);border:1.5px solid rgba(251,191,36,0.65);border-radius:11px;padding:7px 18px;">
+            <div style="font-size:14px;font-weight:900;color:#ffffff;line-height:1.3;">${escapeHtml(title)}</div>
+            ${subtitle ? `<div style="font-size:10px;color:#cbd5e1;font-weight:600;margin-top:2px;">${escapeHtml(subtitle)}</div>` : ''}
+          </div>
+          <div style="margin-top:6px;display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap;font-size:10px;color:#e2e8f0;font-weight:700;">
+            ${docNo ? `<span style="background:rgba(251,191,36,0.18);color:#fde68a;border:1px solid rgba(251,191,36,0.45);padding:2px 9px;border-radius:6px;font-family:monospace;">رقم المستند: ${escapeHtml(docNo)}</span>` : ''}
+            ${statusLabel ? `<span style="background:${stStyle.bg};color:${stStyle.fg};border:1px solid ${stStyle.bd};padding:2px 10px;border-radius:6px;font-weight:800;">${escapeHtml(statusLabel)}</span>` : ''}
+            ${periodLabel ? `<span>الفترة: ${escapeHtml(periodLabel)}</span>` : ''}
+          </div>
+        </div>
+
+        <!-- Left: Meta Control Box -->
+        <div style="background:rgba(255,255,255,0.07);border:1px solid rgba(148,163,184,0.3);border-radius:10px;padding:8px 12px;font-size:10px;color:#e2e8f0;line-height:1.65;min-width:165px;text-align:right;">
+          <div>المرجع: <span style="font-family:monospace;font-weight:800;color:#fbbf24;">${escapeHtml(docRef)}</span></div>
+          <div>التاريخ: <span style="font-weight:800;color:#ffffff;">${escapeHtml(docDate || nowFormatted)}</span></div>
+          <div>الفرع: <span style="font-weight:700;color:#ffffff;">${escapeHtml(branchName || 'المقر الرئيسي')}</span></div>
+          <div>العملة: <span style="font-family:monospace;font-weight:800;color:#34d399;">${escapeHtml(currency)}</span>${recordCount !== undefined ? ` &nbsp;•&nbsp; السجلات: <b style="color:#ffffff;">${recordCount}</b>` : ''}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderRoyalTableHtml(columns: ExportColumnDef[], data: Array<Record<string, any>>, currency: string): { html: string; totals: Record<string, number> } {
+  const totals: Record<string, number> = {};
+  columns.forEach((col) => {
+    if (col.isTotal || col.type === 'currency') {
+      let sum = 0;
+      data.forEach((row) => {
+        const rawVal = row[col.key];
+        const num = typeof rawVal === 'number' ? rawVal : Number(rawVal);
+        if (!isNaN(num)) sum += num;
+      });
+      totals[col.key] = sum;
+    }
+  });
+
+  const headersHtml = columns
+    .map((col) => {
+      const isNum = col.type === 'currency' || col.type === 'number' || col.type === 'percent';
+      return `<th style="background:#0f172a;color:#ffffff;padding:8px 9px;text-align:${
+        isNum ? 'left' : 'right'
+      };font-size:10.5px;font-weight:800;border:1px solid #1e293b;border-bottom:2.5px solid #d97706;white-space:nowrap;">${escapeHtml(col.header)}</th>`;
+    })
+    .join('');
+
+  const rowsHtml = data
+    .map((row, idx) => {
+      const bg = idx % 2 === 1 ? '#f8fafc' : '#ffffff';
+      const cells = columns
+        .map((col) => {
+          let val = row[col.key];
+          if (val === true) val = 'نعم';
+          else if (val === false) val = 'لا';
+          else if (val === null || val === undefined || val === '') val = '—';
+
+          let formatted = escapeHtml(val);
+          let align = 'right';
+          let extraStyle = 'font-weight:600;color:#1e293b;';
+
+          if (col.type === 'currency' || col.type === 'number') {
+            align = 'left';
+            const num = typeof val === 'number' ? val : Number(val);
+            if (!isNaN(num) && val !== '—') {
+              formatted = formatNum(num, col.type === 'number' && Number.isInteger(num) ? 0 : 2);
+              extraStyle = `font-family:'Inter',monospace;font-weight:700;color:${num < 0 ? '#be123c' : '#0f172a'};`;
+            }
+          } else if (col.type === 'percent') {
+            align = 'left';
+            const num = typeof val === 'number' ? val : Number(val);
+            if (!isNaN(num) && val !== '—') {
+              formatted = `${num.toFixed(1)}%`;
+              extraStyle = `font-family:'Inter',monospace;font-weight:700;color:#1e40af;`;
+            }
+          } else if (col.type === 'date') {
+            align = 'center';
+            extraStyle = `font-family:'Inter',monospace;font-weight:600;color:#334155;`;
+          }
+
+          return `<td style="padding:6.5px 9px;font-size:10.5px;border-bottom:1px solid #e2e8f0;border-inline:1px solid #eef2f7;text-align:${align};${extraStyle}">${formatted}</td>`;
+        })
+        .join('');
+      return `<tr style="background:${bg};page-break-inside:avoid;">${cells}</tr>`;
+    })
+    .join('');
+
+  const hasTotals = Object.keys(totals).length > 0 && data.length > 0;
+  let footerHtml = '';
+  if (hasTotals) {
+    const footCells = columns
+      .map((col, idx) => {
+        if (idx === 0) {
+          return `<td style="padding:8.5px 9px;font-size:11px;font-weight:900;color:#0f172a;background:#fef3c7;border-top:2px solid #0f172a;border-bottom:3.5px double #0f172a;text-align:right;">الإجمالي الكلي (${data.length}):</td>`;
+        }
+        if (totals[col.key] !== undefined) {
+          const formatted = formatNum(totals[col.key], col.type === 'number' && Number.isInteger(totals[col.key]) ? 0 : 2);
+          return `<td style="padding:8.5px 9px;font-size:11px;font-weight:900;color:#0f172a;background:#fef3c7;border-top:2px solid #0f172a;border-bottom:3.5px double #0f172a;text-align:left;font-family:'Inter',monospace;">${formatted}${col.type === 'currency' ? ` <span style="font-size:9px;color:#92400e;">${escapeHtml(currency)}</span>` : ''}</td>`;
+        }
+        return `<td style="padding:8.5px 9px;background:#fef3c7;border-top:2px solid #0f172a;border-bottom:3.5px double #0f172a;"></td>`;
+      })
+      .join('');
+    footerHtml = `<tfoot><tr style="page-break-inside:avoid;">${footCells}</tr></tfoot>`;
+  }
+
+  const html = `
+    <table style="width:100%;border-collapse:collapse;border:1.25px solid #cbd5e1;margin-bottom:14px;">
+      <thead><tr style="page-break-inside:avoid;">${headersHtml}</tr></thead>
+      <tbody>
+        ${rowsHtml || `<tr><td colspan="${Math.max(1, columns.length)}" style="padding:20px;text-align:center;color:#64748b;font-weight:700;font-size:11px;">لا توجد بيانات مسجلة ضمن معايير التقرير الحالية</td></tr>`}
+      </tbody>
+      ${footerHtml}
+    </table>
+  `;
+
+  return { html, totals };
+}
+
+function renderRoyalFooterHtml(params: {
+  company: any;
+  docRef: string;
+  notes?: string;
+  tafqeetText?: string;
+  signatureLabels?: [string, string, string];
+}): string {
+  const { company, docRef, notes, tafqeetText, signatureLabels } = params;
+  const sigs = signatureLabels || ['إعداد المحاسب / المختص', 'المراجعة والتدقيق المالي', 'اعتماد الإدارة والختم الرسمي'];
+
+  return `
+    ${tafqeetText ? `
+      <div style="margin-bottom:14px;padding:9px 14px;border-radius:10px;background:linear-gradient(90deg,#fffbeb,#fef3c7);border:1.5px solid #f59e0b;font-size:11px;font-weight:800;color:#78350f;page-break-inside:avoid;">
+        <span style="color:#b45309;">المبلغ بالحروف:</span> ${escapeHtml(tafqeetText)}
+      </div>
+    ` : ''}
+    ${notes ? `
+      <div style="margin-bottom:14px;padding:9px 13px;border-radius:10px;background:#f8fafc;border:1px solid #cbd5e1;font-size:10.5px;color:#334155;line-height:1.55;page-break-inside:avoid;">
+        <strong style="color:#0f172a;">ملاحظات وبيانات إضافية:</strong> ${escapeHtml(notes)}
+      </div>
+    ` : ''}
+    <div style="margin-top:22px;padding-top:14px;border-top:2px solid #0f172a;page-break-inside:avoid;">
+      <div style="display:flex;justify-content:space-between;text-align:center;font-size:11px;margin-bottom:18px;gap:14px;">
+        ${sigs
+          .map(
+            (label) => `
+          <div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 8px 12px 8px;">
+            <div style="font-weight:900;color:#0f172a;font-size:11px;">${escapeHtml(label)}</div>
+            <div style="margin-top:30px;border-bottom:1.5px dashed #94a3b8;width:80%;margin-inline:auto;"></div>
+            <div style="margin-top:5px;font-size:9px;color:#64748b;font-weight:600;">الاسم والتوقيع والتاريخ</div>
+          </div>`,
+          )
+          .join('')}
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:7px;">
+        <span style="font-weight:800;color:#0f172a;">${escapeHtml(company.nameAr || 'منظومة إدهام لإدارة الموارد والمحاسبة')} • IDHAM ERP PRO • مستند PDF ملكي رسمي معتمد</span>
+        <span style="font-family:monospace;font-weight:800;color:#4f46e5;">VERIFIED REF: ${escapeHtml(docRef)}</span>
+      </div>
+    </div>
+  `;
+}
+
 export class ExportEngine {
   /**
-   * Generates and downloads a styled professional RTL Excel file (.xlsx)
+   * Generates and downloads a Royal styled RTL Excel workbook (.xlsx)
    */
   static async exportExcel(options: ExportReportOptions): Promise<boolean> {
     const job = createJob({
       type: 'EXPORT_EXCEL',
-      title: `تصدير إكسل: ${options.title}`,
+      title: `تصدير إكسل ملكي: ${options.title}`,
       meta: { rowCount: options.data.length },
     });
 
     try {
-      updateJob(job.id, { status: 'running', progress: 10 });
+      updateJob(job.id, { status: 'running', progress: 15 });
 
       const company = getStoredCompany();
       const workbook = new ExcelJS.Workbook();
-      workbook.creator = company.nameAr || 'IDHAM ERP';
-      workbook.lastModifiedBy = 'IDHAM ERP';
+      workbook.creator = company.nameAr || 'IDHAM ERP PRO';
+      workbook.lastModifiedBy = 'IDHAM ERP PRO';
       workbook.created = new Date();
       workbook.modified = new Date();
 
-      // 1. Build Main Sheet
-      await this.buildSheet(workbook, options, company);
+      await this.buildRoyalSheet(workbook, options, company);
       updateJob(job.id, { progress: 60 });
 
-      // 2. Build Additional Sheets if provided
       if (options.additionalSheets && options.additionalSheets.length > 0) {
         for (const extra of options.additionalSheets) {
-          await this.buildSheet(
+          await this.buildRoyalSheet(
             workbook,
             {
               ...options,
@@ -76,14 +354,13 @@ export class ExportEngine {
               columns: extra.columns,
               data: extra.data,
             },
-            company
+            company,
           );
         }
       }
 
       updateJob(job.id, { progress: 85 });
 
-      // 3. Write Buffer
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -108,77 +385,124 @@ export class ExportEngine {
       return success;
     } catch (err: any) {
       console.error('[ExportEngine] exportExcel error', err);
-      updateJob(job.id, {
-        status: 'failed',
-        error: err.message || 'فشل توليد ملف الإكسل',
-      });
+      updateJob(job.id, { status: 'failed', error: err.message || 'فشل توليد ملف الإكسل الملكي' });
       return false;
     }
   }
 
   /**
-   * Builds an individual RTL worksheet with metadata banner, styles, and formulas
+   * Builds a Royal Navy & Gold RTL worksheet with merged banner, formulas, signatures, and A4 page setup
    */
-  private static async buildSheet(
+  private static async buildRoyalSheet(
     workbook: ExcelJS.Workbook,
     options: ExportReportOptions,
-    company: any
+    company: any,
   ): Promise<ExcelJS.Worksheet> {
-    const rawSheetName = (options.sheetName || options.title).slice(0, 31).replace(/[\\/?*[\]]/g, '-');
+    const baseSheetName = (options.sheetName || options.title || 'Report')
+      .replace(/[\\/?*[\]:']/g, '-')
+      .trim()
+      .slice(0, 28) || 'Report';
+    let rawSheetName = baseSheetName;
+    let suffix = 2;
+    while (workbook.getWorksheet(rawSheetName)) {
+      rawSheetName = `${baseSheetName.slice(0, 25)}-${suffix++}`;
+    }
+    const colCount = Math.max(options.columns.length, 4);
+    const lastCol = this.getColumnLetter(colCount);
     const ws = workbook.addWorksheet(rawSheetName, {
       views: [{ state: 'normal', rightToLeft: true }],
       properties: { defaultRowHeight: 22 },
+      pageSetup: {
+        paperSize: 9, // A4
+        orientation: options.columns.length > 6 ? 'landscape' : 'portrait',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        horizontalCentered: true,
+      },
     });
 
     let currentRow = 1;
+    const docRef = `IDH-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+    const currency = options.currency || company.baseCurrency || 'SAR';
 
-    // A. Company & Report Header Banner
+    // A. Royal Navy & Gold Merged Corporate Banner
     if (options.includeHeaderBanner !== false) {
-      // Row 1: Company Name
-      const rowComp = ws.getRow(currentRow++);
-      rowComp.values = [company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية (AZM)'];
-      rowComp.font = { name: 'IBM Plex Sans Arabic', size: 14, bold: true, color: { argb: 'FF0F172A' } };
-      rowComp.alignment = { horizontal: 'right', vertical: 'middle' };
+      // Row 1: Deep Midnight Navy Company Crest Banner
+      const r1 = ws.getRow(currentRow);
+      r1.height = 34;
+      ws.mergeCells(`A${currentRow}:${lastCol}${currentRow}`);
+      const c1 = ws.getCell(`A${currentRow}`);
+      c1.value = `${company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية'}  |  ${company.nameEn || 'IDHAM ERP PRO'}`;
+      c1.font = { name: 'Tajawal', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
+      c1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B1224' } };
+      c1.alignment = { horizontal: 'right', vertical: 'middle', indent: 1 };
+      c1.border = { bottom: { style: 'medium', color: { argb: 'FFD97706' } } };
+      currentRow++;
 
-      // Row 2: Report Title & Period
-      const rowTitle = ws.getRow(currentRow++);
-      const subInfo = [
-        options.title,
+      // Row 2: Royal Indigo Report Title Bar
+      const r2 = ws.getRow(currentRow);
+      r2.height = 26;
+      ws.mergeCells(`A${currentRow}:${lastCol}${currentRow}`);
+      const c2 = ws.getCell(`A${currentRow}`);
+      c2.value = [
+        `التقرير الملكي: ${options.title}`,
         options.periodLabel ? `الفترة: ${options.periodLabel}` : null,
         options.branchName ? `الفرع: ${options.branchName}` : null,
-        `العملة: ${options.currency || company.baseCurrency || 'SAR'}`,
-      ].filter(Boolean).join(' • ');
-      rowTitle.values = [subInfo];
-      rowTitle.font = { name: 'IBM Plex Sans Arabic', size: 11, bold: true, color: { argb: 'FF0284C7' } };
-      rowTitle.alignment = { horizontal: 'right', vertical: 'middle' };
+        `العملة: ${currency}`,
+      ]
+        .filter(Boolean)
+        .join('   •   ');
+      c2.font = { name: 'Tajawal', size: 11.5, bold: true, color: { argb: 'FF1E1B4B' } };
+      c2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEF2FF' } };
+      c2.alignment = { horizontal: 'right', vertical: 'middle', indent: 1 };
+      c2.border = { bottom: { style: 'thin', color: { argb: 'FFC7D2FE' } } };
+      currentRow++;
 
-      // Row 3: Meta & Timestamp
-      const rowMeta = ws.getRow(currentRow++);
-      const nowFormatted = new Date().toLocaleString('ar-SA');
-      rowMeta.values = [`تاريخ التصدير: ${nowFormatted} | الرقم الضريبي: ${company.taxNumber || '310123456700003'}`];
-      rowMeta.font = { name: 'IBM Plex Sans Arabic', size: 9, italic: true, color: { argb: 'FF64748B' } };
-      rowMeta.alignment = { horizontal: 'right', vertical: 'middle' };
+      // Row 3: Audit & Tax Meta Bar
+      const r3 = ws.getRow(currentRow);
+      r3.height = 21;
+      ws.mergeCells(`A${currentRow}:${lastCol}${currentRow}`);
+      const c3 = ws.getCell(`A${currentRow}`);
+      c3.value = `الرقم الضريبي (VAT): ${company.taxNumber || '310123456700003'}${company.commercialReg ? `  |  س.ت: ${company.commercialReg}` : ''}  |  تاريخ التصدير: ${new Date().toLocaleString('ar-SA')}  |  المرجع: ${docRef}  |  عدد السجلات: ${options.data.length}`;
+      c3.font = { name: 'Tajawal', size: 9.5, italic: true, color: { argb: 'FF475569' } };
+      c3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+      c3.alignment = { horizontal: 'right', vertical: 'middle', indent: 1 };
+      currentRow++;
 
-      currentRow++; // Empty spacing row
+      // Optional KPI Summary Strip Row
+      if (options.summaryKpis && options.summaryKpis.length > 0) {
+        const kRow = ws.getRow(currentRow);
+        kRow.height = 24;
+        ws.mergeCells(`A${currentRow}:${lastCol}${currentRow}`);
+        const kc = ws.getCell(`A${currentRow}`);
+        kc.value = options.summaryKpis.map((k) => `${k.label}: ${k.value}`).join('    |    ');
+        kc.font = { name: 'Tajawal', size: 10, bold: true, color: { argb: 'FF92400E' } };
+        kc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+        kc.alignment = { horizontal: 'right', vertical: 'middle', indent: 1 };
+        kc.border = {
+          top: { style: 'thin', color: { argb: 'FFFCD34D' } },
+          bottom: { style: 'thin', color: { argb: 'FFFCD34D' } },
+        };
+        currentRow++;
+      }
+
+      currentRow++; // Clean spacer row
     }
 
     const tableStartRow = currentRow;
 
-    // B. Table Headers
+    // B. Royal Navy Column Headers with Gold Accent Bottom Border
     const headerRow = ws.getRow(currentRow++);
     headerRow.values = options.columns.map((c) => c.header);
-    headerRow.height = 28;
+    headerRow.height = 30;
     headerRow.eachCell((cell) => {
-      cell.font = { name: 'IBM Plex Sans Arabic', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF0F172A' }, // Slate-900 Theme Header
-      };
+      cell.font = { name: 'Tajawal', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cell.border = {
         top: { style: 'thin', color: { argb: 'FF334155' } },
-        bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+        bottom: { style: 'medium', color: { argb: 'FFD97706' } },
         left: { style: 'thin', color: { argb: 'FF334155' } },
         right: { style: 'thin', color: { argb: 'FF334155' } },
       };
@@ -189,21 +513,20 @@ export class ExportEngine {
     for (let rIdx = 0; rIdx < options.data.length; rIdx++) {
       const item = options.data[rIdx];
       const row = ws.getRow(currentRow++);
-      row.height = 20;
+      row.height = 22;
 
       const isEven = rIdx % 2 === 1;
       const rowValues: any[] = [];
 
       options.columns.forEach((col) => {
         let val = item[col.key];
-
         if (val === true) val = 'نعم';
         else if (val === false) val = 'لا';
         else if (val === null || val === undefined) val = '';
 
         if (col.type === 'number' || col.type === 'currency' || col.type === 'percent') {
           const num = typeof val === 'number' ? val : Number(val);
-          rowValues.push(isNaN(num) ? 0 : num);
+          rowValues.push(isNaN(num) ? 0 : col.type === 'percent' && Math.abs(num) > 1 ? num / 100 : num);
         } else {
           rowValues.push(sanitizeForSpreadsheet(String(val)));
         }
@@ -211,18 +534,12 @@ export class ExportEngine {
 
       row.values = rowValues;
 
-      // Apply Cell Formats and Zebra Striping
       row.eachCell((cell, colNumber) => {
         const colDef = options.columns[colNumber - 1];
-        cell.font = { name: 'IBM Plex Sans Arabic', size: 9.5 };
+        cell.font = { name: 'Tajawal', size: 10, color: { argb: 'FF0F172A' } };
 
-        // Zebra stripes
         if (isEven) {
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFF8FAFC' }, // slate-50
-          };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
         }
 
         cell.border = {
@@ -241,7 +558,7 @@ export class ExportEngine {
           } else if (colDef.type === 'date') {
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
           } else {
-            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.alignment = { horizontal: 'right', vertical: 'middle', wrapText: true };
           }
         }
       });
@@ -249,22 +566,19 @@ export class ExportEngine {
 
     const dataEndRow = currentRow - 1;
 
-    // D. Live Formulas / Totals Row (SUM)
+    // D. Royal Gold-Tinted Totals Row with Live Excel SUM Formulas
     const hasTotalCols = options.columns.some((c) => c.isTotal || c.type === 'currency');
     if (hasTotalCols && dataEndRow >= dataStartRow) {
       const totalRow = ws.getRow(currentRow++);
-      totalRow.height = 24;
+      totalRow.height = 27;
 
       const totalValues: any[] = [];
       options.columns.forEach((col, idx) => {
         if (idx === 0) {
-          totalValues.push('الإجمالي الكلي:');
+          totalValues.push(`الإجمالي الكلي (${options.data.length} سجل):`);
         } else if (col.isTotal || col.type === 'currency') {
           const colLetter = this.getColumnLetter(idx + 1);
-          // Excel formula: SUM(E6:E25)
-          totalValues.push({
-            formula: `SUM(${colLetter}${dataStartRow}:${colLetter}${dataEndRow})`,
-          });
+          totalValues.push({ formula: `SUM(${colLetter}${dataStartRow}:${colLetter}${dataEndRow})` });
         } else {
           totalValues.push('');
         }
@@ -273,15 +587,13 @@ export class ExportEngine {
       totalRow.values = totalValues;
       totalRow.eachCell((cell, colNumber) => {
         const colDef = options.columns[colNumber - 1];
-        cell.font = { name: 'IBM Plex Sans Arabic', size: 10, bold: true, color: { argb: 'FF0F172A' } };
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FFE2E8F0' }, // Slate-200
-        };
+        cell.font = { name: 'Tajawal', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
         cell.border = {
-          top: { style: 'thin', color: { argb: 'FF0F172A' } },
-          bottom: { style: 'double', color: { argb: 'FF0F172A' } }, // Double bottom accounting underline
+          top: { style: 'medium', color: { argb: 'FF0F172A' } },
+          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FFF59E0B' } },
+          right: { style: 'thin', color: { argb: 'FFF59E0B' } },
         };
         if (colDef && (colDef.isTotal || colDef.type === 'currency')) {
           cell.numFmt = colDef.format || '#,##0.00';
@@ -292,39 +604,46 @@ export class ExportEngine {
       });
     }
 
-    // E. Column Widths & Auto-Fit
+    // E. Executive Signature Block inside Excel
+    currentRow += 2;
+    const sigRow = ws.getRow(currentRow);
+    sigRow.height = 24;
+    ws.mergeCells(`A${currentRow}:${lastCol}${currentRow}`);
+    const sigCell = ws.getCell(`A${currentRow}`);
+    const sigs = options.signatureLabels || ['إعداد المحاسب / المختص', 'المراجعة والتدقيق المالي', 'اعتماد الإدارة والختم الرسمي'];
+    sigCell.value = `${sigs[0]}: ___________________        |        ${sigs[1]}: ___________________        |        ${sigs[2]}: ___________________`;
+    sigCell.font = { name: 'Tajawal', size: 9.5, bold: true, color: { argb: 'FF334155' } };
+    sigCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    // F. Column Widths
     options.columns.forEach((col, idx) => {
       const wsCol = ws.getColumn(idx + 1);
       if (col.width) {
         wsCol.width = col.width;
       } else {
-        // Compute reasonable width based on header length and content sample
         const headerLen = (col.header || '').length;
-        wsCol.width = Math.max(headerLen * 1.5, 14);
+        wsCol.width = Math.max(headerLen * 1.5, 16);
       }
     });
 
-    // F. Freeze Table Header & Enable AutoFilter
+    // G. Freeze Table Header, Print Title Rows & AutoFilter
     ws.views = [{ state: 'frozen', ySplit: tableStartRow, rightToLeft: true }];
+    ws.pageSetup.printTitlesRow = `${tableStartRow}:${tableStartRow}`;
     if (dataEndRow >= dataStartRow) {
-      const lastColLetter = this.getColumnLetter(options.columns.length);
-      ws.autoFilter = {
-        from: `A${tableStartRow}`,
-        to: `${lastColLetter}${dataEndRow}`,
-      };
+      const lastDataCol = this.getColumnLetter(options.columns.length);
+      ws.autoFilter = { from: `A${tableStartRow}`, to: `${lastDataCol}${dataEndRow}` };
     }
 
     return ws;
   }
 
   /**
-   * Generates and triggers an official printable PDF document with corporate headers,
-   * RTL data table, live totals, and executive signatures.
+   * Generates an Executive Royal A4 PDF / Printout for any tabular report or module list
    */
   static async exportPdf(options: ExportReportOptions): Promise<boolean> {
     const job = createJob({
       type: 'EXPORT_PDF',
-      title: `تصدير PDF: ${options.title}`,
+      title: `تصدير PDF ملكي: ${options.title}`,
       meta: { rowCount: options.data.length },
     });
 
@@ -333,163 +652,83 @@ export class ExportEngine {
       const company = getStoredCompany();
       const nowFormatted = new Date().toLocaleString('ar-SA');
       const currency = options.currency || company.baseCurrency || 'SAR';
-
-      // 1. Calculate totals for numeric/currency columns
-      const totals: Record<string, number> = {};
-      options.columns.forEach((col) => {
-        if (col.isTotal || col.type === 'currency' || col.type === 'number') {
-          let sum = 0;
-          options.data.forEach((row) => {
-            const rawVal = row[col.key];
-            const num = typeof rawVal === 'number' ? rawVal : Number(rawVal);
-            if (!isNaN(num)) sum += num;
-          });
-          totals[col.key] = sum;
-        }
-      });
-
-      // 2. Build Table Headers
-      const tableHeadersHtml = options.columns
-        .map((col) => {
-          const isNum = col.type === 'currency' || col.type === 'number' || col.type === 'percent';
-          return `<th style="background:#0f172a;color:#ffffff;padding:8px 10px;text-align:${
-            isNum ? 'left' : 'right'
-          };font-size:11px;font-weight:700;border:1px solid #1e293b;white-space:nowrap;">${col.header}</th>`;
-        })
-        .join('');
-
-      // 3. Build Table Rows
-      const tableRowsHtml = options.data
-        .map((row, idx) => {
-          const bg = idx % 2 === 1 ? '#f8fafc' : '#ffffff';
-          const cells = options.columns
-            .map((col) => {
-              let val = row[col.key];
-              if (val === true) val = 'نعم';
-              else if (val === false) val = 'لا';
-              else if (val === null || val === undefined) val = '—';
-
-              let formatted = String(val);
-              let align = 'right';
-
-              if (col.type === 'currency' || col.type === 'number') {
-                align = 'left';
-                const num = typeof val === 'number' ? val : Number(val);
-                if (!isNaN(num)) {
-                  formatted = num.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  });
-                }
-              } else if (col.type === 'percent') {
-                align = 'left';
-                const num = typeof val === 'number' ? val : Number(val);
-                if (!isNaN(num)) formatted = `${num.toFixed(2)}%`;
-              } else if (col.type === 'date') {
-                align = 'center';
-              }
-
-              return `<td style="padding:6px 10px;font-size:10.5px;color:#1e293b;border-bottom:1px solid #e2e8f0;border-inline:1px solid #f1f5f9;text-align:${align};">${formatted}</td>`;
-            })
-            .join('');
-          return `<tr style="background:${bg};page-break-inside:avoid;">${cells}</tr>`;
-        })
-        .join('');
-
-      // 4. Build Totals Row
-      const hasTotals = Object.keys(totals).length > 0;
-      let tableFooterHtml = '';
-      if (hasTotals) {
-        const footCells = options.columns
-          .map((col, idx) => {
-            if (idx === 0) {
-              return `<td style="padding:8px 10px;font-size:11px;font-weight:bold;color:#0f172a;background:#f1f5f9;border-top:2px solid #0f172a;border-bottom:3px double #0f172a;text-align:right;">الإجمالي الكلي:</td>`;
-            }
-            if (totals[col.key] !== undefined) {
-              const formatted = totals[col.key].toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              });
-              return `<td style="padding:8px 10px;font-size:11px;font-weight:bold;color:#0f172a;background:#f1f5f9;border-top:2px solid #0f172a;border-bottom:3px double #0f172a;text-align:left;font-family:monospace;">${formatted} ${col.type === 'currency' ? currency : ''}</td>`;
-            }
-            return `<td style="padding:8px 10px;background:#f1f5f9;border-top:2px solid #0f172a;border-bottom:3px double #0f172a;"></td>`;
-          })
-          .join('');
-        tableFooterHtml = `<tfoot><tr style="page-break-inside:avoid;">${footCells}</tr></tfoot>`;
-      }
-
-      // 5. Complete Royal Corporate A4 PDF HTML
       const docRef = `IDH-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+
+      const { html: tableHtml, totals } = renderRoyalTableHtml(options.columns, options.data, currency);
+
+      // Auto-build Royal KPI strip if caller didn't supply explicit KPIs
+      const kpis: RoyalKpiItem[] =
+        options.summaryKpis && options.summaryKpis.length > 0
+          ? options.summaryKpis
+          : [
+              { label: 'إجمالي السجلات', value: `${options.data.length}`, tone: 'indigo' },
+              ...options.columns
+                .filter((c) => totals[c.key] !== undefined && (c.isTotal || c.type === 'currency'))
+                .slice(0, 3)
+                .map((c, idx) => ({
+                  label: c.header,
+                  value: `${formatNum(totals[c.key])}${c.type === 'currency' ? ` ${currency}` : ''}`,
+                  tone: (['emerald', 'sky', 'amber'] as const)[idx % 3],
+                })),
+            ];
+
+      const kpiStripHtml =
+        kpis.length > 0
+          ? `
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;page-break-inside:avoid;">
+          ${kpis
+            .map((k) => {
+              const st = kpiAccentStyle(k.tone);
+              return `
+              <div style="flex:1;min-width:120px;border-radius:10px;border:1px solid #e2e8f0;border-top:3px solid ${st.border};background:${st.bg};padding:8px 12px;">
+                <div style="font-size:9.5px;font-weight:800;color:#475569;">${escapeHtml(k.label)}</div>
+                <div style="font-size:14px;font-weight:900;color:${st.text};font-family:'Inter','Tajawal',monospace;margin-top:3px;">${escapeHtml(k.value)}</div>
+              </div>`;
+            })
+            .join('')}
+        </div>`
+          : '';
+
+      // Primary currency total for Arabic Tafqeet
+      const primaryCurrencyCol = [...options.columns].reverse().find((c) => c.type === 'currency' && totals[c.key] > 0);
+      const tafqeetText =
+        primaryCurrencyCol && totals[primaryCurrencyCol.key] > 0
+          ? tafqeetArabic(totals[primaryCurrencyCol.key], currency)
+          : undefined;
+
+      const watermarkText =
+        options.watermark === 'DRAFT'
+          ? 'مسودة غير معتمدة'
+          : options.watermark === 'CANCELLED'
+            ? 'مستند ملغى'
+            : options.watermark === 'DUPLICATE'
+              ? 'نسخة طبق الأصل'
+              : null;
+
       const reportHtml = `
-        <div style="direction:rtl;font-family:'Tajawal','Cairo','IBM Plex Sans Arabic',system-ui,Arial,sans-serif;padding:0;color:#0f172a;background:#ffffff;">
-          <!-- Royal Crown Gradient Strip -->
-          <div style="height:6px;width:100%;background:linear-gradient(90deg,#0f172a 0%,#4f46e5 55%,#d97706 100%);border-radius:4px 4px 0 0;margin-bottom:14px;"></div>
-
-          <!-- Top Executive Royal Header -->
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #0f172a;padding:0 8px 14px 8px;margin-bottom:16px;">
-            <div style="max-width:360px;">
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">
-                <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#0f172a,#312e81);color:#fbbf24;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;border:1.5px solid #d97706;">إ</div>
-                <div>
-                  <div style="font-size:16px;font-weight:900;color:#0f172a;line-height:1.25;">${company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية'}</div>
-                  <div style="font-size:10.5px;color:#475569;font-weight:700;letter-spacing:0.3px;">${company.nameEn || 'MODERN SUPPLY SYSTEMS ERP'}</div>
-                </div>
-              </div>
-              <div style="font-size:10.5px;color:#334155;margin-top:4px;line-height:1.5;font-weight:600;">
-                الرقم الضريبي (VAT): <span style="font-family:monospace;font-weight:800;color:#0f172a;">${company.taxNumber || '310123456700003'}</span>
-                ${company.commercialReg ? ` | السجل التجاري: <span style="font-family:monospace;font-weight:700;">${company.commercialReg}</span>` : ''}
-              </div>
-            </div>
-
-            <div style="text-align:center;align-self:center;padding:0 12px;">
-              <div style="display:inline-block;background:linear-gradient(135deg,#0f172a,#1e1b4b);color:#ffffff;padding:7px 20px;border-radius:10px;font-size:14px;font-weight:900;border-bottom:3px solid #d97706;">
-                ${options.title}
-              </div>
-              <div style="font-size:11px;color:#334155;margin-top:6px;font-weight:700;">
-                ${options.periodLabel ? `الفترة: ${options.periodLabel} • ` : ''}الفرع: ${options.branchName || 'المقر الرئيسي'}
-              </div>
-            </div>
-
-            <div style="text-align:left;font-size:10.5px;color:#475569;line-height:1.65;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 12px;">
-              <div>المرجع: <span style="font-family:monospace;font-weight:800;color:#4f46e5;">${docRef}</span></div>
-              <div>تاريخ الإصدار: <span style="font-weight:800;color:#0f172a;">${nowFormatted}</span></div>
-              <div>عدد السجلات: <span style="font-weight:800;color:#0f172a;">${options.data.length}</span> • العملة: <span style="font-weight:800;color:#0f172a;">${currency}</span></div>
-            </div>
-          </div>
-
-          <!-- Data Table -->
-          <div style="padding:0 6px;">
-            <table style="width:100%;border-collapse:collapse;margin-bottom:18px;border:1px solid #cbd5e1;">
-              <thead>
-                <tr style="page-break-inside:avoid;">${tableHeadersHtml}</tr>
-              </thead>
-              <tbody>
-                ${tableRowsHtml || `<tr><td colspan="${Math.max(1, options.columns.length)}" style="padding:20px;text-align:center;color:#64748b;font-weight:700;">لا توجد سجلات مسجلة ضمن الفترة المحددة</td></tr>`}
-              </tbody>
-              ${tableFooterHtml}
-            </table>
-          </div>
-
-          <!-- Official Royal Signatures & Stamp Footer -->
-          <div style="margin-top:26px;padding:14px 8px 0 8px;border-top:2px solid #cbd5e1;page-break-inside:avoid;">
-            <div style="display:flex;justify-content:space-between;text-align:center;font-size:11.5px;margin-bottom:22px;">
-              <div style="width:29%;">
-                <div style="font-weight:800;color:#0f172a;">إعداد المحاسب / المختص</div>
-                <div style="margin-top:28px;border-bottom:1.5px dashed #94a3b8;width:82%;margin-inline:auto;"></div>
-              </div>
-              <div style="width:29%;">
-                <div style="font-weight:800;color:#0f172a;">المراجعة والتدقيق المالي</div>
-                <div style="margin-top:28px;border-bottom:1.5px dashed #94a3b8;width:82%;margin-inline:auto;"></div>
-              </div>
-              <div style="width:29%;">
-                <div style="font-weight:800;color:#0f172a;">اعتماد الإدارة والختم الرسمي</div>
-                <div style="margin-top:28px;border-bottom:1.5px dashed #94a3b8;width:82%;margin-inline:auto;"></div>
-              </div>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:8px;">
-              <span style="font-weight:700;">منظومة إدهام لإدارة الموارد والمحاسبة (IDHAM ERP PRO) • مستند PDF ملكي معتمد</span>
-              <span style="font-family:monospace;font-weight:700;">REF: ${docRef}</span>
-            </div>
+        <div style="position:relative;direction:rtl;font-family:'Tajawal','Cairo','IBM Plex Sans Arabic',system-ui,Arial,sans-serif;padding:4px;color:#0f172a;background:#ffffff;">
+          ${watermarkText ? `<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0.07;transform:rotate(-28deg);font-size:64px;font-weight:900;color:#0f172a;z-index:0;">${watermarkText}</div>` : ''}
+          <div style="position:relative;z-index:1;">
+            ${renderRoyalHeaderHtml({
+              company,
+              title: options.title,
+              subtitle: options.subtitle,
+              docRef,
+              periodLabel: options.periodLabel,
+              branchName: options.branchName,
+              currency,
+              recordCount: options.data.length,
+              nowFormatted,
+            })}
+            ${kpiStripHtml}
+            ${tableHtml}
+            ${renderRoyalFooterHtml({
+              company,
+              docRef,
+              notes: options.notes,
+              tafqeetText,
+              signatureLabels: options.signatureLabels,
+            })}
           </div>
         </div>
       `;
@@ -507,9 +746,193 @@ export class ExportEngine {
       return true;
     } catch (err: any) {
       console.error('[ExportEngine] exportPdf error', err);
-      updateJob(job.id, { status: 'failed', error: err.message || 'فشل تصدير مستند PDF' });
+      updateJob(job.id, { status: 'failed', error: err.message || 'فشل تصدير مستند PDF الملكي' });
       return false;
     }
+  }
+
+  /**
+   * Generates a Royal Executive Single-Record / Voucher / Profile / Journal / Payroll Sheet PDF
+   */
+  static async exportDetailPdf(options: RoyalDetailDocumentOptions): Promise<boolean> {
+    const job = createJob({
+      type: 'EXPORT_PDF',
+      title: `طباعة ملكية: ${options.title}`,
+      meta: { docNo: options.docNo },
+    });
+
+    try {
+      updateJob(job.id, { status: 'running', progress: 30 });
+      const company = getStoredCompany();
+      const nowFormatted = new Date().toLocaleString('ar-SA');
+      const currency = options.currency || company.baseCurrency || 'SAR';
+      const docRef = options.docNo || `IDH-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+
+      const kpiHtml =
+        options.kpis && options.kpis.length > 0
+          ? `
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;page-break-inside:avoid;">
+          ${options.kpis
+            .map((k) => {
+              const st = kpiAccentStyle(k.tone);
+              return `
+              <div style="flex:1;min-width:120px;border-radius:10px;border:1px solid #e2e8f0;border-top:3px solid ${st.border};background:${st.bg};padding:9px 12px;">
+                <div style="font-size:9.5px;font-weight:800;color:#475569;">${escapeHtml(k.label)}</div>
+                <div style="font-size:14.5px;font-weight:900;color:${st.text};font-family:'Inter','Tajawal',monospace;margin-top:3px;">${escapeHtml(k.value)}</div>
+              </div>`;
+            })
+            .join('')}
+        </div>`
+          : '';
+
+      const metaHtml =
+        options.metaFields && options.metaFields.length > 0
+          ? `
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:16px;page-break-inside:avoid;">
+          ${options.metaFields
+            .map(
+              (f) => `
+            <div style="border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;padding:7px 11px;">
+              <div style="font-size:9.5px;font-weight:700;color:#64748b;">${escapeHtml(f.label)}</div>
+              <div style="font-size:11.5px;font-weight:800;color:#0f172a;margin-top:2px;word-break:break-word;">${escapeHtml(f.value ?? '—')}</div>
+            </div>`,
+            )
+            .join('')}
+        </div>`
+          : '';
+
+      let maxCols = 0;
+      const sectionsHtml = (options.sections || [])
+        .map((sec) => {
+          maxCols = Math.max(maxCols, sec.columns.length);
+          const { html } = renderRoyalTableHtml(sec.columns, sec.data, currency);
+          return `
+            <div style="margin-bottom:14px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;page-break-after:avoid;">
+                <div style="width:4px;height:16px;border-radius:4px;background:linear-gradient(180deg,#4f46e5,#d97706);"></div>
+                <div style="font-size:12.5px;font-weight:900;color:#0f172a;">${escapeHtml(sec.title)} (${sec.data.length})</div>
+              </div>
+              ${html}
+            </div>`;
+        })
+        .join('');
+
+      const tafqeetText =
+        options.totalAmountForTafqeet && options.totalAmountForTafqeet > 0
+          ? tafqeetArabic(options.totalAmountForTafqeet, currency)
+          : undefined;
+
+      const watermarkText =
+        options.watermark === 'DRAFT'
+          ? 'مسودة غير معتمدة'
+          : options.watermark === 'CANCELLED'
+            ? 'مستند ملغى'
+            : options.watermark === 'DUPLICATE'
+              ? 'نسخة طبق الأصل'
+              : null;
+
+      const html = `
+        <div style="position:relative;direction:rtl;font-family:'Tajawal','Cairo','IBM Plex Sans Arabic',system-ui,Arial,sans-serif;padding:4px;color:#0f172a;background:#ffffff;">
+          ${watermarkText ? `<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0.07;transform:rotate(-28deg);font-size:64px;font-weight:900;color:#0f172a;z-index:0;">${watermarkText}</div>` : ''}
+          <div style="position:relative;z-index:1;">
+            ${renderRoyalHeaderHtml({
+              company,
+              title: options.title,
+              subtitle: options.subtitle,
+              docRef,
+              docNo: options.docNo,
+              docDate: options.docDate,
+              statusLabel: options.statusLabel,
+              statusTone: options.statusTone,
+              periodLabel: options.periodLabel,
+              branchName: options.branchName,
+              currency,
+              nowFormatted,
+            })}
+            ${kpiHtml}
+            ${metaHtml}
+            ${sectionsHtml}
+            ${renderRoyalFooterHtml({
+              company,
+              docRef,
+              notes: options.notes,
+              tafqeetText,
+              signatureLabels: options.signatureLabels,
+            })}
+          </div>
+        </div>
+      `;
+
+      updateJob(job.id, { progress: 85 });
+      const adapter = getPlatformAdapter();
+      await adapter.printDocument({
+        contentHtml: html,
+        title: `${options.title} - IDHAM ERP`,
+        pageSize: 'A4',
+        orientation: maxCols > 7 ? 'landscape' : 'portrait',
+      });
+
+      updateJob(job.id, { status: 'completed', progress: 100 });
+      return true;
+    } catch (err: any) {
+      console.error('[ExportEngine] exportDetailPdf error', err);
+      updateJob(job.id, { status: 'failed', error: err.message || 'فشل توليد الطباعة الملكية' });
+      return false;
+    }
+  }
+
+  /**
+   * Generates a Royal Multi-Sheet Excel workbook from any detail document (meta + sections)
+   */
+  static async exportDetailExcel(options: RoyalDetailDocumentOptions): Promise<boolean> {
+    const primarySection = options.sections?.[0];
+    if (primarySection) {
+      const extraSheets = (options.sections || []).slice(1).map((s) => ({
+        sheetName: s.title,
+        title: `${options.title} — ${s.title}`,
+        columns: s.columns,
+        data: s.data,
+      }));
+      if (options.metaFields && options.metaFields.length > 0) {
+        extraSheets.push({
+          sheetName: 'بيانات المستند',
+          title: `بطاقة بيانات المستند — ${options.title}`,
+          columns: [
+            { key: 'label', header: 'البيان / الحقل', width: 28 },
+            { key: 'value', header: 'القيمة', width: 42 },
+          ],
+          data: options.metaFields.map((f) => ({ label: f.label, value: f.value ?? '—' })),
+        });
+      }
+      return this.exportExcel({
+        title: options.title,
+        filename: options.filename || `${options.title}-${options.docNo || new Date().toISOString().slice(0, 10)}`,
+        periodLabel: options.periodLabel,
+        branchName: options.branchName,
+        currency: options.currency,
+        summaryKpis: options.kpis,
+        columns: primarySection.columns,
+        data: primarySection.data,
+        sheetName: primarySection.title,
+        signatureLabels: options.signatureLabels,
+        additionalSheets: extraSheets,
+      });
+    }
+
+    return this.exportExcel({
+      title: options.title,
+      filename: options.filename,
+      periodLabel: options.periodLabel,
+      branchName: options.branchName,
+      currency: options.currency,
+      summaryKpis: options.kpis,
+      columns: [
+        { key: 'label', header: 'البيان / الحقل', width: 28 },
+        { key: 'value', header: 'القيمة', width: 42 },
+      ],
+      data: (options.metaFields || []).map((f) => ({ label: f.label, value: f.value ?? '—' })),
+      signatureLabels: options.signatureLabels,
+    });
   }
 
   /**
@@ -565,10 +988,7 @@ export class ExportEngine {
       return success;
     } catch (err: any) {
       console.error('[ExportEngine] exportCsv error', err);
-      updateJob(job.id, {
-        status: 'failed',
-        error: err.message || 'فشل تصدير ملف CSV',
-      });
+      updateJob(job.id, { status: 'failed', error: err.message || 'فشل تصدير ملف CSV' });
       return false;
     }
   }

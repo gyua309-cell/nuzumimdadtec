@@ -1,6 +1,6 @@
 /**
  * IDHAM ERP - Universal Royal Export & Print Menu Component
- * Renders a 1-click "PDF ملكي" button + floating Portal-based Export/Print dropdown
+ * Renders direct 1-click "PDF ملكي" + "Excel ملكي" buttons + floating Portal dropdown
  * (z-[9999], position: fixed) so it NEVER clips behind PageHeader or KPI cards.
  */
 
@@ -16,14 +16,16 @@ import {
   Settings2,
   Share2,
 } from 'lucide-react';
-import { ExportColumnDef, ExportEngine } from '../engine/export-engine';
+import { ExportColumnDef, ExportEngine, RoyalKpiItem } from '../engine/export-engine';
 import { PageOrientation, PaperSize, PrintEngine } from '../engine/print-engine';
 import { Modal, Spinner, useToast } from './ui';
 
 export interface ExportMenuProps {
   title: string;
+  subtitle?: string;
   columns: ExportColumnDef[];
   data: Array<Record<string, any>>;
+  summaryKpis?: RoyalKpiItem[];
   filename?: string;
   periodLabel?: string;
   branchName?: string;
@@ -33,6 +35,7 @@ export interface ExportMenuProps {
   orientation?: PageOrientation;
   onCustomPrint?: () => void;
   showQuickPdf?: boolean;
+  showQuickExcel?: boolean;
   className?: string;
 }
 
@@ -43,13 +46,15 @@ interface PopoverCoords {
   maxHeight: number;
 }
 
-const MENU_WIDTH = 288; // w-72
-const MENU_EST_HEIGHT = 340;
+const MENU_WIDTH = 292;
+const MENU_EST_HEIGHT = 345;
 
 export const ExportMenu: React.FC<ExportMenuProps> = ({
   title,
+  subtitle,
   columns,
   data,
+  summaryKpis,
   filename,
   periodLabel,
   branchName,
@@ -59,6 +64,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   orientation = 'portrait',
   onCustomPrint,
   showQuickPdf = true,
+  showQuickExcel = true,
   className = '',
 }) => {
   const [open, setOpen] = useState(false);
@@ -85,7 +91,6 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
     const pad = 12;
 
     const menuWidth = Math.min(MENU_WIDTH, vw - pad * 2);
-    // Align menu edge with button edge (in RTL prefer aligning left edge or clamping safely inside viewport)
     let left = rect.left;
     if (left + menuWidth > vw - pad) {
       left = Math.max(pad, rect.right - menuWidth);
@@ -106,7 +111,6 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
     setCoords({ top, left, width: menuWidth, maxHeight });
   }, []);
 
-  // Recompute coords when opened & on scroll/resize
   useEffect(() => {
     if (!open) return;
     computeCoords();
@@ -154,25 +158,27 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           pageSize,
           orientation,
         });
-        toast.success(`تم تجهيز مستند PDF الملكي (${title}) للطباعة والحفظ`);
+        toast.success(`تم فتح الطباعة الملكية / PDF (${title}) بنجاح`);
       } else {
         const ok = await ExportEngine.exportPdf({
           title,
+          subtitle,
           filename,
           columns: activeColumns,
           data: safeRows,
+          summaryKpis,
           periodLabel,
           branchName,
           currency,
         });
         if (ok) {
-          toast.success(`تم إنشاء مستند PDF الملكي (${title}) بنجاح`);
+          toast.success(`تم تجهيز مستند PDF الملكي (${title}) للطباعة والحفظ`);
         } else {
-          toast.error('حدث خطأ أثناء تصدير مستند PDF');
+          toast.error('حدث خطأ أثناء تصدير مستند PDF الملكي');
         }
       }
     } catch (err: any) {
-      toast.error(err?.message || 'فشل تصدير PDF');
+      toast.error(err?.message || 'فشل تصدير PDF الملكي');
     } finally {
       setLoadingType(null);
     }
@@ -184,20 +190,22 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
     try {
       const ok = await ExportEngine.exportExcel({
         title,
+        subtitle,
         filename,
         columns: activeColumns,
         data: safeRows,
+        summaryKpis,
         periodLabel,
         branchName,
         currency,
       });
       if (ok) {
-        toast.success(`تم تصدير ملف إكسل (${title}) بنجاح`);
+        toast.success(`تم تصدير ملف Excel الملكي (${title}) بنجاح`);
       } else {
-        toast.error('حدث خطأ أثناء تصدير ملف الإكسل');
+        toast.error('حدث خطأ أثناء تصدير ملف الإكسل الملكي');
       }
     } catch (err: any) {
-      toast.error(err?.message || 'فشل التصدير');
+      toast.error(err?.message || 'فشل التصدير إلى Excel');
     } finally {
       setLoadingType(null);
     }
@@ -241,9 +249,11 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
       } else {
         await ExportEngine.exportPdf({
           title,
+          subtitle,
           filename,
           columns: activeColumns,
           data: safeRows,
+          summaryKpis,
           periodLabel,
           branchName,
           currency,
@@ -257,7 +267,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   const handleShareWhatsApp = () => {
     setOpen(false);
     const text = encodeURIComponent(
-      `*تقرير ${title}*\nتاريخ: ${new Date().toLocaleDateString('ar-SA')}\nإجمالي السجلات: ${safeRows.length}\nالمنظومة: نظام إدهام ERP`,
+      `*تقرير ${title}*\nتاريخ: ${new Date().toLocaleDateString('ar-SA')}\nإجمالي السجلات: ${safeRows.length}\nالمنظومة: نظام إدهام ERP PRO`,
     );
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
@@ -276,11 +286,11 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
               maxHeight: coords.maxHeight,
               zIndex: 9999,
             }}
-            className="overflow-y-auto overflow-x-hidden rounded-2xl bg-white dark:bg-[#0c1427] border border-slate-200/95 dark:border-slate-700/90 shadow-[0_24px_60px_-15px_rgba(15,23,42,0.38)] pb-1.5 text-xs animate-scale-in"
+            className="overflow-y-auto overflow-x-hidden rounded-2xl bg-white dark:bg-[#0c1427] border border-slate-200/95 dark:border-slate-700/90 shadow-[0_24px_60px_-15px_rgba(15,23,42,0.42)] pb-1.5 text-xs animate-scale-in"
           >
             <div className="h-1.5 w-full bg-gradient-to-l from-indigo-600 via-amber-500 to-rose-500" />
-            <div className="px-3.5 py-2.5 text-[11px] font-black text-slate-700 dark:text-slate-200 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900/50">
-              <span>خيارات الطباعة والتصدير الملكي</span>
+            <div className="px-3.5 py-2.5 text-[11px] font-black text-slate-800 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/60">
+              <span>مركز الطباعة والتصدير الملكي</span>
               <span className="font-mono bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 px-2 py-0.5 rounded-md text-[10.5px] font-extrabold">
                 {safeRows.length} سجل
               </span>
@@ -289,7 +299,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
             {/* 1. Royal PDF Export */}
             <button
               type="button"
-              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-rose-50/70 dark:hover:bg-rose-950/30 transition-colors text-start group"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-rose-50/75 dark:hover:bg-rose-950/30 transition-colors text-start group"
               onClick={handleExportPdf}
             >
               <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-rose-500/12 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 border border-rose-500/30 group-hover:scale-105 transition-transform">
@@ -297,21 +307,19 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>تصدير PDF ملكي معتمد</span>
-                  <span className="text-[9.5px] bg-rose-600 text-white px-1.5 py-0.2 rounded font-extrabold">
-                    A4
-                  </span>
+                  <span>طباعة / PDF ملكي معتمد</span>
+                  <span className="text-[9.5px] bg-rose-600 text-white px-1.5 rounded font-extrabold">A4</span>
                 </div>
                 <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-snug">
-                  ترويسة ملكية مذهبة، مجاميع وتوقيعات رسمية
+                  ترويسة كحلية مذهبة، مؤشرات، تفقيط وتوقيعات
                 </div>
               </div>
             </button>
 
-            {/* 2. Excel Export */}
+            {/* 2. Royal Excel Export */}
             <button
               type="button"
-              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/30 transition-colors text-start group"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-emerald-50/75 dark:hover:bg-emerald-950/30 transition-colors text-start group"
               onClick={handleExportExcel}
             >
               <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-500/30 group-hover:scale-105 transition-transform">
@@ -319,30 +327,28 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>تصدير Excel (.xlsx)</span>
-                  <span className="text-[9.5px] bg-emerald-600 text-white px-1.5 py-0.2 rounded font-extrabold">
-                    RTL
-                  </span>
+                  <span>تصدير Excel ملكي (.xlsx)</span>
+                  <span className="text-[9.5px] bg-emerald-600 text-white px-1.5 rounded font-extrabold">RTL</span>
                 </div>
                 <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-snug">
-                  منسق محاسبياً مع معادلات SUM وتجميد العناوين
+                  ترويسة مدمجة، معادلات SUM وإعداد طباعة A4
                 </div>
               </div>
             </button>
 
-            {/* 3. Direct Print */}
+            {/* 3. Direct Royal Print */}
             <button
               type="button"
-              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-sky-50/70 dark:hover:bg-sky-950/30 transition-colors text-start group"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-sky-50/75 dark:hover:bg-sky-950/30 transition-colors text-start group"
               onClick={handlePrint}
             >
               <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400 border border-sky-500/30 group-hover:scale-105 transition-transform">
                 <Printer className="size-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-extrabold text-slate-900 dark:text-white">معاينة وطباعة فورية</div>
+                <div className="font-extrabold text-slate-900 dark:text-white">معاينة وطباعة ملكية فورية</div>
                 <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-snug">
-                  طباعة نظيفة A4 أو طابعة إيصالات حرارية
+                  قالب رسمي معزول بدون قوائم المتصفح
                 </div>
               </div>
             </button>
@@ -396,15 +402,15 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
       : null;
 
   return (
-    <div className={`inline-flex items-center gap-1.5 text-start ${className}`} ref={triggerWrapRef}>
+    <div className={`inline-flex flex-wrap items-center gap-1.5 text-start ${className}`} ref={triggerWrapRef}>
       {/* Direct 1-Click Royal PDF Button */}
       {showQuickPdf && (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200/90 bg-gradient-to-b from-rose-50 to-white px-3 py-2 text-xs font-extrabold text-rose-700 shadow-2xs hover:border-rose-400 hover:bg-rose-50 hover:shadow-sm transition-all dark:border-rose-800/80 dark:from-rose-950/50 dark:to-slate-900 dark:text-rose-300 dark:hover:border-rose-600 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200/90 bg-gradient-to-b from-rose-50 to-white px-2.5 py-2 text-xs font-extrabold text-rose-700 shadow-2xs hover:border-rose-400 hover:bg-rose-50 hover:shadow-sm transition-all dark:border-rose-800/80 dark:from-rose-950/50 dark:to-slate-900 dark:text-rose-300 dark:hover:border-rose-600 disabled:opacity-50"
           onClick={handleExportPdf}
           disabled={loadingType !== null}
-          title={`تصدير مستند PDF ملكي رسمي (${title})`}
+          title={`تصدير وطباعة PDF ملكي رسمي (${title})`}
         >
           {loadingType === 'pdf' ? (
             <Spinner className="size-3.5" />
@@ -415,7 +421,25 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         </button>
       )}
 
-      {/* Full Export & Print Dropdown Trigger (renders Portal on document.body z-[9999]) */}
+      {/* Direct 1-Click Royal Excel Button */}
+      {showQuickExcel && (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200/90 bg-gradient-to-b from-emerald-50 to-white px-2.5 py-2 text-xs font-extrabold text-emerald-700 shadow-2xs hover:border-emerald-400 hover:bg-emerald-50 hover:shadow-sm transition-all dark:border-emerald-800/80 dark:from-emerald-950/50 dark:to-slate-900 dark:text-emerald-300 dark:hover:border-emerald-600 disabled:opacity-50"
+          onClick={handleExportExcel}
+          disabled={loadingType !== null}
+          title={`تصدير ملف Excel ملكي منسق (${title})`}
+        >
+          {loadingType === 'excel' ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <FileSpreadsheet className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+          )}
+          <span>Excel ملكي</span>
+        </button>
+      )}
+
+      {/* Full Export & Print Dropdown Trigger (Portal z-[9999]) */}
       <button
         ref={dropdownBtnRef}
         type="button"
@@ -425,9 +449,9 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         onClick={() => setOpen((prev) => !prev)}
         disabled={loadingType !== null}
         aria-expanded={open}
-        title="خيارات الطباعة والتصدير (PDF ملكي، Excel، CSV، طباعة)"
+        title="المزيد من خيارات الطباعة والتصدير الملكي (CSV، تخصيص الأعمدة، واتساب)"
       >
-        {loadingType && loadingType !== 'pdf' ? (
+        {loadingType && loadingType !== 'pdf' && loadingType !== 'excel' ? (
           <Spinner className="size-3.5" />
         ) : (
           <Download className="size-3.5 text-amber-600 dark:text-amber-400" />

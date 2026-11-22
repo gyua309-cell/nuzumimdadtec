@@ -33,6 +33,7 @@ import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, money, today } from '../lib/format';
 import { normalizePricingBasis } from '../lib/fallback-engine';
 import { DOC_TYPE, EMPLOYEE_STATUS, EMPLOYMENT_TYPE, opts } from '../lib/labels';
+import { ExportEngine } from '../engine/export-engine';
 import { ActiveBadge, cleanPayload, CrudPage, CsvImportModal, EntityForm, FieldDef, fieldErrors, validateFormFields } from '../components/CrudPage';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
@@ -821,11 +822,70 @@ export function EmployeeDetailPage() {
               <Trash2 className="size-4" /> حذف
             </button>
             <button
-              className="btn-secondary"
-              onClick={() => window.print()}
-              title="طباعة بطاقة الموظف"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+              onClick={() =>
+                void ExportEngine.exportDetailPdf({
+                  title: `ملف الموظف التنفيذي: ${empTitle}`,
+                  subtitle: `بطاقة الكادر الوظيفي والمالي والارتباطات — الرقم الوظيفي: ${empCode}`,
+                  filename: `employee-${empCode}-${today()}`,
+                  docNo: empCode,
+                  docDate: today(),
+                  statusLabel: EMPLOYEE_STATUS[e.status]?.label ?? e.status,
+                  statusTone: e.status === 'ACTIVE' ? 'green' : e.status === 'TERMINATED' ? 'red' : 'amber',
+                  kpis: [
+                    { label: 'الحالة الوظيفية', value: EMPLOYEE_STATUS[e.status]?.label ?? e.status, tone: e.status === 'ACTIVE' ? 'emerald' : 'amber' },
+                    { label: 'نوع التوظيف', value: EMPLOYMENT_TYPE[e.employmentType] ?? e.employmentType ?? '—', tone: 'indigo' },
+                    { label: 'الراتب الأساسي', value: `${money(compensations?.[0]?.basicSalary ?? e.basicSalary ?? 0)} ${compensations?.[0]?.currencyCode || 'SAR'}`, tone: 'navy' },
+                    { label: 'العهد والمستندات', value: `${custodies.length} عهدة • ${documents.length} مستند`, tone: 'sky' },
+                  ],
+                  metaFields: [
+                    { label: 'الاسم بالعربية', value: empTitle },
+                    { label: 'الاسم بالإنجليزية', value: e.fullNameEn || '—' },
+                    { label: 'الرقم الوظيفي', value: empCode },
+                    { label: 'تاريخ التعيين', value: empHireDate ? date(empHireDate) : '—' },
+                    { label: 'البريد الإلكتروني', value: e.email || '—' },
+                    { label: 'رقم الجوال', value: e.phone || '—' },
+                    { label: 'الفرع / القسم', value: `${placements[0]?.branchName || e.branchName || '—'} / ${placements[0]?.departmentName || e.departmentName || '—'}` },
+                    { label: 'المسمى الوظيفي', value: placements[0]?.jobTitleName || e.jobTitle || '—' },
+                    { label: 'الجنسية / الهوية', value: `${e.nationality || '—'} / ${e.nationalId || '—'}` },
+                  ],
+                  sections: [
+                    ...(compensations && compensations.length > 0
+                      ? [
+                          {
+                            title: 'سجل الرواتب والتعويضات',
+                            columns: [
+                              { key: 'effectiveFrom', header: 'ساري من', width: 14, type: 'date' as const },
+                              { key: 'effectiveTo', header: 'ساري حتى', width: 14 },
+                              { key: 'basicSalary', header: 'الراتب الأساسي', width: 16, type: 'currency' as const },
+                              { key: 'currencyCode', header: 'العملة', width: 10 },
+                              { key: 'reason', header: 'السبب / المبرر', width: 28 },
+                            ],
+                            data: compensations.map((c: any) => ({ ...c, effectiveTo: c.effectiveTo ? date(c.effectiveTo) : 'مفتوح' })),
+                          },
+                        ]
+                      : []),
+                    ...(placements.length > 0
+                      ? [
+                          {
+                            title: 'التدرج والتسكين التنظيمي',
+                            columns: [
+                              { key: 'effectiveFrom', header: 'من تاريخ', width: 14, type: 'date' as const },
+                              { key: 'branchName', header: 'الفرع', width: 18 },
+                              { key: 'departmentName', header: 'القسم', width: 18 },
+                              { key: 'jobTitleName', header: 'المسمى الوظيفي', width: 22 },
+                            ],
+                            data: placements,
+                          },
+                        ]
+                      : []),
+                  ],
+                  signatureLabels: ['إدارة الموارد البشرية', 'المدير المباشر', 'الاعتماد التنفيذي'],
+                })
+              }
+              title="طباعة وتصدير ملف الموظف PDF ملكي (A4)"
             >
-              <Printer className="size-4" /> طباعة
+              <Printer className="size-4" /> PDF / طباعة ملكية
             </button>
             <Link to="/hr/employees" className="btn-secondary">
               <ArrowRight className="size-4" /> الموظفون

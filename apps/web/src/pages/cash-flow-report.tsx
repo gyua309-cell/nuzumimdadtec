@@ -10,6 +10,7 @@ import { money, today } from '../lib/format';
 import { SOURCE_MODULE_LABELS } from '../lib/labels';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat } from '../components/ui';
 
@@ -93,8 +94,36 @@ export function CashFlowReportPage() {
     }));
   }, [journalArr, base]);
 
+  const cashFlowExportData =
+    cashFlowLines.length > 0
+      ? cashFlowLines
+      : [
+          { entryNo: '1110', title: 'رصيد بنوك الرياض (SAR)', category: 'أصول نقدية', currency: 'SAR', originalAmount: liquidityData.sarBankBalance, baseAmount: liquidityData.sarBankBalance },
+          { entryNo: '1120', title: 'رصيد بنوك مصر (EGP)', category: 'أصول نقدية', currency: 'EGP', originalAmount: liquidityData.egpBankBalance, baseAmount: liquidityData.egpBankBalance * 0.076 },
+          { entryNo: '1310', title: 'أرصدة العهد النقدية (EGP)', category: 'عهد فروع', currency: 'EGP', originalAmount: liquidityData.custodyBalanceEgp, baseAmount: liquidityData.custodyBalanceEgp * 0.076 },
+        ];
+
   const handlePrint = () => {
-    window.print();
+    void ExportEngine.exportPdf({
+      title: 'قائمة التدفقات النقدية والسيولة وفروق العملات',
+      subtitle: 'متابعة السيولة النقدية الفعلية لبنوك الرياض والقاهرة وأرصدة العهد النقدية',
+      periodLabel: `من ${fromDate} إلى ${toDate}`,
+      currency: base,
+      summaryKpis: [
+        { label: 'بنوك الرياض (SAR)', value: `${money(liquidityData.sarBankBalance)} SAR`, tone: 'emerald' },
+        { label: 'بنوك مصر (EGP)', value: `${money(liquidityData.egpBankBalance)} EGP`, tone: 'sky' },
+        { label: 'أرصدة العهد (EGP)', value: `${money(liquidityData.custodyBalanceEgp)} EGP`, tone: 'amber' },
+      ],
+      columns: [
+        { key: 'entryNo', header: 'رقم القيد', width: 14 },
+        { key: 'title', header: 'بيان التدفق النقدي', width: 32 },
+        { key: 'category', header: 'التصنيف', width: 16 },
+        { key: 'currency', header: 'العملة', width: 10 },
+        { key: 'originalAmount', header: 'المبلغ الأصلي', width: 16, type: 'currency', isTotal: true },
+        { key: 'baseAmount', header: `المعادل (${base})`, width: 16, type: 'currency', isTotal: true },
+      ],
+      data: cashFlowExportData,
+    });
   };
 
   return (

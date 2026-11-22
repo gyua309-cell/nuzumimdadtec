@@ -7,6 +7,7 @@ import {
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { useAuth } from '../lib/auth';
 import { date, money, today } from '../lib/format';
 import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
@@ -850,8 +851,63 @@ function PrintTransferVoucherModal({
       footer={
         <div className="flex items-center gap-2">
           <button className="btn-secondary text-xs" onClick={onClose}>إغلاق</button>
-          <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => window.print()}>
-            <Printer className="size-3.5" /> طباعة السند
+          <button
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+            onClick={() =>
+              void ExportEngine.exportDetailPdf({
+                title: 'سند تحويل بنكي وصرافة عملات رسمي معتمد',
+                subtitle: 'مستند تحويل مصرفي بين الحسابات البنكية ومطابقة سعر الصرف',
+                filename: `bank-transfer-${transfer.reference}-${transfer.transferDate}`,
+                docNo: transfer.reference,
+                docDate: date(transfer.transferDate),
+                currency: transfer.sourceCurrency,
+                statusLabel: 'تحويل مرحّل ومعتمد',
+                statusTone: 'green',
+                kpis: [
+                  { label: 'المبلغ المحول منه', value: `${money(transfer.sourceAmount)} ${transfer.sourceCurrency}`, tone: 'navy' },
+                  { label: 'المبلغ المستلم', value: `${money(transfer.targetAmount)} ${transfer.targetCurrency}`, tone: 'emerald' },
+                  { label: 'سعر الصرف المطبق', value: String(transfer.exchangeRate), tone: 'sky' },
+                  { label: 'العمولة البنكية', value: transfer.bankFee > 0 ? `${money(transfer.bankFee)} EGP` : '0.00', tone: 'amber' },
+                ],
+                metaFields: [
+                  { label: 'رقم السند والمرجع', value: transfer.reference },
+                  { label: 'تاريخ التحويل', value: date(transfer.transferDate) },
+                  { label: 'رقم القيد المحاسبي', value: transfer.journalEntryNo || '—' },
+                  { label: 'الحساب المحول منه', value: transfer.sourceBankName },
+                  { label: 'الحساب المستلم', value: transfer.targetBankName },
+                  { label: 'البيان والغرض', value: transfer.notes || '—' },
+                ],
+                totalAmountForTafqeet: Number(transfer.sourceAmount || 0),
+                signatureLabels: ['أمين الخزينة / المحاسب', 'المراجعة والتدقيق', 'اعتماد المدير المالي'],
+              })
+            }
+          >
+            <Printer className="size-3.5" /> طباعة / PDF ملكي
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+            onClick={() =>
+              void ExportEngine.exportDetailExcel({
+                title: `سند تحويل بنكي ${transfer.reference}`,
+                filename: `bank-transfer-${transfer.reference}-${transfer.transferDate}`,
+                docNo: transfer.reference,
+                currency: transfer.sourceCurrency,
+                metaFields: [
+                  { label: 'رقم السند', value: transfer.reference },
+                  { label: 'تاريخ التحويل', value: date(transfer.transferDate) },
+                  { label: 'رقم القيد المحاسبي', value: transfer.journalEntryNo || '—' },
+                  { label: 'الحساب المحول منه', value: transfer.sourceBankName },
+                  { label: 'الحساب المستلم', value: transfer.targetBankName },
+                  { label: 'المبلغ المصروف', value: `${money(transfer.sourceAmount)} ${transfer.sourceCurrency}` },
+                  { label: 'المبلغ المستلم', value: `${money(transfer.targetAmount)} ${transfer.targetCurrency}` },
+                  { label: 'سعر الصرف', value: transfer.exchangeRate },
+                  { label: 'عمولة التحويل', value: transfer.bankFee },
+                  { label: 'البيان', value: transfer.notes || '—' },
+                ],
+              })
+            }
+          >
+            Excel ملكي
           </button>
         </div>
       }

@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { date, dateTime, money } from '../lib/format';
-import { ZatcaTaxInvoiceTemplate } from '../components/ZatcaTaxInvoiceTemplate';
+import { ZatcaTaxInvoiceTemplate, exportInvoiceToExcel } from '../components/ZatcaTaxInvoiceTemplate';
+import { PrintEngine } from '../engine/print-engine';
 import { Badge, ErrorState, Loading, PageHeader, Spinner, useToast } from '../components/ui';
 
 type DetailTab = 'INVOICE' | 'ZATCA' | 'XML' | 'QR' | 'PDF' | 'LOG' | 'ACCOUNTING';
@@ -381,9 +382,46 @@ export function ZatcaInvoiceDetailPage() {
       {/* TAB 5: Official ZATCA PDF & Print View */}
       {tab === 'PDF' && (
         <div className="space-y-4">
-          <div className="flex justify-end">
-            <button className="btn-primary text-sm" onClick={() => window.print()}>
-              <Printer className="size-4" /> طباعة / تصدير PDF رسمي متوافق مع هيئة الزكاة
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3.5 py-2 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+              onClick={() =>
+                void PrintEngine.print({
+                  elementId: 'tax-invoice-printable',
+                  title: `فاتورة ضريبية معتمدة ZATCA - ${inv.invoiceNo}`,
+                  pageSize: 'A4',
+                  orientation: 'portrait',
+                })
+              }
+            >
+              <Printer className="size-4" /> طباعة / تصدير PDF ملكي (ZATCA A4)
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3.5 py-2 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+              onClick={async () => {
+                const ok = await exportInvoiceToExcel({
+                  ...inv,
+                  zatcaUuid: z.uuid,
+                  zatcaHash: z.invoiceHash,
+                  zatcaQrCode: qr.qrBase64,
+                  zatcaStatus: z.status,
+                  issueTime: inv.issueDate,
+                  exchangeRate: '1',
+                  vatRate: '15',
+                  subtotalBase: inv.subtotal,
+                  vatAmountBase: inv.vatAmount,
+                  totalAmountBase: inv.totalAmount,
+                  paidAmount: '0',
+                  companyId: '',
+                  clientId: '',
+                  fiscalPeriodId: '',
+                } as any);
+                if (ok) toast.success('تم تصدير الفاتورة الضريبية بصيغة Excel الملكي');
+              }}
+            >
+              <Download className="size-4" /> تصدير Excel ملكي للفاتورة
             </button>
           </div>
           <div className="card p-4 overflow-x-auto bg-white">

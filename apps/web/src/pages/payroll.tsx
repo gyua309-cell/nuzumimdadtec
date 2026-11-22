@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Eye, Play, Plus, Printer, Search, Trash2, Calculator, Award, FileCheck2, CheckCircle2, Wallet, Landmark, BarChart3, PieChart, Users } from 'lucide-react';
+import { Eye, FileSpreadsheet, FileText, Play, Plus, Printer, Search, Trash2, Calculator, Award, FileCheck2, CheckCircle2, Wallet, Landmark, BarChart3, PieChart, Users } from 'lucide-react';
 import { api, Page } from '../lib/api';
-import { date as _date, downloadCsv, money, today } from '../lib/format';
+import { date as _date, money, today } from '../lib/format';
+import { ExportEngine, RoyalDetailDocumentOptions } from '../engine/export-engine';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
@@ -434,8 +435,55 @@ export function LoansPage() {
                             />
                             <ActionButton
                               variant="print"
-                              title="طباعة سند السلفة والأقساط"
-                              onClick={() => { setSelected(l); setTimeout(() => window.print(), 300); }}
+                              title="طباعة سند السلفة والأقساط (ملكي A4)"
+                              onClick={async () => {
+                                try {
+                                  const d = await api.get<any>(`/loans/${l.id}`);
+                                  await ExportEngine.exportDetailPdf({
+                                    title: 'سند قرض / سلفة موظف معتمد',
+                                    subtitle: 'تفاصيل أصل القرض وجدول الأقساط الشهرية والاستقطاعات',
+                                    filename: `loan-${d.loanNo || l.loanNo}-${today()}`,
+                                    docNo: d.loanNo || l.loanNo,
+                                    docDate: today(),
+                                    statusLabel: LOAN_STATUS[d.status]?.label ?? d.status,
+                                    statusTone: d.status === 'SETTLED' ? 'green' : d.status === 'CANCELLED' ? 'red' : 'blue',
+                                    watermark: d.status === 'CANCELLED' ? 'CANCELLED' : 'NONE',
+                                    kpis: [
+                                      { label: 'أصل السلفة', value: `${money(d.principalBase)} SAR`, tone: 'navy' },
+                                      { label: 'قسط الشهر', value: `${money(d.installmentAmount)} SAR`, tone: 'indigo' },
+                                      { label: 'عدد الأقساط', value: `${d.installments ?? 0} قسط`, tone: 'sky' },
+                                      { label: 'الحالة', value: LOAN_STATUS[d.status]?.label ?? d.status, tone: d.status === 'SETTLED' ? 'emerald' : 'amber' },
+                                    ],
+                                    metaFields: [
+                                      { label: 'اسم الموظف', value: d.employeeName || l.employeeName },
+                                      { label: 'الرقم الوظيفي', value: d.employeeCode || l.employeeCode || '—' },
+                                      { label: 'رقم القيد الآلي', value: d.journalEntryNo || l.journalEntryNo || '—' },
+                                      { label: 'الغرض والسبب', value: d.reason || l.reason || '—' },
+                                    ],
+                                    sections: [
+                                      {
+                                        title: 'جدول الأقساط الشهرية والاستقطاع',
+                                        columns: [
+                                          { key: 'installmentNo', header: '#', width: 8, type: 'number' },
+                                          { key: 'periodName', header: 'الفترة المالية', width: 22 },
+                                          { key: 'dueAmount', header: 'مبلغ القسط', width: 18, type: 'currency', isTotal: true },
+                                          { key: 'statusLabel', header: 'حالة القسط', width: 16 },
+                                          { key: 'notes', header: 'ملاحظات التأجيل', width: 26 },
+                                        ],
+                                        data: (d.installments_list ?? []).map((inst: any) => ({
+                                          ...inst,
+                                          statusLabel: INST_STATUS[inst.status]?.label ?? inst.status,
+                                          notes: inst.postponedReason ? `مؤجل من ${inst.postponedFrom || '—'}: ${inst.postponedReason}` : '—',
+                                        })),
+                                      },
+                                    ],
+                                    totalAmountForTafqeet: Number(d.principalBase || 0),
+                                    signatureLabels: ['توقيع الموظف المستلم', 'إدارة الموارد البشرية', 'الاعتماد المالي'],
+                                  });
+                                } catch (err) {
+                                  toast.error(err);
+                                }
+                              }}
                             />
                             {l.status === 'DRAFT' && (
                               <ActionButton
@@ -475,7 +523,94 @@ export function LoansPage() {
                 <h3 className="font-bold text-slate-900 dark:text-white text-sm">{selected.loanNo}</h3>
                 <div className="text-xs text-slate-500 dark:text-slate-400">{detail.data?.employeeName || selected.employeeName}</div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                {detail.data && (
+                  <>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-lg bg-gradient-to-l from-rose-600 to-red-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-xs hover:brightness-110 transition-all"
+                      onClick={() => {
+                        const d = detail.data;
+                        void ExportEngine.exportDetailPdf({
+                          title: 'سند قرض / سلفة موظف معتمد',
+                          subtitle: 'تفاصيل أصل القرض وجدول الأقساط الشهرية والاستقطاعات',
+                          filename: `loan-${d.loanNo || selected.loanNo}-${today()}`,
+                          docNo: d.loanNo || selected.loanNo,
+                          docDate: today(),
+                          statusLabel: LOAN_STATUS[d.status]?.label ?? d.status,
+                          statusTone: d.status === 'SETTLED' ? 'green' : d.status === 'CANCELLED' ? 'red' : 'blue',
+                          watermark: d.status === 'CANCELLED' ? 'CANCELLED' : 'NONE',
+                          kpis: [
+                            { label: 'أصل السلفة', value: `${money(d.principalBase)} SAR`, tone: 'navy' },
+                            { label: 'قسط الشهر', value: `${money(d.installmentAmount)} SAR`, tone: 'indigo' },
+                            { label: 'عدد الأقساط', value: `${d.installments ?? 0} قسط`, tone: 'sky' },
+                          ],
+                          metaFields: [
+                            { label: 'اسم الموظف', value: d.employeeName || selected.employeeName },
+                            { label: 'رقم السند', value: d.loanNo || selected.loanNo },
+                            { label: 'الغرض والسبب', value: d.reason || '—' },
+                          ],
+                          sections: [
+                            {
+                              title: 'جدول الأقساط الشهرية والاستقطاع',
+                              columns: [
+                                { key: 'installmentNo', header: '#', width: 8, type: 'number' },
+                                { key: 'periodName', header: 'الفترة المالية', width: 22 },
+                                { key: 'dueAmount', header: 'مبلغ القسط', width: 18, type: 'currency', isTotal: true },
+                                { key: 'statusLabel', header: 'الحالة', width: 16 },
+                              ],
+                              data: (d.installments_list ?? []).map((inst: any) => ({
+                                ...inst,
+                                statusLabel: INST_STATUS[inst.status]?.label ?? inst.status,
+                              })),
+                            },
+                          ],
+                          totalAmountForTafqeet: Number(d.principalBase || 0),
+                          signatureLabels: ['توقيع الموظف المستلم', 'إدارة الموارد البشرية', 'الاعتماد المالي'],
+                        });
+                      }}
+                      title="طباعة وتصدير PDF ملكي لسند السلفة"
+                    >
+                      <FileText className="size-3.5" /> PDF ملكي
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-lg bg-gradient-to-l from-emerald-600 to-teal-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-xs hover:brightness-110 transition-all"
+                      onClick={() => {
+                        const d = detail.data;
+                        void ExportEngine.exportDetailExcel({
+                          title: `جدول أقساط السلفة ${d.loanNo || selected.loanNo}`,
+                          filename: `loan-${d.loanNo || selected.loanNo}-${today()}`,
+                          docNo: d.loanNo || selected.loanNo,
+                          kpis: [
+                            { label: 'الموظف', value: d.employeeName || selected.employeeName },
+                            { label: 'أصل السلفة', value: `${money(d.principalBase)} SAR` },
+                            { label: 'قسط الشهر', value: `${money(d.installmentAmount)} SAR` },
+                          ],
+                          sections: [
+                            {
+                              title: 'جدول الأقساط',
+                              columns: [
+                                { key: 'installmentNo', header: '#', width: 8, type: 'number' },
+                                { key: 'periodName', header: 'الفترة المالية', width: 22 },
+                                { key: 'dueAmount', header: 'مبلغ القسط', width: 18, type: 'currency', isTotal: true },
+                                { key: 'statusLabel', header: 'الحالة', width: 16 },
+                              ],
+                              data: (d.installments_list ?? []).map((inst: any) => ({
+                                ...inst,
+                                statusLabel: INST_STATUS[inst.status]?.label ?? inst.status,
+                              })),
+                            },
+                          ],
+                        });
+                        toast.success('تم تصدير جدول السلفة بصيغة Excel الملكي');
+                      }}
+                      title="تصدير Excel ملكي لجدول الأقساط"
+                    >
+                      <FileSpreadsheet className="size-3.5" /> Excel
+                    </button>
+                  </>
+                )}
                 {detail.data?.status === 'ACTIVE' && (
                   <button
                     className="btn-ghost text-rose-600 text-xs px-2 py-1 font-bold hover:bg-rose-50"
@@ -645,6 +780,55 @@ export function LoansPage() {
 }
 
 // ================================================================== payroll runs
+function buildPayrollRunDoc(d: any): RoyalDetailDocumentOptions {
+  const lines = Array.isArray(d?.lines) ? d.lines : [];
+  return {
+    title: `كشف مسيّر الرواتب الشهري المعتمد #${d.runNo}`,
+    subtitle: 'كشف استحقاقات الرواتب الأساسية والبدلات والمتغيرات والاستقطاعات وصافي المستحق للكوادر',
+    filename: `payroll-run-${d.runNo}-${today()}`,
+    docNo: d.runNo,
+    docDate: today(),
+    periodLabel: d.periodName,
+    statusLabel: RUN_STATUS[d.status]?.label ?? d.status,
+    statusTone: d.status === 'POSTED' ? 'green' : d.status === 'CANCELLED' ? 'red' : 'amber',
+    watermark: d.status === 'CANCELLED' ? 'CANCELLED' : d.status === 'DRAFT' ? 'DRAFT' : 'NONE',
+    kpis: [
+      { label: 'الموظفون المشمولون', value: `${d.employeeCount ?? lines.length} موظف`, tone: 'indigo' },
+      { label: 'إجمالي الرواتب الأساسية', value: `${money(d.totalSalaryBase)} SAR`, tone: 'navy' },
+      { label: 'البدلات والمتغيرات', value: `${money(d.totalVariablesBase)} SAR`, tone: 'emerald' },
+      { label: 'استقطاع السلف والقروض', value: `${money(d.totalLoanDeductionsBase)} SAR`, tone: 'amber' },
+      { label: 'صافي الاستحقاق للصرف', value: `${money(d.netPayableBase)} SAR`, tone: 'sky' },
+    ],
+    metaFields: [
+      { label: 'رقم المسيّر', value: d.runNo },
+      { label: 'الفترة المالية', value: d.periodName },
+      { label: 'حالة المسيّر', value: RUN_STATUS[d.status]?.label ?? d.status },
+      { label: 'رقم قيد الاستحقاق', value: d.journalEntryNo || '—' },
+      { label: 'رقم قيد الصرف البنكي', value: d.paymentJournalEntryNo || '—' },
+      { label: 'حالة التحويل البنكي', value: d.paymentStatus === 'PAID' ? 'تم الصرف والتحويل' : 'قيد الانتظار' },
+    ],
+    sections: [
+      {
+        title: 'تفاصيل كشف استحقاقات الموظفين',
+        columns: [
+          { key: 'employeeName', header: 'اسم الموظف', width: 24 },
+          { key: 'salaryBase', header: 'الراتب الأساسي', width: 15, type: 'currency', isTotal: true },
+          { key: 'bonusesBase', header: 'مكافآت', width: 13, type: 'currency', isTotal: true },
+          { key: 'overtimeBase', header: 'إضافي', width: 13, type: 'currency', isTotal: true },
+          { key: 'allowancesBase', header: 'بدلات', width: 13, type: 'currency', isTotal: true },
+          { key: 'deductionsBase', header: 'خصومات', width: 13, type: 'currency', isTotal: true },
+          { key: 'loanDeductionsBase', header: 'أقساط السلف', width: 14, type: 'currency', isTotal: true },
+          { key: 'grossBase', header: 'الإجمالي', width: 15, type: 'currency', isTotal: true },
+          { key: 'netPayableBase', header: 'صافي المستحق', width: 16, type: 'currency', isTotal: true },
+        ],
+        data: lines,
+      },
+    ],
+    totalAmountForTafqeet: Number(d.netPayableBase || 0),
+    signatureLabels: ['إعداد الموارد البشرية', 'مراجعة المحاسب المالي', 'اعتماد المدير العام'],
+  };
+}
+
 export function PayrollRunsPage() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -846,11 +1030,15 @@ export function PayrollRunsPage() {
                       </button>
                       <button
                         className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                        onClick={() => {
-                          setViewId(r.id);
-                          setTimeout(() => window.print(), 300);
+                        onClick={async () => {
+                          try {
+                            const d = await api.get<any>(`/payroll-runs/${r.id}`);
+                            await ExportEngine.exportDetailPdf(buildPayrollRunDoc(d));
+                          } catch (err) {
+                            toast.error(err);
+                          }
                         }}
-                        title="طباعة كشف مسيّر الرواتب"
+                        title="طباعة / PDF ملكي لكشف مسيّر الرواتب"
                       >
                         <Printer className="size-3.5" />
                       </button>
@@ -875,25 +1063,27 @@ export function PayrollRunsPage() {
         <div className="card overflow-hidden">
           <div className="flex justify-between items-center border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
             <h3 className="font-semibold">تفاصيل مسيّر #{detail.data.runNo} — {detail.data.periodName}</h3>
-            <div className="flex items-center gap-2">
-              <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-                <Printer className="size-3.5" /> طباعة الكشف
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+                onClick={() => void ExportEngine.exportDetailPdf(buildPayrollRunDoc(detail.data))}
+                title="طباعة رسمية وتصدير PDF ملكي لكشف مسيّر الرواتب"
+              >
+                <FileText className="size-3.5" /> طباعة / PDF ملكي
               </button>
               <button
-                className="btn-secondary text-xs flex items-center gap-1.5"
-                onClick={() => {
-                  downloadCsv(`payroll-details-${detail.data.runNo}-${today()}.csv`, [
-                    ['الموظف', 'الراتب الأساسي', 'مكافآت', 'إضافي', 'بدلات', 'خصومات', 'أقساط السلف', 'الإجمالي', 'الصافي'],
-                    ...(detail.data.lines ?? []).map((l: any) => [
-                      l.employeeName, l.salaryBase, l.bonusesBase, l.overtimeBase, l.allowancesBase, l.deductionsBase, l.loanDeductionsBase, l.grossBase, l.netPayableBase,
-                    ]),
-                  ]);
-                  toast.success('تم تصدير تفاصيل المسير إلى CSV بنجاح');
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+                onClick={async () => {
+                  const ok = await ExportEngine.exportDetailExcel(buildPayrollRunDoc(detail.data));
+                  if (ok) toast.success('تم تصدير كشف مسيّر الرواتب بصيغة Excel الملكي بنجاح');
                 }}
+                title="تصدير كشف مسيّر الرواتب إلى Excel الملكي بمعادلات تلقائية"
               >
-                <Download className="size-3.5" /> تصدير CSV
+                <FileSpreadsheet className="size-3.5" /> تصدير Excel ملكي
               </button>
-              <button className="btn-ghost h-7" onClick={() => setViewId(null)}>إغلاق</button>
+              <button className="btn-ghost h-8 px-2.5 text-xs font-bold" onClick={() => setViewId(null)}>إغلاق</button>
             </div>
           </div>
           <div className="overflow-x-auto">

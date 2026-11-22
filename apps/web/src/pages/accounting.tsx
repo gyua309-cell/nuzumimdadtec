@@ -12,6 +12,7 @@ import { date, dateTime, money, today } from '../lib/format';
 import { ACCOUNT_CLASS, ACCOUNT_SOURCE, ACCOUNT_SUBTYPE, CASH_FLOW, DIMENSION_POLICY, JE_STATUS, JOURNAL_TYPE, LEDGER, opts, SOURCE_MODULE_LABELS, SOURCE_TYPE_LABELS } from '../lib/labels';
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef, fieldErrors, useRefOptions } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { ActionButton, ActionGroup, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, useToast } from '../components/ui';
 
@@ -1097,8 +1098,62 @@ export function JournalDetailPage() {
               dimensions: [l.branchName, l.departmentName, l.costCenterName].filter(Boolean).join(' / ') || '—',
             }))}
           />
-          <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة سند القيد">
-            <Printer className="size-3.5" /> طباعة السند (A4)
+          <button
+            type="button"
+            className="btn-secondary text-xs flex items-center gap-1.5"
+            onClick={() =>
+              void ExportEngine.exportDetailPdf({
+                title: `سند قيد يومية محاسبي رقم ${e.entryNo ?? '(مسودة)'}`,
+                subtitle: e.description || 'سند قيد مزدوج معتمد بالأستاذ العام',
+                filename: `Journal-Entry-${e.entryNo || e.id}-${e.entryDate}`,
+                docNo: e.entryNo || '(مسودة)',
+                docDate: date(e.entryDate),
+                periodLabel: e.periodName || '—',
+                statusLabel: st.label,
+                statusTone: e.status === 'POSTED' ? 'green' : e.status === 'CANCELLED' ? 'red' : 'amber',
+                watermark: e.status === 'CANCELLED' ? 'CANCELLED' : e.status === 'DRAFT' ? 'DRAFT' : 'NONE',
+                kpis: [
+                  { label: 'إجمالي المدين', value: `${money(e.totalDebitBase)} SAR`, tone: 'emerald' },
+                  { label: 'إجمالي الدائن', value: `${money(e.totalCreditBase)} SAR`, tone: 'rose' },
+                  { label: 'عدد السطور', value: `${lines.length} سطر`, tone: 'indigo' },
+                  { label: 'الحالة', value: st.label, tone: e.status === 'POSTED' ? 'emerald' : 'amber' },
+                ],
+                metaFields: [
+                  { label: 'رقم القيد', value: e.entryNo ?? '(مسودة)' },
+                  { label: 'تاريخ القيد', value: date(e.entryDate) },
+                  { label: 'الفترة المالية', value: e.periodName || '—' },
+                  { label: 'نوع القيد', value: JOURNAL_TYPE[e.journalType] ?? e.journalType },
+                  { label: 'الدفتر', value: LEDGER[e.ledger] ?? e.ledger },
+                  { label: 'المرجع', value: e.reference ?? '—' },
+                  { label: 'الوحدة المصدر', value: `${SOURCE_MODULE_LABELS[e.sourceModule] || e.sourceModule || '—'} / ${SOURCE_TYPE_LABELS[e.sourceType] || e.sourceType || '—'}` },
+                  { label: 'تاريخ الترحيل', value: dateTime(e.postedAt) || '—' },
+                  { label: 'البيان العام', value: e.description || '—' },
+                ],
+                sections: [
+                  {
+                    title: 'تفاصيل سطور القيد المحاسبي المزدوج',
+                    columns: [
+                      { key: 'lineNo', header: '#', width: 6, type: 'number' },
+                      { key: 'accountCode', header: 'رمز الحساب', width: 13 },
+                      { key: 'accountNameAr', header: 'اسم الحساب', width: 26 },
+                      { key: 'debitBase', header: 'مدين (SAR)', width: 15, type: 'currency', isTotal: true },
+                      { key: 'creditBase', header: 'دائن (SAR)', width: 15, type: 'currency', isTotal: true },
+                      { key: 'dimensions', header: 'الأبعاد الإدارية', width: 20 },
+                      { key: 'description', header: 'البيان والتفاصيل', width: 28 },
+                    ],
+                    data: lines.map((l: any) => ({
+                      ...l,
+                      dimensions: [l.branchName, l.departmentName, l.costCenterName].filter(Boolean).join(' / ') || '—',
+                    })),
+                  },
+                ],
+                totalAmountForTafqeet: Number(e.totalDebitBase || 0),
+                signatureLabels: ['إعداد المحاسب المسؤول', 'مراجعة التدقيق الداخلي', 'اعتماد الإدارة المالية'],
+              })
+            }
+            title="طباعة سند القيد الملكي (A4)"
+          >
+            <Printer className="size-3.5" /> طباعة السند الملكي (A4)
           </button>
           {e.status === 'DRAFT' && <>
             <Link className="btn-secondary" to={`/acc/journals/${e.id}/edit`}><Pencil className="size-4" /> تعديل</Link>

@@ -9,6 +9,7 @@ import { opts, PRICING_BASIS, PROJECT_STATUS } from '../lib/labels';
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef } from '../components/CrudPage';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
 import { FormModal, REF } from '../components/forms';
@@ -538,8 +539,55 @@ export function ProjectDetailPage() {
               <Sparkles className="size-3.5" />
               <span>{invoicingBusy ? 'جارٍ التوليد...' : 'توليد فاتورة المشروع'}</span>
             </button>
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
+            <button
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+              onClick={() => {
+                const assigns: any[] = Array.isArray(p?.assignments) ? p.assignments : [];
+                void ExportEngine.exportDetailPdf({
+                  title: `بطاقة المشروع التنفيذية: ${p.nameAr}`,
+                  subtitle: `كود المشروع: ${p.code} • العميل: ${p.clientName || '—'}`,
+                  filename: `project-${p.code}-${today()}`,
+                  docNo: p.code,
+                  docDate: today(),
+                  currency: p.currencyCode || 'SAR',
+                  statusLabel: PROJECT_STATUS[p.status]?.label ?? p.status,
+                  statusTone: p.status === 'ACTIVE' ? 'green' : p.status === 'CLOSED' ? 'slate' : 'amber',
+                  kpis: [
+                    { label: 'حالة المشروع', value: PROJECT_STATUS[p.status]?.label ?? p.status, tone: p.status === 'ACTIVE' ? 'emerald' : 'amber' },
+                    { label: 'الهامش المستهدف', value: `${p.requiredMarginPct ?? 0}%`, tone: 'indigo' },
+                    { label: 'الكوادر المخصصة', value: `${assigns.length} كادر`, tone: 'sky' },
+                    { label: 'العملة', value: p.currencyCode || 'SAR', tone: 'navy' },
+                  ],
+                  metaFields: [
+                    { label: 'كود المشروع', value: p.code },
+                    { label: 'اسم المشروع', value: p.nameAr },
+                    { label: 'العميل', value: p.clientName || '—' },
+                    { label: 'مدير المشروع', value: p.managerName || '—' },
+                    { label: 'تاريخ البداية', value: p.startDate ? date(p.startDate) : '—' },
+                    { label: 'تاريخ النهاية', value: p.endDate ? date(p.endDate) : 'مفتوح' },
+                  ],
+                  sections: assigns.length > 0
+                    ? [
+                        {
+                          title: 'فريق العمل وتخصيصات الكوادر بالمشروع',
+                          columns: [
+                            { key: 'employeeName', header: 'اسم الكادر', width: 24 },
+                            { key: 'allocationPct', header: 'نسبة التخصيص %', width: 14, type: 'percent' },
+                            { key: 'allocatedDays', header: 'الأيام المخصصة', width: 14, type: 'number' },
+                            { key: 'billableRate', header: 'سعر الفوترة', width: 16, type: 'currency', isTotal: true },
+                            { key: 'startDate', header: 'من تاريخ', width: 14, type: 'date' },
+                          ],
+                          data: assigns,
+                        },
+                      ]
+                    : [],
+                  notes: p.notes || undefined,
+                  signatureLabels: ['مدير المشروع', 'إدارة الموارد والتشغيل', 'اعتماد الإدارة المالية'],
+                });
+              }}
+              title="طباعة وتصدير PDF ملكي لبطاقة المشروع"
+            >
+              <Printer className="size-3.5" /> طباعة ملكية
             </button>
             <button
               className="btn-secondary text-rose-600 hover:bg-rose-50 text-xs flex items-center gap-1.5"
@@ -1297,8 +1345,31 @@ export function ServicePricesPage() {
                             </Link>
                             <button
                               className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                              title="طباعة السعر"
-                              onClick={() => window.print()}
+                              title="طباعة بطاقة تسعير الخدمة (ملكي A4)"
+                              onClick={() =>
+                                void ExportEngine.exportDetailPdf({
+                                  title: `بطاقة اعتماد سعر خدمة — ${sp.employeeName}`,
+                                  subtitle: 'مستند تسعير رسمي للفوترة التعاقدية',
+                                  filename: `service-price-${sp.employeeId || today()}`,
+                                  docDate: today(),
+                                  currency: sp.currencyCode || 'SAR',
+                                  kpis: [
+                                    { label: 'سعر الخدمة', value: `${money(sp.price)} ${sp.currencyCode || 'SAR'}`, tone: 'emerald' },
+                                    { label: 'أساس التسعير', value: PRICING_BASIS[sp.pricingBasis ?? sp.basis] ?? (sp.pricingBasis ?? sp.basis), tone: 'indigo' },
+                                    { label: 'النطاق', value: sp.projectId ? 'مشروع محدد' : 'سعر افتراضي', tone: 'sky' },
+                                  ],
+                                  metaFields: [
+                                    { label: 'اسم الموظف / الكادر', value: sp.employeeName },
+                                    { label: 'أساس التسعير', value: PRICING_BASIS[sp.pricingBasis ?? sp.basis] ?? (sp.pricingBasis ?? sp.basis) },
+                                    { label: 'السعر المعتمد', value: `${money(sp.price)} ${sp.currencyCode || 'SAR'}` },
+                                    { label: 'ساري من', value: date(sp.effectiveFrom) },
+                                    { label: 'ساري حتى', value: sp.effectiveTo ? date(sp.effectiveTo) : 'مفتوح' },
+                                    { label: 'المبرر / السبب', value: sp.reason || '—' },
+                                  ],
+                                  totalAmountForTafqeet: Number(sp.price || 0),
+                                  signatureLabels: ['المسؤول التجاري', 'المدير المالي', 'الاعتماد'],
+                                })
+                              }
                             >
                               <Printer className="size-3.5" />
                             </button>

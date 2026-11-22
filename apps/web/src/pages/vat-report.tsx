@@ -10,6 +10,7 @@ import { money, today } from '../lib/format';
 import { usePeriods } from '../components/forms';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { Badge, PageHeader, Stat, useToast } from '../components/ui';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 
@@ -121,8 +122,14 @@ export function VatReportPage() {
             ) : null}
             <ExportMenu
               title="الإقرار الضريبي لضريبة القيمة المضافة (ZATCA VAT 15%)"
+              subtitle="ملخص ضريبة المخرجات وضريبة المدخلات وصافي الضريبة المستحقة لهيئة الزكاة والضريبة والجمارك"
               filename={`zatca-vat-return-${today()}`}
               currency="SAR"
+              summaryKpis={[
+                { label: 'ضريبة المخرجات (15%)', value: `${money(salesVat)} SAR`, tone: 'indigo' },
+                { label: 'ضريبة المدخلات (15%)', value: `${money(purchasesVat)} SAR`, tone: 'emerald' },
+                { label: 'صافي الضريبة المستحقة', value: `${money(netVatPayable)} SAR`, tone: netVatPayable >= 0 ? 'rose' : 'emerald' },
+              ]}
               columns={[
                 { key: 'item', header: 'بند الإقرار الضريبي', width: 36 },
                 { key: 'taxable', header: 'المبلغ الخاضع (SAR)', width: 18, type: 'currency' },
@@ -137,10 +144,34 @@ export function VatReportPage() {
             />
             <button
               className="btn-secondary text-xs flex items-center gap-1.5"
-              onClick={() => window.print()}
-              title="طباعة الإقرار الضريبي"
+              onClick={() =>
+                void ExportEngine.exportPdf({
+                  title: 'الإقرار الضريبي لضريبة القيمة المضافة (ZATCA VAT 15%)',
+                  subtitle: 'مطابق لمتطلبات هيئة الزكاة والضريبة والجمارك السعودية — المرحلة الثانية',
+                  currency: 'SAR',
+                  summaryKpis: [
+                    { label: 'المبيعات الخاضعة', value: `${money(salesSubtotal)} SAR`, tone: 'sky' },
+                    { label: 'ضريبة المخرجات (15%)', value: `${money(salesVat)} SAR`, tone: 'indigo' },
+                    { label: 'ضريبة المدخلات (15%)', value: `${money(purchasesVat)} SAR`, tone: 'emerald' },
+                    { label: 'صافي الضريبة', value: `${money(netVatPayable)} SAR`, tone: netVatPayable >= 0 ? 'rose' : 'emerald' },
+                  ],
+                  columns: [
+                    { key: 'item', header: 'بند الإقرار الضريبي', width: 36 },
+                    { key: 'taxable', header: 'المبلغ الخاضع (SAR)', width: 18, type: 'currency' },
+                    { key: 'rate', header: 'النسبة', width: 10 },
+                    { key: 'vat', header: 'مبلغ الضريبة (SAR)', width: 18, type: 'currency' },
+                  ],
+                  data: [
+                    { item: '1. المبيعات الخاضعة للنسبة الأساسية (15%)', taxable: salesSubtotal, rate: '15%', vat: salesVat },
+                    { item: '2. المشتريات الخاضعة للنسبة الأساسية (15%)', taxable: purchasesSubtotal, rate: '15%', vat: purchasesVat },
+                    { item: '3. صافي ضريبة القيمة المضافة المستحقة للسداد / (للاسترداد)', taxable: salesSubtotal - purchasesSubtotal, rate: 'صافي', vat: netVatPayable },
+                  ],
+                  signatureLabels: ['المحاسب الضريبي', 'المدير المالي', 'المفوض الضريبي'],
+                })
+              }
+              title="طباعة الإقرار الضريبي الملكي (A4)"
             >
-              <Printer className="size-3.5" /> طباعة الإقرار
+              <Printer className="size-3.5" /> طباعة الإقرار الملكي
             </button>
           </div>
         }

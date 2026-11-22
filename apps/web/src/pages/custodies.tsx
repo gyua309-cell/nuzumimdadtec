@@ -11,6 +11,7 @@ import { date, money, today } from '../lib/format';
 import { getStoredCompany } from '../lib/storage-company';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine, RoyalDetailDocumentOptions } from '../engine/export-engine';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { ActionButton, ActionGroup, AddButton, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, Stat, useToast } from '../components/ui';
@@ -2036,6 +2037,55 @@ function PrintCustodyModal({ custodyId, onClose }: { custodyId: string; onClose:
 
   if (isLoading || !custody) return null;
 
+  const custodyRoyalDoc: RoyalDetailDocumentOptions = {
+    title: 'سند صرف وتسوية عهدة تشغيلية معتمد',
+    subtitle: `${custody.title_ar} — أمين العهدة: ${custody.employeeNameAr} (${custody.employeeCode || '—'})`,
+    filename: `custody-${custody.custody_no}-${today()}`,
+    docNo: custody.custody_no,
+    docDate: date(custody.created_at),
+    currency: 'EGP',
+    statusLabel: custody.status === 'SETTLED' || custody.status === 'CLOSED' ? 'عهدة مسوّاة ومقفلة' : 'عهدة قائمة',
+    statusTone: custody.status === 'SETTLED' || custody.status === 'CLOSED' ? 'green' : 'amber',
+    kpis: [
+      { label: 'المصروف بالريال', value: `${money(custody.disbursed_amount)} SAR`, tone: 'navy' },
+      { label: 'المحول بالجنيه', value: `${money(custody.converted_amount_target)} EGP`, tone: 'sky' },
+      { label: 'إجمالي التسويات', value: `${money(custody.total_settled_amount_target)} EGP`, tone: 'emerald' },
+      { label: 'الرصيد المتبقي', value: `${money(custody.remaining_balance_target)} EGP`, tone: 'amber' },
+    ],
+    metaFields: [
+      { label: 'رقم العهدة', value: custody.custody_no },
+      { label: 'أمين العهدة', value: `${custody.employeeNameAr} (${custody.employeeCode || '—'})` },
+      { label: 'مسمى العهدة', value: custody.title_ar },
+      { label: 'سعر التحويل', value: String(custody.conversion_rate || '—') },
+      { label: 'التاريخ', value: date(custody.created_at) },
+      { label: 'الغرض', value: custody.purpose || '—' },
+    ],
+    sections: [
+      {
+        title: 'بيان فواتير وإيصالات تسوية العهدة المرفقة',
+        columns: [
+          { key: 'lineNo', header: '#', width: 6, type: 'number' },
+          { key: 'expense_date', header: 'التاريخ', width: 13, type: 'date' },
+          { key: 'receipt_no', header: 'رقم الإيصال', width: 14 },
+          { key: 'detail', header: 'البيان وحساب المصروف', width: 30 },
+          { key: 'vendor_name', header: 'المورد / الجهة', width: 18 },
+          { key: 'subtotal', header: 'قبل الضريبة', width: 14, type: 'currency', isTotal: true },
+          { key: 'vat_amount', header: 'الضريبة', width: 12, type: 'currency', isTotal: true },
+          { key: 'total_amount', header: 'الإجمالي (EGP)', width: 15, type: 'currency', isTotal: true },
+        ],
+        data: (custody.lines ?? []).map((l, idx) => ({
+          ...l,
+          lineNo: idx + 1,
+          receipt_no: l.receipt_no || '—',
+          detail: `${l.description}${l.expenseAccountNameAr ? ` (${l.expenseAccountNameAr})` : ''}`,
+          vendor_name: l.vendor_name || '—',
+        })),
+      },
+    ],
+    totalAmountForTafqeet: Number(custody.converted_amount_target || 0),
+    signatureLabels: ['أمين العهدة المستلم', 'المراجعة المالية', 'اعتماد المدير المالي'],
+  };
+
   return (
     <Modal
       open={true}
@@ -2045,8 +2095,17 @@ function PrintCustodyModal({ custodyId, onClose }: { custodyId: string; onClose:
       footer={
         <div className="flex items-center justify-end gap-2">
           <button className="btn-secondary text-xs" onClick={onClose}>إغلاق</button>
-          <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => window.print()}>
-            <Printer className="size-4" /> طباعة السند (A4)
+          <button
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+            onClick={() => void ExportEngine.exportDetailPdf(custodyRoyalDoc)}
+          >
+            <Printer className="size-4" /> طباعة / PDF ملكي (A4)
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+            onClick={() => void ExportEngine.exportDetailExcel(custodyRoyalDoc)}
+          >
+            Excel ملكي
           </button>
         </div>
       }

@@ -9,6 +9,7 @@ import { api, Page } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ExportEngine } from '../engine/export-engine';
 import { PeriodSelect } from '../components/forms';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
@@ -408,8 +409,20 @@ export function ProfitabilityPage() {
               columns={activeExportData.columns}
               data={activeExportData.data}
             />
-            <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => window.print()} title="طباعة">
-              <Printer className="size-3.5" /> طباعة
+            <button
+              className="btn-secondary text-xs flex items-center gap-1.5"
+              onClick={() =>
+                void ExportEngine.exportPdf({
+                  title: activeExportData.title,
+                  subtitle: 'تحليل الربحية الشامل متعدد المستويات بالريال السعودي (SAR)',
+                  currency: 'SAR',
+                  columns: activeExportData.columns,
+                  data: activeExportData.data,
+                })
+              }
+              title="طباعة ملكية A4 لتقرير الربحية"
+            >
+              <Printer className="size-3.5" /> طباعة ملكية
             </button>
             <button
               className="btn-secondary flex items-center gap-1.5 text-xs"

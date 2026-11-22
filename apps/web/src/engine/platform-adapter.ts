@@ -181,25 +181,27 @@ export class WebPlatformAdapter implements IPlatformAdapter {
         ? `${pageSize} auto`
         : `${pageSize} ${orientation}`;
 
+      const baseHref = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}`;
       doc.open();
       doc.write(`
         <!doctype html>
         <html lang="ar" dir="rtl">
           <head>
             <meta charset="UTF-8" />
+            <base href="${baseHref}" />
             <title>${options.title || document.title}</title>
             ${links}
             <style>
               @page {
                 size: ${sizeRule};
-                margin: ${pageSize.includes('mm') ? '3mm' : '8mm'};
+                margin: ${pageSize.includes('mm') ? '3mm' : '8mm 9mm'};
               }
-              body {
-                margin: 0;
-                padding: 0;
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
                 background: #ffffff !important;
                 color: #0f172a !important;
-                font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif !important;
+                font-family: 'Tajawal', 'Cairo', 'IBM Plex Sans Arabic', system-ui, sans-serif !important;
                 direction: rtl !important;
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
@@ -209,6 +211,10 @@ export class WebPlatformAdapter implements IPlatformAdapter {
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
               }
+              thead { display: table-header-group !important; }
+              tfoot { display: table-footer-group !important; }
+              tr, .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
+              .no-print, .print\\:hidden { display: none !important; }
             </style>
           </head>
           <body>
@@ -218,13 +224,33 @@ export class WebPlatformAdapter implements IPlatformAdapter {
       `);
       doc.close();
 
-      setTimeout(() => {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 1000);
-      }, 350);
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+      };
+
+      const triggerPrint = () => {
+        try {
+          if (iframe.contentWindow) {
+            iframe.contentWindow.onafterprint = () => setTimeout(cleanup, 400);
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+          }
+        } finally {
+          setTimeout(cleanup, 60000);
+        }
+      };
+
+      const fontsReady = (iframe.contentWindow?.document as any)?.fonts?.ready;
+      if (fontsReady && typeof fontsReady.then === 'function') {
+        Promise.race([fontsReady, new Promise((r) => setTimeout(r, 600))]).then(() => {
+          setTimeout(triggerPrint, 120);
+        });
+      } else {
+        setTimeout(triggerPrint, 350);
+      }
       return;
     }
 
