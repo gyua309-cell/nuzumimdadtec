@@ -117,6 +117,7 @@ const ServiceCatalogPage = lazyNamed(() => import('./pages/services'), 'ServiceC
 const CustodyReportPage = lazyNamed(() => import('./pages/custody-report'), 'CustodyReportPage');
 const MultiCurrencyPayrollReportPage = lazyNamed(() => import('./pages/multi-currency-payroll-report'), 'MultiCurrencyPayrollReportPage');
 const CashFlowReportPage = lazyNamed(() => import('./pages/cash-flow-report'), 'CashFlowReportPage');
+const EquityChangesReportPage = lazyNamed(() => import('./pages/equity-changes-report'), 'EquityChangesReportPage');
 const EmployeeWorkloadCardsPage = lazyNamed(() => import('./pages/employee-workload-cards'), 'EmployeeWorkloadCardsPage');
 const BanksHubPage = lazyNamed(() => import('./pages/banks-hub'), 'BanksHubPage');
 const AccountsReceivableAgingReportPage = lazyNamed(() => import('./pages/ar-aging-report'), 'AccountsReceivableAgingReportPage');
@@ -222,6 +223,7 @@ function Root() {
           <Route path="reports/custody-movement" element={<CustodyReportPage />} />
           <Route path="reports/multi-currency-payroll" element={<MultiCurrencyPayrollReportPage />} />
           <Route path="reports/cash-flow" element={<CashFlowReportPage />} />
+          <Route path="reports/equity-changes" element={<EquityChangesReportPage />} />
           <Route path="reports/employee-profitability" element={<EmployeeProfitabilityReportPage />} />
           <Route path="reports/ar-aging" element={<AccountsReceivableAgingReportPage />} />
           <Route path="reports/account-statement" element={<AccountStatementPage />} />

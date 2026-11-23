@@ -3,23 +3,28 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Decimal from 'decimal.js';
 import {
-  Check, CheckCircle2, ChevronDown, ChevronLeft, Eye, FileCode, FlaskConical,
-  Folder, FolderOpen, List, Network, Pencil, Plus, Printer, RefreshCw, Search, Send, Trash2, Undo2, Upload, X, XCircle, Zap,
+  ArrowLeftRight, Check, CheckCircle2, ChevronDown, ChevronLeft, Eye, FileCode, FlaskConical,
+  Folder, FolderOpen, Layers, List, Move, Network, Pencil, Plus, Printer, RefreshCw, Search, Send, Sparkles, Trash2, Undo2, Upload, X, XCircle, Zap,
 } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, money, today } from '../lib/format';
-import { ACCOUNT_CLASS, ACCOUNT_SOURCE, ACCOUNT_SUBTYPE, CASH_FLOW, DIMENSION_POLICY, JE_STATUS, JOURNAL_TYPE, LEDGER, opts, SOURCE_MODULE_LABELS, SOURCE_TYPE_LABELS } from '../lib/labels';
+import { ACCOUNT_CLASS, ACCOUNT_SOURCE, ACCOUNT_SUBTYPE, CASH_FLOW, DIMENSION_POLICY, JE_STATUS, JOURNAL_TYPE, LEDGER, opts, SOURCE_MODULE_LABELS, SOURCE_TYPE_LABELS, STATEMENT_SECTION_LABELS } from '../lib/labels';
 import { ActiveBadge, CrudPage, CsvImportModal, FieldDef, fieldErrors, useRefOptions } from '../components/CrudPage';
 import { ExportMenu } from '../components/ExportMenu';
 import { ExportEngine } from '../engine/export-engine';
+import { invalidateAllAccountingQueries, StatementMappingManager } from '../components/StatementMappingManager';
 import { SearchableSelect } from '../components/SearchableSelect';
-import { ActionButton, ActionGroup, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, useToast } from '../components/ui';
+import { ActionButton, ActionGroup, Badge, Drawer, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, Stat, useToast } from '../components/ui';
 
 export interface Account {
   id: string; parentId: string | null; code: string; nameAr: string; nameEn: string | null; accountClass: string; subtype: string | null;
   normalBalance: string; isContra: boolean; currencyCode: string | null; isPosting: boolean; isControl: boolean; isActive: boolean;
-  cashFlowCategory: string | null; requiresCostCenter: boolean; requiresProject: boolean; requiresEmployee: boolean; level: number;
+  cashFlowCategory: string | null; statementSection?: string | null; statementLineId?: string | null;
+  statementLineCode?: string | null; statementLineNameAr?: string | null; equityLineId?: string | null;
+  parentCode?: string | null; parentNameAr?: string | null; childrenCount?: number;
+  debitBase?: string; creditBase?: string; currentBalance?: string; currentBalanceBase?: string;
+  requiresCostCenter: boolean; requiresProject: boolean; requiresEmployee: boolean; level: number;
   description: string | null; rowVersion: number; hasTransactions: boolean; hasChildren: boolean;
 }
 
@@ -262,7 +267,40 @@ export function AccountSelect({
 }
 
 // ------------------------------------------------------------------ chart of accounts
-const emptyAccount = { parentId: '', code: '', nameAr: '', nameEn: '', accountClass: 'ASSET', subtype: '', isContra: false, currencyCode: '', isPosting: true, isControl: false, isActive: true, cashFlowCategory: '', requiresCostCenter: false, requiresProject: false, requiresEmployee: false, description: '' };
+const emptyAccount = {
+  parentId: '',
+  code: '',
+  nameAr: '',
+  nameEn: '',
+  accountClass: 'ASSET',
+  subtype: '',
+  isContra: false,
+  currencyCode: '',
+  isPosting: true,
+  isControl: false,
+  isActive: true,
+  cashFlowCategory: 'OPERATING',
+  statementSection: 'CURRENT_ASSETS',
+  statementLineId: '',
+  equityLineId: '',
+  requiresCostCenter: false,
+  requiresProject: false,
+  requiresEmployee: false,
+  description: '',
+};
+
+const CLASS_DEFAULT_SECTION: Record<string, string> = {
+  ASSET: 'CURRENT_ASSETS',
+  LIABILITY: 'CURRENT_LIABILITIES',
+  EQUITY: 'EQUITY',
+  REVENUE: 'REVENUE',
+  DIRECT_COST: 'COST_OF_SALES',
+  OPERATING_EXPENSE: 'OPERATING_EXPENSES',
+  OTHER_INCOME: 'OTHER_INCOME',
+  OTHER_EXPENSE: 'OTHER_EXPENSES',
+};
+
+const ALL_ACCOUNT_CLASSES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'OTHER_INCOME', 'DIRECT_COST', 'OPERATING_EXPENSE', 'OTHER_EXPENSE'] as const;
 
 const accountImportFields: FieldDef[] = [
   { name: 'code', label: 'الرمز', type: 'text', required: true, ltr: true },
@@ -270,6 +308,8 @@ const accountImportFields: FieldDef[] = [
   { name: 'nameEn', label: 'اسم الحساب بالإنجليزية', type: 'text', ltr: true },
   { name: 'accountClass', label: 'التصنيف', type: 'select', options: opts(ACCOUNT_CLASS), default: 'ASSET', required: true },
   { name: 'subtype', label: 'النوع الفرعي', type: 'select', options: opts(ACCOUNT_SUBTYPE) },
+  { name: 'statementSection', label: 'تصنيف القائمة المالية', type: 'select', options: opts(STATEMENT_SECTION_LABELS) },
+  { name: 'cashFlowCategory', label: 'تصنيف التدفق النقدي', type: 'select', options: opts(CASH_FLOW) },
   { name: 'currencyCode', label: 'العملة', type: 'text', ltr: true },
   { name: 'isPosting', label: 'حساب تفصيلي', type: 'bool', default: true },
   { name: 'isControl', label: 'حساب رقابي', type: 'bool', default: false },
@@ -280,13 +320,81 @@ const accountImportFields: FieldDef[] = [
 export function AccountsPage() {
   const toast = useToast();
   const qc = useQueryClient();
+  const base = useBaseCurrency();
+  const [searchParams, setSearchParams] = useSearchParams();
   const q = useAccounts();
+  const slQ = useQuery({
+    queryKey: ['statement-lines'],
+    queryFn: () => api.get<any>('/statement-lines').then((r: any) => (Array.isArray(r) ? r : (r?.data ?? [])) as any[]),
+  });
+
+  const initialMode = searchParams.get('tab') === 'mapping' ? 'MAPPING' : 'TREE';
+  const [viewMode, setViewMode] = useState<'TREE' | 'TABLE' | 'MAPPING'>(initialMode);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState<'TREE' | 'TABLE'>('TREE');
+  const [classFilter, setClassFilter] = useState('ALL');
+  const [sectionFilter, setSectionFilter] = useState('ALL');
+  const [kindFilter, setKindFilter] = useState<'ALL' | 'HEADER' | 'POSTING'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [onlyWithBalance, setOnlyWithBalance] = useState(false);
+
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [errs, setErrs] = useState<Record<string, string>>({});
   const [importingOpen, setImportingOpen] = useState(false);
+  const [movingAcc, setMovingAcc] = useState<Account | null>(null);
+  const [moveTargetParent, setMoveTargetParent] = useState('');
+  const [moveNewCode, setMoveNewCode] = useState('');
+  const [moveReason, setMoveReason] = useState('');
+  const [suggestingCode, setSuggestingCode] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('tab') === 'mapping') setViewMode('MAPPING');
+  }, [searchParams]);
+
+  const switchMode = (m: 'TREE' | 'TABLE' | 'MAPPING') => {
+    setViewMode(m);
+    const next = new URLSearchParams(searchParams);
+    if (m === 'MAPPING') next.set('tab', 'mapping');
+    else next.delete('tab');
+    setSearchParams(next, { replace: true });
+  };
+
+  const fetchSuggestedCode = async (parentId: string | null, accountClass: string) => {
+    setSuggestingCode(true);
+    try {
+      const res = await api.get<any>('/accounts/suggest-code', {
+        ...(parentId ? { parentId } : {}),
+        accountClass,
+      });
+      return res;
+    } catch {
+      return null;
+    } finally {
+      setSuggestingCode(false);
+    }
+  };
+
+  const openCreateForm = async (preset: Partial<typeof emptyAccount> = {}) => {
+    setErrs({});
+    const merged = { ...emptyAccount, ...preset };
+    const parent = merged.parentId ? (q.data ?? []).find((x) => x.id === merged.parentId) : null;
+    const accClass = parent?.accountClass || merged.accountClass || 'ASSET';
+    const stmtSec = parent?.statementSection || merged.statementSection || CLASS_DEFAULT_SECTION[accClass] || 'CURRENT_ASSETS';
+    const initialDraft = {
+      ...merged,
+      accountClass: accClass,
+      statementSection: stmtSec,
+      statementLineId: parent?.statementLineId || merged.statementLineId || '',
+      cashFlowCategory: parent?.cashFlowCategory || merged.cashFlowCategory || 'OPERATING',
+      level: parent ? Number(parent.level || 1) + 1 : 1,
+    };
+    setForm(initialDraft);
+    const sug = await fetchSuggestedCode(merged.parentId || null, accClass);
+    if (sug?.suggestedCode) {
+      setForm((prev) => (prev && !prev.id && !prev.code ? { ...prev, code: sug.suggestedCode, level: sug.level ?? prev.level } : prev));
+    }
+  };
+
   const save = useMutation({
     mutationFn: () => {
       const f = form!;
@@ -294,15 +402,110 @@ export function AccountsPage() {
       for (const k of Object.keys(emptyAccount)) body[k] = f[k] === '' ? null : f[k];
       return f.id ? api.patch(`/accounts/${f.id}`, { ...body, rowVersion: f.rowVersion }) : api.post('/accounts', body);
     },
-    onSuccess: () => { toast.success('تم حفظ الحساب'); setForm(null); qc.invalidateQueries({ queryKey: ['accounts'] }); },
+    onSuccess: () => {
+      toast.success('تم حفظ الحساب وتحديث شجرة الحسابات والقوائم المالية');
+      setForm(null);
+      invalidateAllAccountingQueries(qc);
+    },
     onError: (e) => { setErrs(fieldErrors(e)); toast.error(e); },
   });
-  const del = useMutation({ mutationFn: (id: string) => api.del(`/accounts/${id}`), onSuccess: () => { toast.success('تم الحذف'); qc.invalidateQueries({ queryKey: ['accounts'] }); }, onError: (e) => toast.error(e) });
+
+  const del = useMutation({
+    mutationFn: (id: string) => api.del(`/accounts/${id}`),
+    onSuccess: () => {
+      toast.success('تم حذف الحساب بنجاح');
+      invalidateAllAccountingQueries(qc);
+    },
+    onError: (e) => toast.error(e),
+  });
+
+  const moveMut = useMutation({
+    mutationFn: () =>
+      api.post(`/accounts/${movingAcc!.id}/move`, {
+        newParentId: moveTargetParent || null,
+        ...(moveNewCode.trim() && moveNewCode.trim() !== movingAcc!.code ? { newCode: moveNewCode.trim() } : {}),
+        reason: moveReason.trim() || 'إعادة تنظيم هيكل شجرة الحسابات',
+      }),
+    onSuccess: () => {
+      toast.success('تم نقل الحساب وإعادة حساب مستويات الشجرة والأرصدة التجميعية بنجاح');
+      setMovingAcc(null);
+      invalidateAllAccountingQueries(qc);
+    },
+    onError: (e) => toast.error(e),
+  });
+
+  const all = q.data ?? [];
+  const statementLines = slQ.data ?? [];
+  const headers = useMemo(() => all.filter((a) => !a.isPosting), [all]);
+
+  // Smart filtering that preserves ancestor path in TREE mode
+  const matchesFilter = (a: Account): boolean => {
+    if (classFilter !== 'ALL' && a.accountClass !== classFilter) return false;
+    if (sectionFilter !== 'ALL' && a.statementSection !== sectionFilter) return false;
+    if (kindFilter === 'HEADER' && a.isPosting) return false;
+    if (kindFilter === 'POSTING' && !a.isPosting) return false;
+    if (statusFilter === 'ACTIVE' && !a.isActive) return false;
+    if (statusFilter === 'INACTIVE' && a.isActive) return false;
+    if (onlyWithBalance && Math.abs(Number(a.currentBalanceBase ?? a.currentBalance ?? 0)) < 0.005) return false;
+    if (search.trim()) {
+      const term = search.trim().toLowerCase();
+      const hit =
+        String(a.code).toLowerCase().includes(term) ||
+        String(a.nameAr).toLowerCase().includes(term) ||
+        String(a.nameEn || '').toLowerCase().includes(term) ||
+        String(STATEMENT_SECTION_LABELS[a.statementSection || ''] || '').toLowerCase().includes(term);
+      if (!hit) return false;
+    }
+    return true;
+  };
+
+  const hasActiveFilters = Boolean(
+    search.trim() || classFilter !== 'ALL' || sectionFilter !== 'ALL' || kindFilter !== 'ALL' || statusFilter !== 'ALL' || onlyWithBalance,
+  );
+
+  const visibleIdSet = useMemo(() => {
+    if (!hasActiveFilters) return null;
+    const byId = new Map(all.map((a) => [a.id, a]));
+    const keep = new Set<string>();
+    for (const a of all) {
+      if (matchesFilter(a)) {
+        keep.add(a.id);
+        let p = a.parentId;
+        while (p && byId.has(p)) {
+          keep.add(p);
+          p = byId.get(p)!.parentId;
+        }
+      }
+    }
+    return keep;
+  }, [all, search, classFilter, sectionFilter, kindFilter, statusFilter, onlyWithBalance]);
+
+  const filteredAll = useMemo(() => (visibleIdSet ? all.filter((a) => visibleIdSet.has(a.id)) : all), [all, visibleIdSet]);
+
+  const kpiStats = useMemo(() => {
+    const posting = all.filter((a) => a.isPosting);
+    const mapped = posting.filter((a) => a.statementSection && a.cashFlowCategory).length;
+    const totalAssets = posting
+      .filter((a) => a.accountClass === 'ASSET')
+      .reduce((s, a) => s + (Number(a.debitBase || 0) - Number(a.creditBase || 0)), 0);
+    const totalLiabEq = posting
+      .filter((a) => a.accountClass === 'LIABILITY' || a.accountClass === 'EQUITY')
+      .reduce((s, a) => s + (Number(a.creditBase || 0) - Number(a.debitBase || 0)), 0);
+    return {
+      totalCount: all.length,
+      headerCount: all.length - posting.length,
+      postingCount: posting.length,
+      mappedPct: posting.length > 0 ? Math.round((mapped / posting.length) * 100) : 100,
+      totalAssets,
+      totalLiabEq,
+    };
+  }, [all]);
 
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorState error={q.error} />;
-  const all = q.data!;
+
   const hiddenBy = (a: Account): boolean => {
+    if (hasActiveFilters) return false;
     let p = a.parentId;
     while (p) {
       if (collapsed.has(p)) return true;
@@ -310,63 +513,120 @@ export function AccountsPage() {
     }
     return false;
   };
-  const rows = search ? all.filter((a) => a.code.includes(search) || a.nameAr.includes(search)) : all.filter((a) => !hiddenBy(a));
-  const headers = all.filter((a) => !a.isPosting);
+  const tableRows = filteredAll.filter((a) => !hiddenBy(a));
   const set = (k: string, v: any) => setForm({ ...form!, [k]: v });
 
+  const openEdit = (acc: Account) => {
+    setErrs({});
+    setForm({
+      ...emptyAccount,
+      ...acc,
+      parentId: acc.parentId ?? '',
+      subtype: acc.subtype ?? '',
+      currencyCode: acc.currencyCode ?? '',
+      cashFlowCategory: acc.cashFlowCategory ?? 'OPERATING',
+      statementSection: acc.statementSection ?? CLASS_DEFAULT_SECTION[acc.accountClass] ?? 'CURRENT_ASSETS',
+      statementLineId: acc.statementLineId ?? '',
+      equityLineId: acc.equityLineId ?? '',
+      nameEn: acc.nameEn ?? '',
+      description: acc.description ?? '',
+    });
+  };
+
+  const openMove = (acc: Account) => {
+    setMovingAcc(acc);
+    setMoveTargetParent(acc.parentId ?? '');
+    setMoveNewCode(acc.code);
+    setMoveReason('');
+  };
+
+  // Helper: prevent picking self or descendants in Move modal
+  const isDescendantOf = (candidateId: string, ancestorId: string): boolean => {
+    let cur: string | null = candidateId;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur)) {
+      if (cur === ancestorId) return true;
+      seen.add(cur);
+      cur = all.find((x) => x.id === cur)?.parentId ?? null;
+    }
+    return false;
+  };
+
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
-        title="شجرة الحسابات المحاسبية المرئية"
-        subtitle="الهيكل الدليل المحاسبي العام الموحد. الحسابات التجميعية للتصنيف ولا تقبل الترحيل المباشر."
+        title="شجرة الحسابات الموحدة والربط الديناميكي بالقوائم المالية"
+        subtitle="المصدر المحاسبي الوحيد للتصنيف — كل حساب مرتبط ببنود المركز المالي والدخل والتدفقات النقدية وحقوق الملكية بأرصدة حية متجمعة هرمياً."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {/* View Mode Toggle */}
+            {/* 3-Tab Mode Switcher */}
             <div className="bg-slate-100 dark:bg-[#080d1a] p-1 rounded-xl flex items-center border border-slate-200/80 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => setViewMode('TREE')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
+                onClick={() => switchMode('TREE')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === 'TREE'
-                    ? 'bg-white text-cyan-700 shadow-2xs dark:bg-slate-800 dark:text-amber-400'
+                    ? 'bg-white text-indigo-700 shadow-2xs dark:bg-slate-800 dark:text-amber-400'
                     : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                 }`}
               >
-                <Network className="size-3.5" /> الشجرة المرئية
+                <Network className="size-3.5" /> الشجرة الهرمية
               </button>
               <button
                 type="button"
-                onClick={() => setViewMode('TABLE')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
+                onClick={() => switchMode('TABLE')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === 'TABLE'
-                    ? 'bg-white text-cyan-700 shadow-2xs dark:bg-slate-800 dark:text-amber-400'
+                    ? 'bg-white text-indigo-700 shadow-2xs dark:bg-slate-800 dark:text-amber-400'
                     : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                 }`}
               >
-                <List className="size-3.5" /> جدول مسطح
+                <List className="size-3.5" /> جدول الدليل والأرصدة
+              </button>
+              <button
+                type="button"
+                onClick={() => switchMode('MAPPING')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  viewMode === 'MAPPING'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                }`}
+              >
+                <Layers className="size-3.5" /> ربط القوائم المالية
               </button>
             </div>
 
             <ExportMenu
-              title="شجرة الحسابات المحاسبية"
+              title="شجرة الحسابات المحاسبية والأرصدة والربط بالقوائم"
               filename={`chart-of-accounts-${today()}`}
-              columns={[
-                { key: 'code', header: 'الرمز', width: 14 },
-                { key: 'nameAr', header: 'اسم الحساب بالعربية', width: 28 },
-                { key: 'nameEn', header: 'اسم الحساب بالإنجليزية', width: 22 },
-                { key: 'accountClassLabel', header: 'التصنيف', width: 16 },
-                { key: 'normalBalanceLabel', header: 'الطبيعة', width: 12 },
-                { key: 'currencyLabel', header: 'العملة', width: 14 },
-                { key: 'isPostingLabel', header: 'حساب تفصيلي', width: 12 },
-                { key: 'isActiveLabel', header: 'الحالة', width: 12 },
+              currency={base}
+              summaryKpis={[
+                { label: 'إجمالي الحسابات', value: `${kpiStats.totalCount} (${kpiStats.headerCount} رئيسي • ${kpiStats.postingCount} فرعي)`, tone: 'indigo' },
+                { label: 'إجمالي الأصول', value: `${money(kpiStats.totalAssets)} ${base}`, tone: 'emerald' },
+                { label: 'الالتزامات والملكية', value: `${money(kpiStats.totalLiabEq)} ${base}`, tone: 'amber' },
+                { label: 'نسبة الربط بالقوائم', value: `${kpiStats.mappedPct}%`, tone: 'sky' },
               ]}
-              data={all.map((a) => ({
+              columns={[
+                { key: 'code', header: 'الرمز', width: 12 },
+                { key: 'nameAr', header: 'اسم الحساب بالعربية', width: 28 },
+                { key: 'level', header: 'المستوى', width: 8, type: 'number' },
+                { key: 'kindLabel', header: 'النوع', width: 12 },
+                { key: 'accountClassLabel', header: 'الفئة', width: 15 },
+                { key: 'statementSectionLabel', header: 'تصنيف القائمة المالية', width: 20 },
+                { key: 'cashFlowLabel', header: 'التدفق النقدي', width: 14 },
+                { key: 'debitBase', header: `مدين (${base})`, width: 14, type: 'currency' },
+                { key: 'creditBase', header: `دائن (${base})`, width: 14, type: 'currency' },
+                { key: 'currentBalanceBase', header: `الرصيد (${base})`, width: 15, type: 'currency' },
+              ]}
+              data={filteredAll.map((a) => ({
                 ...a,
+                kindLabel: a.isPosting ? 'تفصيلي' : 'رئيسي',
                 accountClassLabel: ACCOUNT_CLASS[a.accountClass] || a.accountClass,
-                normalBalanceLabel: a.normalBalance === 'DEBIT' ? 'مدين' : 'دائن',
-                currencyLabel: a.currencyCode || 'كل العملات',
-                isPostingLabel: a.isPosting ? 'نعم' : 'لا',
-                isActiveLabel: a.isActive ? 'نشط' : 'معطل',
+                statementSectionLabel: STATEMENT_SECTION_LABELS[a.statementSection || ''] || a.statementSection || '—',
+                cashFlowLabel: CASH_FLOW[a.cashFlowCategory || ''] || '—',
+                debitBase: Number(a.debitBase || 0),
+                creditBase: Number(a.creditBase || 0),
+                currentBalanceBase: Number(a.currentBalanceBase ?? a.currentBalance ?? 0),
               }))}
             />
             <button
@@ -375,147 +635,250 @@ export function AccountsPage() {
               onClick={() => setImportingOpen(true)}
               title="استيراد شجرة الحسابات من ملف Excel (.xlsx) أو CSV"
             >
-              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد Excel / CSV
+              <Upload className="size-3.5 text-cyan-600 dark:text-cyan-400" /> استيراد
             </button>
-            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => { setErrs({}); setForm({ ...emptyAccount }); }}>
+            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => void openCreateForm()}>
               <Plus className="size-4" /> حساب جديد
             </button>
           </div>
         }
       />
-      <div className="card overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 p-3 dark:border-slate-800 bg-slate-50/70 dark:bg-[#080d1a]">
-          <input className="input w-72 text-xs" placeholder="بحث بالرمز أو اسم الحساب…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <div className="flex items-center gap-2">
-            <button className="btn-secondary text-xs py-1" onClick={() => setCollapsed(new Set(headers.map((h) => h.id)))}>طي الكل</button>
-            <button className="btn-secondary text-xs py-1" onClick={() => setCollapsed(new Set())}>فتح الكل</button>
+
+      {/* Executive KPI Summary Strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <Stat
+          label="إجمالي حسابات الشجرة"
+          value={`${kpiStats.totalCount} حساب`}
+          tone="indigo"
+          icon={Network}
+          hint={`${kpiStats.headerCount} حساب رئيسي تجميعي • ${kpiStats.postingCount} حساب تفصيلي للترحيل`}
+        />
+        <Stat
+          label={`إجمالي الأصول الحي (${base})`}
+          value={money(kpiStats.totalAssets)}
+          tone="green"
+          icon={CheckCircle2}
+          hint="محسوب من القيود المرحّلة دون ازدواجية"
+        />
+        <Stat
+          label={`الالتزامات وحقوق الملكية (${base})`}
+          value={money(kpiStats.totalLiabEq)}
+          tone="amber"
+          icon={Layers}
+          hint="باستثناء أرباح الفترة غير المقفلة"
+        />
+        <Stat
+          label="اكتمال الربط بالقوائم المالية"
+          value={`${kpiStats.mappedPct}%`}
+          tone={kpiStats.mappedPct === 100 ? 'green' : 'amber'}
+          icon={Sparkles}
+          hint="المركز المالي • الدخل • التدفقات • الملكية"
+        />
+      </div>
+
+      {viewMode === 'MAPPING' ? (
+        <StatementMappingManager accounts={all} />
+      ) : (
+        <div className="card overflow-hidden">
+          {/* Advanced Search & Multi-Filter Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-200 p-3.5 dark:border-slate-800 bg-slate-50/75 dark:bg-[#080d1a]">
+            <div className="flex flex-wrap items-center gap-2 flex-1">
+              <div className="relative w-64">
+                <Search className="pointer-events-none absolute start-2.5 top-2.5 size-3.5 text-slate-400" />
+                <input
+                  className="input ps-8 h-8.5 text-xs"
+                  placeholder="بحث بالكود أو الاسم (عربي/إنجليزي)…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              <select className="input h-8.5 w-36 text-xs" value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
+                <option value="ALL">كل الفئات (8)</option>
+                {ALL_ACCOUNT_CLASSES.map((c) => <option key={c} value={c}>{ACCOUNT_CLASS[c]}</option>)}
+              </select>
+
+              <select className="input h-8.5 w-44 text-xs" value={sectionFilter} onChange={(e) => setSectionFilter(e.target.value)}>
+                <option value="ALL">كل بنود القوائم المالية</option>
+                {Object.entries(STATEMENT_SECTION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+
+              <select className="input h-8.5 w-36 text-xs" value={kindFilter} onChange={(e) => setKindFilter(e.target.value as any)}>
+                <option value="ALL">رئيسي + تفصيلي</option>
+                <option value="HEADER">رئيسي تجميعي فقط</option>
+                <option value="POSTING">تفصيلي للترحيل فقط</option>
+              </select>
+
+              <select className="input h-8.5 w-28 text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
+                <option value="ALL">كل الحالات</option>
+                <option value="ACTIVE">نشط</option>
+                <option value="INACTIVE">معطل</option>
+              </select>
+
+              <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none px-2">
+                <input type="checkbox" className="rounded text-indigo-600" checked={onlyWithBalance} onChange={(e) => setOnlyWithBalance(e.target.checked)} />
+                <span>ذات رصيد فقط</span>
+              </label>
+
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  className="btn-ghost h-8 px-2 text-xs text-rose-600 font-bold"
+                  onClick={() => { setSearch(''); setClassFilter('ALL'); setSectionFilter('ALL'); setKindFilter('ALL'); setStatusFilter('ALL'); setOnlyWithBalance(false); }}
+                >
+                  <X className="size-3.5" /> مسح الفلاتر
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button className="btn-secondary text-xs py-1" onClick={() => setCollapsed(new Set(headers.map((h) => h.id)))}>طي الكل</button>
+              <button className="btn-secondary text-xs py-1" onClick={() => setCollapsed(new Set())}>فتح الكل</button>
+            </div>
           </div>
-        </div>
 
-        {all.length === 0 ? (
-          <EmptyState text="لا توجد حسابات بعد. أنشئ الحسابات الرئيسية (الأصول، الالتزامات، حقوق الملكية، الإيرادات، التكاليف، المصروفات) ثم الحسابات الفرعية." action={<button className="btn-primary" onClick={() => setForm({ ...emptyAccount })}><Plus className="size-4" /> حساب جديد</button>} />
-        ) : viewMode === 'TREE' ? (
-          /* =========================================================================
-             VISUAL TREE VIEW
-          ========================================================================= */
-          <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
-            {['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'DIRECT_COST', 'OPERATING_EXPENSE'].map((accClass) => {
-              const rootAccounts = all.filter((a) => a.accountClass === accClass && !a.parentId);
-              const classLabel = ACCOUNT_CLASS[accClass] || accClass;
-              const classTotal = all.filter((a) => a.accountClass === accClass).length;
+          {all.length === 0 ? (
+            <EmptyState
+              text="لا توجد حسابات بعد. أنشئ الحسابات الرئيسية ثم الحسابات الفرعية."
+              action={<button className="btn-primary" onClick={() => void openCreateForm()}><Plus className="size-4" /> حساب جديد</button>}
+            />
+          ) : viewMode === 'TREE' ? (
+            <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
+              {ALL_ACCOUNT_CLASSES.filter((c) => classFilter === 'ALL' || classFilter === c).map((accClass) => {
+                const classAccounts = filteredAll.filter((a) => a.accountClass === accClass);
+                if (hasActiveFilters && classAccounts.length === 0) return null;
+                const rootAccounts = classAccounts.filter((a) => !a.parentId || !classAccounts.some((x) => x.id === a.parentId));
+                const classLabel = ACCOUNT_CLASS[accClass] || accClass;
+                const postingInClass = classAccounts.filter((a) => a.isPosting);
+                const classDr = postingInClass.reduce((s, a) => s + Number(a.debitBase || 0), 0);
+                const classCr = postingInClass.reduce((s, a) => s + Number(a.creditBase || 0), 0);
+                const isCreditClass = accClass === 'LIABILITY' || accClass === 'EQUITY' || accClass === 'REVENUE' || accClass === 'OTHER_INCOME';
+                const classNet = isCreditClass ? (classCr - classDr) : (classDr - classCr);
 
-              const classColor =
-                accClass === 'ASSET' ? 'border-blue-200 bg-blue-50/35 text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-200' :
-                accClass === 'LIABILITY' ? 'border-amber-200 bg-amber-50/35 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200' :
-                accClass === 'EQUITY' ? 'border-purple-200 bg-purple-50/35 text-purple-900 dark:border-purple-900/50 dark:bg-purple-950/20 dark:text-purple-200' :
-                accClass === 'REVENUE' ? 'border-emerald-200 bg-emerald-50/35 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-200' :
-                'border-rose-200 bg-rose-50/35 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200';
+                const classColor =
+                  accClass === 'ASSET' ? 'border-blue-200 bg-blue-50/35 dark:border-blue-900/50 dark:bg-blue-950/20' :
+                  accClass === 'LIABILITY' ? 'border-amber-200 bg-amber-50/35 dark:border-amber-900/50 dark:bg-amber-950/20' :
+                  accClass === 'EQUITY' ? 'border-purple-200 bg-purple-50/35 dark:border-purple-900/50 dark:bg-purple-950/20' :
+                  accClass === 'REVENUE' || accClass === 'OTHER_INCOME' ? 'border-emerald-200 bg-emerald-50/35 dark:border-emerald-900/50 dark:bg-emerald-950/20' :
+                  'border-rose-200 bg-rose-50/35 dark:border-rose-900/50 dark:bg-rose-950/20';
 
-              return (
-                <div key={accClass} className={`rounded-2xl border ${classColor} p-3.5 space-y-2`}>
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 dark:border-slate-800/80">
-                    <div className="flex items-center gap-2">
-                      <FolderOpen className="size-4 text-slate-700 dark:text-slate-300" />
-                      <span className="font-extrabold text-sm text-slate-900 dark:text-white">{classLabel}</span>
-                      <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
-                        {classTotal} حساب
-                      </span>
+                return (
+                  <div key={accClass} className={`rounded-2xl border ${classColor} p-3.5 space-y-2`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-800/80">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <FolderOpen className="size-4 text-slate-700 dark:text-slate-300" />
+                        <span className="font-extrabold text-sm text-slate-900 dark:text-white">{classLabel}</span>
+                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                          {classAccounts.length} حساب
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className="font-mono text-emerald-700 dark:text-emerald-400">مدين: <strong>{money(classDr)}</strong></span>
+                        <span className="font-mono text-rose-700 dark:text-rose-400">دائن: <strong>{money(classCr)}</strong></span>
+                        <span className="font-mono font-black px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white">
+                          الرصيد: {money(classNet)} {base}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn-ghost h-6 px-2 text-xs flex items-center gap-1"
+                          onClick={() => void openCreateForm({ accountClass: accClass, isPosting: false })}
+                        >
+                          <Plus className="size-3" /> حساب رئيسي
+                        </button>
+                      </div>
                     </div>
 
-                    <button
-                      className="btn-ghost h-6 px-2 text-xs flex items-center gap-1"
-                      onClick={() => {
-                        setErrs({});
-                        setForm({ ...emptyAccount, accountClass: accClass, isPosting: false });
-                      }}
-                    >
-                      <Plus className="size-3" /> حساب رئيسي
-                    </button>
+                    <div className="space-y-1.5 pt-1">
+                      {rootAccounts.map((root) => (
+                        <VisualAccountNode
+                          key={root.id}
+                          account={root}
+                          allAccounts={filteredAll}
+                          collapsed={hasActiveFilters ? new Set() : collapsed}
+                          setCollapsed={setCollapsed}
+                          onEdit={openEdit}
+                          onMove={openMove}
+                          onAddChild={(parent) => void openCreateForm({ parentId: parent.id, accountClass: parent.accountClass, isPosting: true })}
+                          onDelete={(id) => confirm('حذف الحساب نهائياً؟') && del.mutate(id)}
+                        />
+                      ))}
+                    </div>
                   </div>
-
-                  {/* Render Tree Branches Recursively */}
-                  <div className="space-y-1.5 pt-1">
-                    {rootAccounts.map((root) => (
-                      <VisualAccountNode
-                        key={root.id}
-                        account={root}
-                        allAccounts={all}
-                        collapsed={collapsed}
-                        setCollapsed={setCollapsed}
-                        onEdit={(acc) => {
-                          setErrs({});
-                          setForm({
-                            ...emptyAccount,
-                            ...acc,
-                            parentId: acc.parentId ?? '',
-                            subtype: acc.subtype ?? '',
-                            currencyCode: acc.currencyCode ?? '',
-                            cashFlowCategory: acc.cashFlowCategory ?? '',
-                            nameEn: acc.nameEn ?? '',
-                            description: acc.description ?? '',
-                          });
-                        }}
-                        onAddChild={(parent) => {
-                          setErrs({});
-                          setForm({ ...emptyAccount, parentId: parent.id, accountClass: parent.accountClass, isPosting: true });
-                        }}
-                        onDelete={(id) => confirm('حذف الحساب؟') && del.mutate(id)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          /* =========================================================================
-             FLAT TABLE VIEW
-          ========================================================================= */
-          <div className="max-h-[70vh] overflow-auto custom-scrollbar">
-            <table className="table">
-              <thead><tr><th>الرمز</th><th>اسم الحساب</th><th>التصنيف</th><th>النوع الفرعي</th><th>الطبيعة</th><th>العملة</th><th>الأبعاد المطلوبة</th><th>الحالة</th><th /></tr></thead>
-              <tbody>
-                {rows.map((a) => (
-                  <tr key={a.id} className={!a.isPosting ? 'font-semibold' : ''}>
-                    <td className="num text-start">{a.code}</td>
-                    <td>
-                      <div className="flex items-center" style={{ paddingInlineStart: `${(a.level - 1) * 18}px` }}>
-                        {a.hasChildren ? (
-                          <button className="me-1 text-slate-400" onClick={() => { const s = new Set(collapsed); s.has(a.id) ? s.delete(a.id) : s.add(a.id); setCollapsed(s); }}>
-                            {collapsed.has(a.id) ? <ChevronLeft className="size-4" /> : <ChevronDown className="size-4" />}
-                          </button>
-                        ) : <span className="me-1 inline-block w-4" />}
-                        {a.nameAr} {a.isControl && <Badge color="blue">رقابي</Badge>} {a.isContra && <Badge color="amber">مقابل</Badge>}
-                      </div>
-                    </td>
-                    <td>{ACCOUNT_CLASS[a.accountClass]}</td>
-                    <td>{a.subtype ? ACCOUNT_SUBTYPE[a.subtype] : '—'}</td>
-                    <td>{a.normalBalance === 'DEBIT' ? 'مدين' : 'دائن'}</td>
-                    <td>{a.currencyCode ?? 'كل العملات'}</td>
-                    <td className="text-xs">{[a.requiresCostCenter && 'مركز تكلفة', a.requiresProject && 'مشروع', a.requiresEmployee && 'موظف'].filter(Boolean).join('، ') || '—'}</td>
-                    <td><ActiveBadge v={a.isActive} /></td>
-                    <td>
-                      <div className="flex justify-end gap-1">
-                        {!a.isPosting && <button className="btn-ghost h-7 px-2" title="حساب فرعي" onClick={() => setForm({ ...emptyAccount, parentId: a.id, accountClass: a.accountClass })}><Plus className="size-3.5" /></button>}
-                        <Link className="btn-ghost h-7 px-2 text-xs" to={`/reports/account-statement?accountId=${a.id}`}>كشف</Link>
-                        <button className="btn-ghost h-7 px-2" onClick={() => { setErrs({}); setForm({ ...emptyAccount, ...a, parentId: a.parentId ?? '', subtype: a.subtype ?? '', currencyCode: a.currencyCode ?? '', cashFlowCategory: a.cashFlowCategory ?? '', nameEn: a.nameEn ?? '', description: a.description ?? '' }); }}><Pencil className="size-3.5" /></button>
-                        {!a.hasTransactions && !a.hasChildren && <button className="btn-ghost h-7 px-2 text-rose-600" onClick={() => confirm('حذف الحساب؟') && del.mutate(a.id)}><Trash2 className="size-3.5" /></button>}
-                      </div>
-                    </td>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="max-h-[70vh] overflow-auto custom-scrollbar">
+              <table className="table text-xs">
+                <thead>
+                  <tr>
+                    <th>الرمز</th>
+                    <th>اسم الحساب والمستوى</th>
+                    <th>النوع</th>
+                    <th>تصنيف القائمة المالية</th>
+                    <th>التدفق النقدي</th>
+                    <th className="num">مدين ({base})</th>
+                    <th className="num">دائن ({base})</th>
+                    <th className="num">الرصيد ({base})</th>
+                    <th>الحالة</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {tableRows.map((a) => (
+                    <tr key={a.id} className={!a.isPosting ? 'font-bold bg-slate-50/70 dark:bg-slate-900/40' : ''}>
+                      <td className="num text-start font-mono font-bold">{a.code}</td>
+                      <td>
+                        <div className="flex items-center gap-1.5" style={{ paddingInlineStart: `${(a.level - 1) * 18}px` }}>
+                          {a.hasChildren ? (
+                            <button className="text-slate-400" onClick={() => { const s = new Set(collapsed); s.has(a.id) ? s.delete(a.id) : s.add(a.id); setCollapsed(s); }}>
+                              {collapsed.has(a.id) ? <ChevronLeft className="size-4" /> : <ChevronDown className="size-4" />}
+                            </button>
+                          ) : <span className="inline-block w-4" />}
+                          <span>{a.nameAr}</span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">م{a.level}</span>
+                          {a.isControl && <Badge color="blue">رقابي</Badge>}
+                          {a.isContra && <Badge color="amber">مقابل</Badge>}
+                        </div>
+                      </td>
+                      <td>{a.isPosting ? <Badge color="green">تفصيلي</Badge> : <Badge color="amber">رئيسي تجميعي</Badge>}</td>
+                      <td>
+                        <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                          {a.statementLineNameAr || STATEMENT_SECTION_LABELS[a.statementSection || ''] || '—'}
+                        </span>
+                      </td>
+                      <td>{CASH_FLOW[a.cashFlowCategory || ''] || '—'}</td>
+                      <td className="num font-mono text-emerald-700 dark:text-emerald-400">{money(a.debitBase ?? 0)}</td>
+                      <td className="num font-mono text-rose-700 dark:text-rose-400">{money(a.creditBase ?? 0)}</td>
+                      <td className="num font-mono font-black text-slate-900 dark:text-white">{money(a.currentBalanceBase ?? a.currentBalance ?? 0)}</td>
+                      <td><ActiveBadge v={a.isActive} /></td>
+                      <td>
+                        <div className="flex justify-end gap-1">
+                          {!a.isPosting && <button className="btn-ghost h-7 px-2" title="إضافة حساب فرعي" onClick={() => void openCreateForm({ parentId: a.id, accountClass: a.accountClass, isPosting: true })}><Plus className="size-3.5" /></button>}
+                          <button className="btn-ghost h-7 px-2" title="نقل الحساب لمستوى آخر" onClick={() => openMove(a)}><Move className="size-3.5" /></button>
+                          <Link className="btn-ghost h-7 px-2 text-xs" to={`/reports/account-statement?accountId=${a.id}`}>كشف</Link>
+                          <button className="btn-ghost h-7 px-2" title="تعديل" onClick={() => openEdit(a)}><Pencil className="size-3.5" /></button>
+                          {!a.hasTransactions && !a.hasChildren && <button className="btn-ghost h-7 px-2 text-rose-600" title="حذف" onClick={() => confirm('حذف الحساب؟') && del.mutate(a.id)}><Trash2 className="size-3.5" /></button>}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Smart Account Create / Edit Drawer */}
       <Drawer
         open={!!form}
         onClose={() => setForm(null)}
         size="lg"
         saving={save.isPending}
         onSaveShortcut={() => !save.isPending && save.mutate()}
-        title={form?.id ? 'تعديل حساب' : 'حساب جديد'}
+        title={form?.id ? `تعديل الحساب: ${form.code} — ${form.nameAr}` : 'إضافة حساب جديد في شجرة الحسابات'}
         footer={
           <>
             <button type="button" className="btn-secondary" disabled={save.isPending} onClick={() => setForm(null)}>إلغاء</button>
@@ -525,38 +888,199 @@ export function AccountsPage() {
       >
         {form && (
           <div className="space-y-4">
-            <FormSection title="بيانات الحساب والتصنيف" columns={3}>
-              <Field label="الحساب الأب" className="md:col-span-2 xl:col-span-3">
+            <FormSection title="الموقع في الشجرة والكود والبيانات الأساسية" columns={3}>
+              <Field label="الحساب الأب (رئيسي تجميعي)" className="md:col-span-2">
                 <SearchableSelect
                   value={form.parentId}
-                  onChange={(val) => {
+                  onChange={async (val) => {
                     const p = all.find((x) => x.id === val);
-                    setForm({ ...form, parentId: val, accountClass: p?.accountClass ?? form.accountClass });
+                    const nextClass = p?.accountClass ?? form.accountClass;
+                    const nextLevel = p ? Number(p.level || 1) + 1 : 1;
+                    const nextSection = p?.statementSection ?? CLASS_DEFAULT_SECTION[nextClass] ?? form.statementSection;
+                    setForm({
+                      ...form,
+                      parentId: val,
+                      accountClass: nextClass,
+                      level: nextLevel,
+                      statementSection: nextSection,
+                      statementLineId: p?.statementLineId ?? form.statementLineId,
+                      cashFlowCategory: p?.cashFlowCategory ?? form.cashFlowCategory,
+                    });
+                    if (!form.id) {
+                      const sug = await fetchSuggestedCode(val || null, nextClass);
+                      if (sug?.suggestedCode) {
+                        setForm((prev) => (prev ? { ...prev, code: sug.suggestedCode, level: sug.level ?? nextLevel } : prev));
+                      }
+                    }
                   }}
-                  options={headers.filter((h) => h.id !== form.id).map((h) => ({ value: h.id, label: `${h.code} — ${h.nameAr}` }))}
-                  placeholder="حساب رئيسي (بدون أب)"
+                  options={headers.filter((h) => h.id !== form.id && (!form.id || !isDescendantOf(h.id, form.id))).map((h) => ({ value: h.id, label: `${h.code} — ${h.nameAr} (م${h.level})` }))}
+                  placeholder="حساب جذر رئيسي (المستوى 1 — بدون أب)"
                 />
               </Field>
-              <Field label="الرمز" required error={errs.code}><input className="input font-mono" dir="ltr" autoFocus value={form.code} onChange={(e) => set('code', e.target.value)} /></Field>
-              <Field label="الاسم بالعربية" required error={errs.nameAr}><input className="input" value={form.nameAr} onChange={(e) => set('nameAr', e.target.value)} /></Field>
-              <Field label="الاسم بالإنجليزية"><input className="input" dir="ltr" value={form.nameEn} onChange={(e) => set('nameEn', e.target.value)} /></Field>
-              <Field label="التصنيف" required><select className="input" value={form.accountClass} disabled={!!form.parentId || form.hasTransactions} onChange={(e) => set('accountClass', e.target.value)}>{Object.entries(ACCOUNT_CLASS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-              <Field label="النوع الفرعي"><select className="input" value={form.subtype} onChange={(e) => set('subtype', e.target.value)}><option value="">—</option>{Object.entries(ACCOUNT_SUBTYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-              <Field label="عملة الحساب" hint="فارغ = يقبل كل العملات"><input className="input font-mono" dir="ltr" maxLength={3} value={form.currencyCode} onChange={(e) => set('currencyCode', e.target.value.toUpperCase())} /></Field>
-              <Field label="تصنيف التدفق النقدي" className="md:col-span-3"><select className="input" value={form.cashFlowCategory} onChange={(e) => set('cashFlowCategory', e.target.value)}><option value="">—</option>{Object.entries(CASH_FLOW).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+              <Field label="مستوى الحساب (تلقائي)">
+                <div className="input bg-slate-50 dark:bg-slate-900 font-mono font-bold text-indigo-700 dark:text-indigo-300 flex items-center justify-between">
+                  <span>المستوى {form.level || (form.parentId ? Number(all.find((x) => x.id === form.parentId)?.level || 1) + 1 : 1)}</span>
+                  <span className="text-[10px] font-sans text-slate-500">{form.isPosting ? 'فرعي للترحيل' : 'رئيسي تجميعي'}</span>
+                </div>
+              </Field>
+
+              <Field label="كود الحساب *" required error={errs.code}>
+                <div className="flex gap-1.5">
+                  <input className="input font-mono flex-1" dir="ltr" autoFocus value={form.code} onChange={(e) => set('code', e.target.value)} />
+                  {!form.id && (
+                    <button
+                      type="button"
+                      className="btn-secondary px-2 text-xs shrink-0"
+                      disabled={suggestingCode}
+                      title="توليد الكود التسلسلي التلقائي"
+                      onClick={async () => {
+                        const sug = await fetchSuggestedCode(form.parentId || null, form.accountClass);
+                        if (sug?.suggestedCode) set('code', sug.suggestedCode);
+                      }}
+                    >
+                      <Sparkles className="size-3.5 text-amber-500" />
+                    </button>
+                  )}
+                </div>
+              </Field>
+              <Field label="الاسم بالعربية *" required error={errs.nameAr}><input className="input" value={form.nameAr} onChange={(e) => set('nameAr', e.target.value)} /></Field>
+              <Field label="الاسم بالإنجليزية (اختياري)"><input className="input" dir="ltr" value={form.nameEn} onChange={(e) => set('nameEn', e.target.value)} /></Field>
+
+              <Field label="نوع الحساب الأساسي *" required>
+                <select
+                  className="input"
+                  value={form.accountClass}
+                  disabled={!!form.parentId || form.hasTransactions || form.hasChildren}
+                  onChange={(e) => {
+                    const cls = e.target.value;
+                    const sec = CLASS_DEFAULT_SECTION[cls] || 'CURRENT_ASSETS';
+                    const matchSl = statementLines.find((s) => s.sectionCode === sec && (s.statementType === 'BALANCE_SHEET' || s.statementType === 'INCOME_STATEMENT'));
+                    setForm({ ...form, accountClass: cls, statementSection: sec, statementLineId: matchSl?.id || '' });
+                  }}
+                >
+                  {Object.entries(ACCOUNT_CLASS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </Field>
+              <Field label="التصنيف المحاسبي الفرعي">
+                <select className="input" value={form.subtype} onChange={(e) => set('subtype', e.target.value)}>
+                  <option value="">—</option>
+                  {Object.entries(ACCOUNT_SUBTYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </Field>
+              <Field label="عملة الحساب" hint="فارغ = يقبل كل العملات">
+                <input className="input font-mono" dir="ltr" maxLength={3} value={form.currencyCode} onChange={(e) => set('currencyCode', e.target.value.toUpperCase())} />
+              </Field>
             </FormSection>
 
-            <FormSection title="خصائص الترحيل والأبعاد المحاسبية" columns={1}>
+            <FormSection title="الربط الديناميكي بالقوائم المالية الأربعة" columns={3}>
+              <Field label="مكان الظهور في القائمة المالية *" required>
+                <select
+                  className="input"
+                  value={form.statementSection || ''}
+                  onChange={(e) => {
+                    const sec = e.target.value;
+                    const matchSl = statementLines.find((s) => s.sectionCode === sec && (s.statementType === 'BALANCE_SHEET' || s.statementType === 'INCOME_STATEMENT'));
+                    setForm({ ...form, statementSection: sec, statementLineId: matchSl?.id || '' });
+                  }}
+                >
+                  {Object.entries(STATEMENT_SECTION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </Field>
+              <Field label="بند القائمة المالية المحدد">
+                <select
+                  className="input"
+                  value={form.statementLineId || ''}
+                  onChange={(e) => {
+                    const sl = statementLines.find((x) => x.id === e.target.value);
+                    setForm({ ...form, statementLineId: e.target.value, statementSection: sl?.sectionCode || form.statementSection });
+                  }}
+                >
+                  <option value="">— تلقائي حسب القسم —</option>
+                  {statementLines
+                    .filter((s) => s.statementType === 'BALANCE_SHEET' || s.statementType === 'INCOME_STATEMENT')
+                    .map((s) => <option key={s.id} value={s.id}>[{s.code}] {s.nameAr}</option>)}
+                </select>
+              </Field>
+              <Field label="تصنيف قائمة التدفقات النقدية (IAS 7)">
+                <select className="input" value={form.cashFlowCategory || ''} onChange={(e) => set('cashFlowCategory', e.target.value)}>
+                  <option value="">— تلقائي —</option>
+                  {Object.entries(CASH_FLOW).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </Field>
+            </FormSection>
+
+            <FormSection title="خصائص الترحيل والطبيعة والأبعاد المحاسبية" columns={1}>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-sm">
-                {[['isPosting', 'حساب تفصيلي (يقبل الترحيل)'], ['isActive', 'نشط'], ['isControl', 'حساب رقابي (لا يقبل الترحيل اليدوي)'], ['isContra', 'حساب مقابل (عكس الطبيعة)'], ['requiresCostCenter', 'يتطلب مركز تكلفة'], ['requiresProject', 'يتطلب مشروع'], ['requiresEmployee', 'يتطلب موظف']].map(([k, l]) => (
-                  <label key={k} className="flex items-center gap-2 rounded-xl border border-slate-200/80 dark:border-slate-800 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"><input type="checkbox" checked={!!form[k]} onChange={(e) => set(k, e.target.checked)} /> <span>{l}</span></label>
+                {[
+                  ['isPosting', 'حساب تفصيلي (قابل للترحيل)'],
+                  ['isActive', 'حساب نشط'],
+                  ['isControl', 'حساب رقابي (منع الترحيل اليدوي)'],
+                  ['isContra', 'حساب مقابل (عكس الطبيعة)'],
+                  ['requiresCostCenter', 'يتطلب مركز تكلفة'],
+                  ['requiresProject', 'يتطلب مشروع'],
+                  ['requiresEmployee', 'يتطلب موظف'],
+                ].map(([k, l]) => (
+                  <label key={k} className="flex items-center gap-2 rounded-xl border border-slate-200/80 dark:border-slate-800 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <input
+                      type="checkbox"
+                      checked={!!form[k]}
+                      disabled={(k === 'isPosting' && ((form.hasTransactions && form.isPosting) || (form.hasChildren && !form.isPosting)))}
+                      onChange={(e) => set(k, e.target.checked)}
+                    />
+                    <span className="text-xs font-semibold">{l}</span>
+                  </label>
                 ))}
               </div>
-              <Field label="الوصف"><textarea className="input h-20 py-2" value={form.description} onChange={(e) => set('description', e.target.value)} /></Field>
+              <Field label="وصف وملاحظات محاسبية"><textarea className="input h-20 py-2" value={form.description} onChange={(e) => set('description', e.target.value)} /></Field>
             </FormSection>
           </div>
         )}
       </Drawer>
+
+      {/* Safe Move Account Modal */}
+      <Modal
+        open={!!movingAcc}
+        onClose={() => setMovingAcc(null)}
+        title={`نقل الحساب داخل شجرة الحسابات: ${movingAcc?.code || ''} — ${movingAcc?.nameAr || ''}`}
+        footer={
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setMovingAcc(null)}>إلغاء</button>
+            <button type="button" className="btn-primary flex items-center gap-1.5" disabled={moveMut.isPending} onClick={() => moveMut.mutate()}>
+              {moveMut.isPending ? <Spinner /> : <ArrowLeftRight className="size-3.5" />}
+              تأكيد النقل الآمن
+            </button>
+          </>
+        }
+      >
+        {movingAcc && (
+          <div className="space-y-4 text-xs">
+            <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 p-3 text-amber-900 dark:text-amber-200">
+              <strong>ضوابط النقل المحاسبي السليم:</strong> يُسمح بالنقل فقط تحت حساب رئيسي تجميعي من نفس الفئة ({ACCOUNT_CLASS[movingAcc.accountClass]}) دون الإخلال بأي قيود تاريخية مسجلة.
+            </div>
+            <Field label="الحساب الأب الجديد (تجميعي من نفس الفئة)">
+              <SearchableSelect
+                value={moveTargetParent}
+                onChange={async (val) => {
+                  setMoveTargetParent(val);
+                  const sug = await fetchSuggestedCode(val || null, movingAcc.accountClass);
+                  if (sug?.suggestedCode) setMoveNewCode(sug.suggestedCode);
+                }}
+                options={headers
+                  .filter((h) => h.id !== movingAcc.id && h.accountClass === movingAcc.accountClass && !isDescendantOf(h.id, movingAcc.id))
+                  .map((h) => ({ value: h.id, label: `${h.code} — ${h.nameAr} (م${h.level})` }))}
+                placeholder="جذر رئيسي (المستوى 1 — بدون أب)"
+              />
+            </Field>
+            <Field label="كود الحساب بعد النقل (اختياري — احتفظ بالكود الحالي أو استخدم الكود المقترح)">
+              <input className="input font-mono" dir="ltr" value={moveNewCode} onChange={(e) => setMoveNewCode(e.target.value)} />
+            </Field>
+            <Field label="سبب النقل (لتسجيله في سجل التدقيق)">
+              <input className="input" placeholder="مثال: إعادة هيكلة وتصنيف دليل الحسابات" value={moveReason} onChange={(e) => setMoveReason(e.target.value)} />
+            </Field>
+          </div>
+        )}
+      </Modal>
+
       <CsvImportModal
         open={importingOpen}
         onClose={() => setImportingOpen(false)}
@@ -575,14 +1099,12 @@ export function AccountsPage() {
             subtype: v.subtype || null,
             currencyCode: v.currencyCode && v.currencyCode !== 'كل العملات' ? v.currencyCode : null,
             cashFlowCategory: v.cashFlowCategory || null,
+            statementSection: v.statementSection || CLASS_DEFAULT_SECTION[accountClass] || 'CURRENT_ASSETS',
             isPosting: v.isPosting ?? true,
             isActive: v.isActive ?? true,
           };
         }}
-        onSuccess={() => {
-          qc.invalidateQueries({ queryKey: ['accounts'] });
-          qc.invalidateQueries({ queryKey: ['ref'] });
-        }}
+        onSuccess={() => invalidateAllAccountingQueries(qc)}
       />
     </div>
   );
@@ -590,19 +1112,23 @@ export function AccountsPage() {
 
 // ------------------------------------------------------------------ Visual Tree Node Component
 function VisualAccountNode({
-  account, allAccounts, collapsed, setCollapsed, onEdit, onAddChild, onDelete,
+  account, allAccounts, collapsed, setCollapsed, onEdit, onMove, onAddChild, onDelete,
 }: {
   account: Account;
   allAccounts: Account[];
   collapsed: Set<string>;
   setCollapsed: (s: Set<string>) => void;
   onEdit: (a: Account) => void;
+  onMove: (a: Account) => void;
   onAddChild: (parent: Account) => void;
   onDelete: (id: string) => void;
 }) {
   const children = allAccounts.filter((a) => a.parentId === account.id);
   const isCollapsed = collapsed.has(account.id);
   const isParent = children.length > 0 || !account.isPosting;
+  const dr = Number(account.debitBase ?? 0);
+  const cr = Number(account.creditBase ?? 0);
+  const net = Number(account.currentBalanceBase ?? account.currentBalance ?? 0);
 
   const toggle = () => {
     const s = new Set(collapsed);
@@ -613,10 +1139,10 @@ function VisualAccountNode({
 
   return (
     <div className="space-y-1">
-      <div className={`flex items-center justify-between p-2.5 rounded-xl transition-all border ${
+      <div className={`flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl transition-all border ${
         isParent
           ? 'bg-white dark:bg-[#0d162c] border-slate-200 dark:border-slate-700/80 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-500/50 font-bold'
-          : 'bg-white/75 dark:bg-[#0b1224]/75 border-slate-100 dark:border-slate-800/80 hover:bg-white dark:hover:bg-[#101a34] hover:border-slate-200 dark:hover:border-slate-700 text-slate-800 dark:text-slate-200'
+          : 'bg-white/80 dark:bg-[#0b1224]/80 border-slate-100 dark:border-slate-800/80 hover:bg-white dark:hover:bg-[#101a34] hover:border-slate-200 dark:hover:border-slate-700 text-slate-800 dark:text-slate-200'
       }`}>
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           {isParent ? (
@@ -637,16 +1163,21 @@ function VisualAccountNode({
             <FileCode className="size-4 text-indigo-500 dark:text-indigo-400 shrink-0" />
           )}
 
-          {/* Account Code Pill */}
           <span className="font-mono text-xs px-2 py-0.5 rounded-lg font-black bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700">
             {account.code}
           </span>
 
-          {/* Account Name */}
           <span className="text-xs font-bold text-slate-900 dark:text-white">{account.nameAr}</span>
           {account.nameEn && <span className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">({account.nameEn})</span>}
 
-          {/* Badges */}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+            isParent
+              ? 'bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800/60'
+              : 'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+          }`}>
+            {isParent ? `رئيسي • م${account.level}` : `تفصيلي • م${account.level}`}
+          </span>
+
           <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
             account.normalBalance === 'DEBIT'
               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/60'
@@ -655,68 +1186,92 @@ function VisualAccountNode({
             {account.normalBalance === 'DEBIT' ? 'مدين' : 'دائن'}
           </span>
 
-          {account.currencyCode && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-cyan-50 text-cyan-800 border border-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-300 dark:border-cyan-800/60">
-              {account.currencyCode}
+          {account.statementSection && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-violet-50 text-violet-700 border border-violet-200 dark:bg-violet-950/50 dark:text-violet-300 dark:border-violet-800/60">
+              {account.statementLineNameAr || STATEMENT_SECTION_LABELS[account.statementSection] || account.statementSection}
             </span>
           )}
 
-          {account.isControl && <Badge color="blue">رقابي</Badge>}
-        </div>
-
-        {/* Quick Actions */}
-        <div className="flex items-center gap-1 opacity-85 hover:opacity-100">
-          {isParent && (
-            <button
-              type="button"
-              className="btn-ghost h-6 px-1.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-              onClick={() => onAddChild(account)}
-              title="إضافة حساب فرعي"
-            >
-              <Plus className="size-3" /> فرعي
-            </button>
+          {account.cashFlowCategory && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-cyan-50 text-cyan-800 border border-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-300 dark:border-cyan-800/60">
+              {CASH_FLOW[account.cashFlowCategory] || account.cashFlowCategory}
+            </span>
           )}
 
-          <Link
-            className="btn-ghost h-6 px-1.5 text-[11px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1"
-            to={`/reports/account-statement?accountId=${account.id}`}
-            title="كشف حساب الأستاذ المساعد"
-          >
-            <Eye className="size-3" /> كشف
-          </Link>
+          {account.isContra && <Badge color="amber">مقابل</Badge>}
+          {account.isControl && <Badge color="blue">رقابي</Badge>}
+          {!account.isActive && <Badge color="slate">معطل</Badge>}
+        </div>
 
-          <button
-            type="button"
-            className="btn-ghost h-6 px-1.5 text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-            title="طباعة كشف الحساب"
-            onClick={() => window.open(`#/reports/account-statement?accountId=${account.id}&print=true`, '_blank')}
-          >
-            <Printer className="size-3" />
-          </button>
+        {/* Live Rolled-up Balances + Quick Actions */}
+        <div className="flex items-center gap-2 ms-auto flex-wrap">
+          <div className="flex items-center gap-2 text-[11px] font-mono bg-slate-50 dark:bg-slate-900/70 px-2.5 py-1 rounded-lg border border-slate-200/70 dark:border-slate-800">
+            <span className="text-emerald-700 dark:text-emerald-400" title="إجمالي المدين المرحّل">م: {money(dr)}</span>
+            <span className="text-slate-300 dark:text-slate-700">|</span>
+            <span className="text-rose-700 dark:text-rose-400" title="إجمالي الدائن المرحّل">د: {money(cr)}</span>
+            <span className="text-slate-300 dark:text-slate-700">|</span>
+            <span className={`font-black ${net >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600 dark:text-rose-400'}`} title="صافي الرصيد وفق طبيعة الحساب">
+              {money(net)}
+            </span>
+          </div>
 
-          <button
-            type="button"
-            className="btn-ghost h-6 px-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-            onClick={() => onEdit(account)}
-            title="تعديل الحساب"
-          >
-            <Pencil className="size-3" />
-          </button>
+          <div className="flex items-center gap-1 opacity-90 hover:opacity-100">
+            {!account.isPosting && (
+              <button
+                type="button"
+                className="btn-ghost h-6 px-1.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                onClick={() => onAddChild(account)}
+                title="إضافة حساب فرعي وتوليد كود تلقائي"
+              >
+                <Plus className="size-3" /> فرعي
+              </button>
+            )}
 
-          {!account.hasTransactions && !account.hasChildren && (
             <button
               type="button"
-              className="btn-ghost h-6 px-1.5 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+              className="btn-ghost h-6 px-1.5 text-slate-600 dark:text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+              onClick={() => onMove(account)}
+              title="نقل الحساب لمستوى آخر"
+            >
+              <Move className="size-3" />
+            </button>
+
+            <Link
+              className="btn-ghost h-6 px-1.5 text-[11px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1"
+              to={`/reports/account-statement?accountId=${account.id}`}
+              title="كشف حساب الأستاذ العام"
+            >
+              <Eye className="size-3" /> كشف
+            </Link>
+
+            <button
+              type="button"
+              className="btn-ghost h-6 px-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+              onClick={() => onEdit(account)}
+              title="تعديل الحساب وربطه بالقوائم"
+            >
+              <Pencil className="size-3" />
+            </button>
+
+            <button
+              type="button"
+              disabled={account.hasTransactions || account.hasChildren}
+              className="btn-ghost h-6 px-1.5 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-30 disabled:cursor-not-allowed"
               onClick={() => onDelete(account.id)}
-              title="حذف"
+              title={
+                account.hasTransactions
+                  ? 'لا يمكن حذف حساب عليه حركات مالية (يمكنك تعطيله)'
+                  : account.hasChildren
+                  ? 'لا يمكن حذف حساب رئيسي له فروع تابعة'
+                  : 'حذف الحساب'
+              }
             >
               <Trash2 className="size-3" />
             </button>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* Children branches with connector line */}
       {!isCollapsed && children.length > 0 && (
         <div className="ms-4 ps-3 border-e-2 border-slate-200 dark:border-slate-800 space-y-1.5">
           {children.map((child) => (
@@ -727,6 +1282,7 @@ function VisualAccountNode({
               collapsed={collapsed}
               setCollapsed={setCollapsed}
               onEdit={onEdit}
+              onMove={onMove}
               onAddChild={onAddChild}
               onDelete={onDelete}
             />
@@ -992,7 +1548,11 @@ export function JournalFormPage() {
       if (postAfter) return api.post<any>(`/journal-entries/${saved.id}/post`);
       return saved;
     },
-    onSuccess: (e) => { toast.success(e.status === 'POSTED' ? `تم ترحيل القيد ${e.entryNo}` : 'تم حفظ القيد كمسودة'); qc.invalidateQueries({ queryKey: ['journals'] }); qc.invalidateQueries({ queryKey: ['journal', e.id] }); nav(`/acc/journals/${e.id}`); },
+    onSuccess: (e) => {
+      toast.success(e.status === 'POSTED' ? `تم ترحيل القيد ${e.entryNo} وتحديث جميع القوائم المالية` : 'تم حفظ القيد كمسودة');
+      invalidateAllAccountingQueries(qc);
+      nav(`/acc/journals/${e.id}`);
+    },
     onError: (e) => toast.error(e),
   });
 
@@ -1064,7 +1624,7 @@ export function JournalDetailPage() {
   const q = useQuery({ queryKey: ['journal', id], queryFn: () => api.get<any>(`/journal-entries/${id}`) });
   const [dialog, setDialog] = useState<'cancel' | 'reverse' | null>(null);
   const [revDate, setRevDate] = useState('');
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['journal'] }); qc.invalidateQueries({ queryKey: ['journals'] }); };
+  const refresh = () => { invalidateAllAccountingQueries(qc); };
   const post = useMutation({ mutationFn: () => api.post<any>(`/journal-entries/${id}/post`), onSuccess: (e) => { toast.success(`تم ترحيل القيد ${e.entryNo}`); refresh(); }, onError: (e) => toast.error(e) });
   if (q.isLoading) return <Loading />;
   if (q.error || !q.data) return <ErrorState error={q.error} />;

@@ -1,5 +1,14 @@
 import { getStoredCompany } from './storage-company';
 import { defaultFiscalPeriodsList, getEntityList, saveEntityItem, uid } from './local-store';
+import {
+  buildEnrichedAccountsTree,
+  computeDynamicAccountStatement,
+  computeDynamicBalanceSheet,
+  computeDynamicCashFlowStatement,
+  computeDynamicEquityChangesStatement,
+  computeDynamicIncomeStatement,
+  computeDynamicTrialBalance,
+} from './coa-statements-engine';
 
 export { defaultFiscalPeriodsList };
 
@@ -344,62 +353,15 @@ export function saveOverheadPolicy(patch: { method?: string; rate?: string | num
 // ---------------------------------------------------------------------------
 // 4. Normalized Accounts, Exchange Rates & Period Guards
 // ---------------------------------------------------------------------------
-export function getNormalizedAccounts(): any[] {
+export function getNormalizedAccounts(opts: { asOf?: string } = {}): any[] {
   const raw = getEntityList<any>('accounts', defaultAccountsList);
   const byCode = new Map(raw.map((a) => [a.code, a]));
   const merged = [...raw];
   for (const d of defaultAccountsList) {
     if (!byCode.has(d.code)) merged.push(d);
   }
-
-  // Compute live GL balances directly from POSTED journal entries (zero hardcoded balances)
   const jes = getEntityList<any>('journal_entries', []).filter((j) => j.status === 'POSTED');
-  const baseSums = new Map<string, { dr: number; cr: number }>();
-  const txSums = new Map<string, { dr: number; cr: number }>();
-
-  for (const je of jes) {
-    const lines = Array.isArray(je.lines) ? je.lines : [];
-    for (const l of lines) {
-      const code = l.accountCode || '';
-      const id = l.accountId || '';
-      const dB = Number(l.debitBase ?? l.debit ?? 0);
-      const cB = Number(l.creditBase ?? l.credit ?? 0);
-      const dT = Number(l.debitTx ?? l.debit ?? dB);
-      const cT = Number(l.creditTx ?? l.credit ?? cB);
-      for (const k of [id, code]) {
-        if (!k) continue;
-        const prevB = baseSums.get(k) || { dr: 0, cr: 0 };
-        baseSums.set(k, { dr: prevB.dr + dB, cr: prevB.cr + cB });
-        const prevT = txSums.get(k) || { dr: 0, cr: 0 };
-        txSums.set(k, { dr: prevT.dr + dT, cr: prevT.cr + cT });
-      }
-    }
-  }
-
-  return merged.map((a) => {
-    let accountClass = a.accountClass;
-    if (accountClass === 'EXPENSE') {
-      if (a.code === '50101' || a.code === '50201') accountClass = 'DIRECT_COST';
-      else if (a.code === '5700') accountClass = 'OTHER_EXPENSE';
-      else accountClass = 'OPERATING_EXPENSE';
-    }
-    const cur = a.currencyCode || a.currency || 'SAR';
-    const bSum = baseSums.get(a.id) || baseSums.get(a.code) || { dr: 0, cr: 0 };
-    const tSum = txSums.get(a.id) || txSums.get(a.code) || { dr: 0, cr: 0 };
-    const isDebitNormal = a.normalBalance !== 'CREDIT';
-    const netBase = isDebitNormal ? (bSum.dr - bSum.cr) : (bSum.cr - bSum.dr);
-    const netTx = isDebitNormal ? (tSum.dr - tSum.cr) : (tSum.cr - tSum.dr);
-    const liveBalance = cur !== getBaseCurrencyCode() && (tSum.dr > 0 || tSum.cr > 0) ? netTx : netBase;
-
-    return {
-      ...a,
-      accountClass,
-      currency: cur,
-      currencyCode: cur,
-      currentBalance: liveBalance.toFixed(2),
-      currentBalanceBase: netBase.toFixed(2),
-    };
-  });
+  return buildEnrichedAccountsTree(merged, jes, opts);
 }
 
 export function getBaseCurrencyCode(): string {
@@ -884,290 +846,52 @@ export function createReversalJournalEntry(origId: string, reason: string, rever
   return revEntry;
 }
 
-export function computeTrialBalance(params: { from?: string; to?: string; ledger?: string; branchId?: string } = {}): any {
-  const from = params.from || `${new Date().getFullYear()}-01-01`;
-  const to = params.to || new Date().toISOString().slice(0, 10);
-  const ledger = params.ledger || 'FINANCIAL';
-  const branchId = params.branchId || '';
-
+export function computeTrialBalance(params: { from?: string; to?: string; ledger?: string; branchId?: string; includeZero?: boolean } = {}): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
-    .filter((j) => j.status === 'POSTED' && (!ledger || j.ledger === ledger));
-
-  const map = new Map<string, any>();
-  for (const a of accounts) {
-    map.set(a.id, {
-      accountId: a.id,
-      code: a.code,
-      nameAr: a.nameAr,
-      accountClass: a.accountClass,
-      normalBalance: a.normalBalance,
-      isPosting: a.isPosting !== false,
-      level: a.level || 2,
-      openingDebit: 0,
-      openingCredit: 0,
-      periodDebit: 0,
-      periodCredit: 0,
-      closingDebit: 0,
-      closingCredit: 0,
-    });
-  }
-
-  for (const je of jes) {
-    if (je.entryDate > to) continue;
-    const isOpening = je.entryDate < from;
-    for (const l of je.lines) {
-      if (branchId && l.branchId !== branchId) continue;
-      const row = map.get(l.accountId) || accounts.find((a) => a.code === l.accountCode && map.get(a.id)) && map.get(accounts.find((a) => a.code === l.accountCode)!.id);
-      if (!row) continue;
-      if (isOpening) {
-        row.openingDebit += Number(l.debitBase || 0);
-        row.openingCredit += Number(l.creditBase || 0);
-      } else {
-        row.periodDebit += Number(l.debitBase || 0);
-        row.periodCredit += Number(l.creditBase || 0);
-      }
-    }
-  }
-
-  const rows: any[] = [];
-  const totals = { openingDebit: 0, openingCredit: 0, periodDebit: 0, periodCredit: 0, closingDebit: 0, closingCredit: 0 };
-
-  for (const r of map.values()) {
-    const net = (r.openingDebit + r.periodDebit) - (r.openingCredit + r.periodCredit);
-    if (r.openingDebit === 0 && r.openingCredit === 0 && r.periodDebit === 0 && r.periodCredit === 0) continue;
-    const opNet = r.openingDebit - r.openingCredit;
-    const oDr = opNet >= 0 ? opNet : 0;
-    const oCr = opNet < 0 ? -opNet : 0;
-    const cDr = net >= 0 ? net : 0;
-    const cCr = net < 0 ? -net : 0;
-
-    totals.openingDebit += oDr;
-    totals.openingCredit += oCr;
-    totals.periodDebit += r.periodDebit;
-    totals.periodCredit += r.periodCredit;
-    totals.closingDebit += cDr;
-    totals.closingCredit += cCr;
-
-    rows.push({
-      ...r,
-      openingDebit: oDr.toFixed(2),
-      openingCredit: oCr.toFixed(2),
-      periodDebit: r.periodDebit.toFixed(2),
-      periodCredit: r.periodCredit.toFixed(2),
-      closingDebit: cDr.toFixed(2),
-      closingCredit: cCr.toFixed(2),
-    });
-  }
-
-  rows.sort((a, b) => String(a.code).localeCompare(String(b.code)));
-  const balanced = Math.abs(totals.closingDebit - totals.closingCredit) < 0.01 && Math.abs(totals.periodDebit - totals.periodCredit) < 0.01;
-  const formattedTotals = {
-    openingDebit: totals.openingDebit.toFixed(2),
-    openingCredit: totals.openingCredit.toFixed(2),
-    periodDebit: totals.periodDebit.toFixed(2),
-    periodCredit: totals.periodCredit.toFixed(2),
-    closingDebit: totals.closingDebit.toFixed(2),
-    closingCredit: totals.closingCredit.toFixed(2),
-  };
-
-  return {
-    period: `${from} — ${to}`,
-    totalDebit: formattedTotals.closingDebit,
-    totalCredit: formattedTotals.closingCredit,
-    balanced,
-    isBalanced: balanced,
-    rows,
-    lines: rows,
-    totals: formattedTotals,
-  };
+    .filter((j) => j.status === 'POSTED');
+  return computeDynamicTrialBalance(accounts, jes, params);
 }
 
-export function computeIncomeStatement(params: { from?: string; to?: string; branchId?: string } = {}): any {
-  const from = params.from || `${new Date().getFullYear()}-01-01`;
-  const to = params.to || new Date().toISOString().slice(0, 10);
-  const branchId = params.branchId || '';
-
+export function computeIncomeStatement(params: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string } = {}): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
-    .filter((j) => j.status === 'POSTED' && j.entryDate >= from && j.entryDate <= to);
-
-  const incomeClasses = new Set(['REVENUE', 'DIRECT_COST', 'OPERATING_EXPENSE', 'OTHER_INCOME', 'OTHER_EXPENSE']);
-  const byAcc = new Map<string, any>();
-
-  for (const je of jes) {
-    for (const l of je.lines) {
-      if (branchId && l.branchId !== branchId) continue;
-      const acc = accounts.find((a) => a.id === l.accountId || a.code === l.accountCode);
-      if (!acc || !incomeClasses.has(acc.accountClass)) continue;
-      const prev = byAcc.get(acc.id) || { accountId: acc.id, code: acc.code, nameAr: acc.nameAr, accountClass: acc.accountClass, amount: 0 };
-      const isCr = acc.accountClass === 'REVENUE' || acc.accountClass === 'OTHER_INCOME';
-      prev.amount += isCr ? (Number(l.creditBase || 0) - Number(l.debitBase || 0)) : (Number(l.debitBase || 0) - Number(l.creditBase || 0));
-      byAcc.set(acc.id, prev);
-    }
-  }
-
-  let revenue = 0;
-  let directCost = 0;
-  let operatingExpenses = 0;
-  let otherIncome = 0;
-  let otherExpenses = 0;
-  const lines: any[] = [];
-
-  for (const r of byAcc.values()) {
-    if (Math.abs(r.amount) < 0.005) continue;
-    if (r.accountClass === 'REVENUE') revenue += r.amount;
-    else if (r.accountClass === 'DIRECT_COST') directCost += r.amount;
-    else if (r.accountClass === 'OPERATING_EXPENSE') operatingExpenses += r.amount;
-    else if (r.accountClass === 'OTHER_INCOME') otherIncome += r.amount;
-    else if (r.accountClass === 'OTHER_EXPENSE') otherExpenses += r.amount;
-    lines.push({ ...r, amount: r.amount.toFixed(2) });
-  }
-
-  lines.sort((a, b) => String(a.code).localeCompare(String(b.code)));
-  const grossProfit = revenue - directCost;
-  const operatingProfit = grossProfit - operatingExpenses;
-  const netProfit = operatingProfit + otherIncome - otherExpenses;
-  const marginPct = revenue > 0 ? ((netProfit / revenue) * 100).toFixed(1) : '0.0';
-
-  return {
-    revenue: revenue.toFixed(2),
-    directCost: directCost.toFixed(2),
-    grossProfit: grossProfit.toFixed(2),
-    operatingExpenses: operatingExpenses.toFixed(2),
-    operatingProfit: operatingProfit.toFixed(2),
-    otherIncome: otherIncome.toFixed(2),
-    otherExpenses: otherExpenses.toFixed(2),
-    netProfit: netProfit.toFixed(2),
-    marginPct,
-    lines,
-  };
+    .filter((j) => j.status === 'POSTED');
+  return computeDynamicIncomeStatement(accounts, jes, params);
 }
 
-export function computeBalanceSheet(params: { asOf?: string; branchId?: string } = {}): any {
-  const asOf = params.asOf || new Date().toISOString().slice(0, 10);
-  const branchId = params.branchId || '';
+export function computeBalanceSheet(params: { asOf?: string; compareAsOf?: string; branchId?: string } = {}): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
-    .filter((j) => j.status === 'POSTED' && j.entryDate <= asOf);
+    .filter((j) => j.status === 'POSTED');
+  return computeDynamicBalanceSheet(accounts, jes, params);
+}
 
-  const sums = new Map<string, number>();
-  let netEarnings = 0;
+export function computeCashFlowStatement(params: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string } = {}): any {
+  const accounts = getNormalizedAccounts();
+  const jes = getEntityList<any>('journal_entries', [])
+    .map((j) => normalizeJournalEntry(j, accounts))
+    .filter((j) => j.status === 'POSTED');
+  return computeDynamicCashFlowStatement(accounts, jes, params);
+}
 
-  for (const je of jes) {
-    for (const l of je.lines) {
-      if (branchId && l.branchId !== branchId) continue;
-      const acc = accounts.find((a) => a.id === l.accountId || a.code === l.accountCode);
-      if (!acc) continue;
-      const dr = Number(l.debitBase || 0);
-      const cr = Number(l.creditBase || 0);
-      if (acc.accountClass === 'ASSET') {
-        sums.set(acc.id, (sums.get(acc.id) || 0) + (dr - cr));
-      } else if (acc.accountClass === 'LIABILITY' || acc.accountClass === 'EQUITY') {
-        sums.set(acc.id, (sums.get(acc.id) || 0) + (cr - dr));
-      } else {
-        netEarnings += (cr - dr);
-      }
-    }
-  }
-
-  const pickSection = (cls: string) => {
-    const lines: any[] = [];
-    let total = 0;
-    for (const acc of accounts) {
-      if (acc.accountClass !== cls) continue;
-      const amt = sums.get(acc.id) || 0;
-      if (Math.abs(amt) < 0.005) continue;
-      total += amt;
-      lines.push({ accountId: acc.id, code: acc.code, nameAr: acc.nameAr, amount: amt.toFixed(2) });
-    }
-    return { total: total.toFixed(2), numericTotal: total, lines };
-  };
-
-  const assets = pickSection('ASSET');
-  const liabilities = pickSection('LIABILITY');
-  const equity = pickSection('EQUITY');
-  const liabilitiesAndEquityNum = liabilities.numericTotal + equity.numericTotal + netEarnings;
-  const diffNum = assets.numericTotal - liabilitiesAndEquityNum;
-  const balanced = Math.abs(diffNum) < 0.01;
-
-  return {
-    asOfDate: asOf,
-    balanced,
-    isBalanced: balanced,
-    difference: diffNum.toFixed(2),
-    currentEarnings: netEarnings.toFixed(2),
-    liabilitiesAndEquity: liabilitiesAndEquityNum.toFixed(2),
-    assets: { total: assets.total, current: assets.total, nonCurrent: '0.00', lines: assets.lines },
-    liabilities: { total: liabilities.total, lines: liabilities.lines },
-    equity: { total: equity.total, lines: equity.lines },
-  };
+export function computeEquityChangesStatement(params: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string } = {}): any {
+  const accounts = getNormalizedAccounts();
+  const jes = getEntityList<any>('journal_entries', [])
+    .map((j) => normalizeJournalEntry(j, accounts))
+    .filter((j) => j.status === 'POSTED');
+  return computeDynamicEquityChangesStatement(accounts, jes, params);
 }
 
 export function computeAccountStatement(params: { accountId?: string; from?: string; to?: string; branchId?: string }): any {
-  const from = params.from || `${new Date().getFullYear()}-01-01`;
-  const to = params.to || new Date().toISOString().slice(0, 10);
   const accounts = getNormalizedAccounts();
-  const acc = accounts.find((a) => a.id === params.accountId || a.code === params.accountId) || accounts[0];
-  const isDebitNormal = acc?.normalBalance !== 'CREDIT';
-
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
-    .filter((j) => j.status === 'POSTED')
-    .sort((a, b) => String(a.entryDate).localeCompare(String(b.entryDate)) || String(a.createdAt).localeCompare(String(b.createdAt)));
-
-  let opening = 0;
-  let periodDebit = 0;
-  let periodCredit = 0;
-  const statementLines: any[] = [];
-
-  for (const je of jes) {
-    if (je.entryDate > to) continue;
-    for (const l of je.lines) {
-      if (params.branchId && l.branchId !== params.branchId) continue;
-      if (l.accountId !== acc?.id && l.accountCode !== acc?.code) continue;
-      const dr = Number(l.debitBase || 0);
-      const cr = Number(l.creditBase || 0);
-      const delta = isDebitNormal ? (dr - cr) : (cr - dr);
-      if (je.entryDate < from) {
-        opening += delta;
-      } else {
-        periodDebit += dr;
-        periodCredit += cr;
-        const running = opening + (isDebitNormal ? (periodDebit - periodCredit) : (periodCredit - periodDebit));
-        statementLines.push({
-          entryId: je.id,
-          entryNo: je.entryNo,
-          entryDate: je.entryDate,
-          lineDescription: l.description || je.description,
-          description: je.description,
-          currencyCode: l.currencyCode || acc.currency || getBaseCurrencyCode(),
-          debitTx: l.debitTx,
-          creditTx: l.creditTx,
-          debitBase: l.debitBase,
-          creditBase: l.creditBase,
-          runningBalance: running.toFixed(2),
-        });
-      }
-    }
-  }
-
-  const closing = opening + (isDebitNormal ? (periodDebit - periodCredit) : (periodCredit - periodDebit));
-  return {
-    account: acc,
-    openingBalance: opening.toFixed(2),
-    closingBalance: closing.toFixed(2),
-    periodDebit: periodDebit.toFixed(2),
-    periodCredit: periodCredit.toFixed(2),
-    totalDebit: periodDebit.toFixed(2),
-    totalCredit: periodCredit.toFixed(2),
-    lines: statementLines,
-    data: statementLines,
-    meta: { page: 1, pageSize: 100, total: statementLines.length },
-  };
+    .filter((j) => j.status === 'POSTED');
+  return computeDynamicAccountStatement(accounts, jes, params);
 }
 
 // ---------------------------------------------------------------------------

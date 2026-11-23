@@ -14,6 +14,7 @@ import {
   JournalController,
   LedgerController,
   PostingRulesController,
+  StatementLinesController,
 } from './presentation/accounting.controllers';
 
 /**
@@ -24,6 +25,7 @@ import {
 @Module({
   controllers: [
     AccountsController,
+    StatementLinesController,
     BankAccountsController,
     PostingRulesController,
     JournalController,

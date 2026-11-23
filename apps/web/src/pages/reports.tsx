@@ -1,17 +1,17 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactECharts from 'echarts-for-react';
 import {
-  Activity, ArrowUpRight, BarChart3, Briefcase, Building2, Calendar,
-  CheckCircle2, Clock, DollarSign, FileText,
+  Activity, ArrowLeftRight, ArrowUpRight, BarChart3, Briefcase, Building2, Calendar,
+  CheckCircle2, ChevronDown, ChevronLeft, Clock, DollarSign, FileText,
   HelpCircle, Landmark, Layers, Lock, LockOpen, PieChart, Plus, Printer, Receipt,
-  ShieldAlert, ShieldCheck, Sparkles, Target, TrendingUp, Users, Wallet, XCircle,
+  Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, TrendingUp, Users, Wallet, XCircle,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, money, monthStart, today, yearStart } from '../lib/format';
-import { ACCOUNT_CLASS, CHECK_STATUS } from '../lib/labels';
+import { ACCOUNT_CLASS, CHECK_STATUS, STATEMENT_SECTION_LABELS } from '../lib/labels';
 import { PeriodSelect } from '../components/forms';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
@@ -71,16 +71,38 @@ export function TrialBalancePage() {
   const [ledger, setLedger] = useState('FINANCIAL');
   const [branchId, setBranchId] = useState('ALL');
   const [postingOnly, setPostingOnly] = useState(false);
+  const [includeZero, setIncludeZero] = useState(false);
   const branchesQ = useBranchesList();
   const q = useQuery({
-    queryKey: ['tb', from, to, ledger, branchId],
+    queryKey: ['tb', from, to, ledger, branchId, includeZero],
     queryFn: () => api.get<any>('/ledger/trial-balance', {
-      from, to, ledger, ...(branchId !== 'ALL' ? { branchId } : {}),
+      from, to, ledger, ...(includeZero ? { includeZero: 'true' } : {}), ...(branchId !== 'ALL' ? { branchId } : {}),
     }),
   });
   const rows = (q.data?.rows ?? []).filter((r: any) => !postingOnly || r.isPosting);
+  const postingRows = (q.data?.rows ?? []).filter((r: any) => r.isPosting);
   const cols = ['openingDebit', 'openingCredit', 'periodDebit', 'periodCredit', 'closingDebit', 'closingCredit'];
   const isBalanced = Boolean(q.data?.balanced ?? q.data?.isBalanced);
+  const tbExportColumns = [
+    { key: 'code', header: 'الرمز', type: 'text' as const, width: 14 },
+    { key: 'nameAr', header: 'الحساب', type: 'text' as const, width: 28 },
+    { key: 'openingDebit', header: 'مدين افتتاحي', type: 'currency' as const, width: 16, isTotal: postingOnly },
+    { key: 'openingCredit', header: 'دائن افتتاحي', type: 'currency' as const, width: 16, isTotal: postingOnly },
+    { key: 'periodDebit', header: 'مدين الفترة', type: 'currency' as const, width: 16, isTotal: postingOnly },
+    { key: 'periodCredit', header: 'دائن الفترة', type: 'currency' as const, width: 16, isTotal: postingOnly },
+    { key: 'closingDebit', header: 'مدين ختامي', type: 'currency' as const, width: 16, isTotal: postingOnly },
+    { key: 'closingCredit', header: 'دائن ختامي', type: 'currency' as const, width: 16, isTotal: postingOnly },
+  ];
+  const tbSummaryRows = !postingOnly && q.data?.totals ? [{
+    code: 'الإجمالي',
+    nameAr: `إجمالي الحسابات التفصيلية (${postingRows.length} حساب)`,
+    openingDebit: Number(q.data.totals.openingDebit || 0),
+    openingCredit: Number(q.data.totals.openingCredit || 0),
+    periodDebit: Number(q.data.totals.periodDebit || 0),
+    periodCredit: Number(q.data.totals.periodCredit || 0),
+    closingDebit: Number(q.data.totals.closingDebit || 0),
+    closingCredit: Number(q.data.totals.closingCredit || 0),
+  }] : undefined;
 
   return (
     <div>
@@ -96,22 +118,14 @@ export function TrialBalancePage() {
               periodLabel={`${from} إلى ${to}`}
               currency={base}
               summaryKpis={[
-                { label: 'عدد الحسابات', value: String(rows.length), tone: 'indigo' },
+                { label: 'الحسابات التفصيلية', value: String(postingRows.length), tone: 'indigo' },
                 { label: 'مدين ختامي', value: `${money(q.data?.totals?.closingDebit ?? 0)} ${base}`, tone: 'emerald' },
                 { label: 'دائن ختامي', value: `${money(q.data?.totals?.closingCredit ?? 0)} ${base}`, tone: 'rose' },
                 { label: 'التوازن', value: isBalanced ? 'متوازن 100%' : 'غير متوازن', tone: isBalanced ? 'emerald' : 'rose' },
               ]}
-              columns={[
-                { key: 'code', header: 'الرمز', type: 'text', width: 14 },
-                { key: 'nameAr', header: 'الحساب', type: 'text', width: 28 },
-                { key: 'openingDebit', header: 'مدين افتتاحي', type: 'currency', width: 16, isTotal: true },
-                { key: 'openingCredit', header: 'دائن افتتاحي', type: 'currency', width: 16, isTotal: true },
-                { key: 'periodDebit', header: 'مدين الفترة', type: 'currency', width: 16, isTotal: true },
-                { key: 'periodCredit', header: 'دائن الفترة', type: 'currency', width: 16, isTotal: true },
-                { key: 'closingDebit', header: 'مدين ختامي', type: 'currency', width: 16, isTotal: true },
-                { key: 'closingCredit', header: 'دائن ختامي', type: 'currency', width: 16, isTotal: true },
-              ]}
+              columns={tbExportColumns}
               data={rows}
+              summaryRows={tbSummaryRows}
             />
             <button
               className="btn-secondary text-xs flex items-center gap-1.5"
@@ -122,22 +136,14 @@ export function TrialBalancePage() {
                   periodLabel: `${from} إلى ${to}`,
                   currency: base,
                   summaryKpis: [
-                    { label: 'عدد الحسابات', value: String(rows.length), tone: 'indigo' },
+                    { label: 'الحسابات التفصيلية', value: String(postingRows.length), tone: 'indigo' },
                     { label: 'مدين ختامي', value: `${money(q.data?.totals?.closingDebit ?? 0)} ${base}`, tone: 'emerald' },
                     { label: 'دائن ختامي', value: `${money(q.data?.totals?.closingCredit ?? 0)} ${base}`, tone: 'rose' },
                     { label: 'حالة التوازن', value: isBalanced ? 'متوازن' : 'غير متوازن', tone: isBalanced ? 'emerald' : 'rose' },
                   ],
-                  columns: [
-                    { key: 'code', header: 'الرمز', type: 'text', width: 14 },
-                    { key: 'nameAr', header: 'الحساب', type: 'text', width: 28 },
-                    { key: 'openingDebit', header: 'مدين افتتاحي', type: 'currency', width: 16, isTotal: true },
-                    { key: 'openingCredit', header: 'دائن افتتاحي', type: 'currency', width: 16, isTotal: true },
-                    { key: 'periodDebit', header: 'مدين الفترة', type: 'currency', width: 16, isTotal: true },
-                    { key: 'periodCredit', header: 'دائن الفترة', type: 'currency', width: 16, isTotal: true },
-                    { key: 'closingDebit', header: 'مدين ختامي', type: 'currency', width: 16, isTotal: true },
-                    { key: 'closingCredit', header: 'دائن ختامي', type: 'currency', width: 16, isTotal: true },
-                  ],
+                  columns: tbExportColumns,
                   data: rows,
+                  summaryRows: tbSummaryRows,
                 })
               }
               title="طباعة ملكية A4 لميزان المراجعة"
@@ -153,6 +159,10 @@ export function TrialBalancePage() {
         <label className="flex items-center gap-2 pb-2 text-sm cursor-pointer select-none">
           <input type="checkbox" className="rounded text-brand-600" checked={postingOnly} onChange={(e) => setPostingOnly(e.target.checked)} />
           <span>الحسابات التفصيلية فقط</span>
+        </label>
+        <label className="flex items-center gap-2 pb-2 text-sm cursor-pointer select-none">
+          <input type="checkbox" className="rounded text-brand-600" checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)} />
+          <span>إظهار الحسابات الصفرية</span>
         </label>
         {q.data && (
           <div className="ms-auto pb-1 flex items-center gap-2">
@@ -518,88 +528,173 @@ export function AccountStatementPage() {
   );
 }
 
+function shiftIsoYear(iso: string, deltaYears: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() + deltaYears);
+  return d.toISOString().slice(0, 10);
+}
+
 // ------------------------------------------------------------------ income statement
 export function IncomeStatementPage() {
   const base = useBaseCurrency();
   const [from, setFrom] = useState(yearStart());
   const [to, setTo] = useState(today());
   const [branchId, setBranchId] = useState('ALL');
+  const [compare, setCompare] = useState(false);
+  const [compareFrom, setCompareFrom] = useState(shiftIsoYear(yearStart(), -1));
+  const [compareTo, setCompareTo] = useState(shiftIsoYear(today(), -1));
+  const [collapsedSecs, setCollapsedSecs] = useState<Set<string>>(new Set());
   const branchesQ = useBranchesList();
+
   const q = useQuery({
-    queryKey: ['is', from, to, branchId],
-    queryFn: () => api.get<any>('/ledger/income-statement', {
-      from, to, ...(branchId !== 'ALL' ? { branchId } : {}),
-    }),
+    queryKey: ['is', from, to, branchId, compare ? compareFrom : '', compare ? compareTo : ''],
+    queryFn: () =>
+      api.get<any>('/ledger/income-statement', {
+        from,
+        to,
+        ...(branchId !== 'ALL' ? { branchId } : {}),
+        ...(compare ? { compareFrom, compareTo } : {}),
+      }),
   });
 
   const rev = parseFloat(q.data?.revenue || '0');
   const dc = parseFloat(q.data?.directCost || '0');
   const gp = parseFloat(q.data?.grossProfit || '0');
   const opex = parseFloat(q.data?.operatingExpenses || '0');
+  const zakatTax = parseFloat(q.data?.zakatTax || '0');
   const np = parseFloat(q.data?.netProfit || '0');
   const gpMargin = rev > 0 ? ((gp / rev) * 100).toFixed(1) + '%' : '0.0%';
   const netMargin = rev > 0 ? ((np / rev) * 100).toFixed(1) + '%' : '0.0%';
+  const hasComp = Boolean(compare && q.data?.comparative);
 
-  const section = (cls: string[], title: string, total: string, badgeColor: string) => {
-    const lines = (q.data?.lines ?? []).filter((l: any) => cls.includes(l.accountClass));
-    return (
-      <>
-        <tr className="bg-slate-100/80 font-bold dark:bg-slate-800/60 text-slate-900 dark:text-slate-100 border-t border-slate-200 dark:border-slate-700">
-          <td colSpan={2} className="px-4 py-2.5">
-            <span className={`inline-block size-2 rounded-full ${badgeColor} me-2`} />
-            {title}
-          </td>
-        </tr>
-        {lines.map((l: any) => (
-          <tr key={l.accountId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-            <td className="ps-8 py-2">
-              <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?accountId=${l.accountId}&from=${from}&to=${to}`}>
-                <span className="font-mono text-xs font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{l.code}</span>
-                <span className="text-slate-900 dark:text-slate-100 text-xs font-medium">{l.nameAr}</span>
-              </Link>
-            </td>
-            <td className="num font-mono text-xs font-semibold px-4">{money(l.amount)}</td>
-          </tr>
-        ))}
-        <tr className="font-bold bg-slate-50 dark:bg-slate-800/30 text-slate-800 dark:text-slate-200">
-          <td className="px-4 py-2">إجمالي {title}</td>
-          <td className="num px-4 font-mono font-bold">{money(total)}</td>
-        </tr>
-      </>
-    );
+  const dynSections: any[] = q.data?.sections ?? [];
+  const toggleSec = (k: string) => {
+    const next = new Set(collapsedSecs);
+    if (next.has(k)) next.delete(k);
+    else next.add(k);
+    setCollapsedSecs(next);
   };
+
+  const renderDynamicGroup = (sectionCode: string, fallbackTitle: string, fallbackTotal: string, badgeColor: string) => {
+    const matching = dynSections.filter((s) => s.sectionCode === sectionCode);
+    const items = matching.length > 0
+      ? matching
+      : [
+          {
+            statementLineId: null,
+            sectionCode,
+            code: sectionCode,
+            nameAr: fallbackTitle,
+            total: fallbackTotal,
+            accounts: (q.data?.lines ?? []).filter(
+              (l: any) =>
+                l.statementSection === sectionCode ||
+                (sectionCode === 'COST_OF_SALES' && l.accountClass === 'DIRECT_COST') ||
+                (sectionCode === 'OPERATING_EXPENSES' && l.accountClass === 'OPERATING_EXPENSE') ||
+                (sectionCode === 'OTHER_EXPENSES' && l.accountClass === 'OTHER_EXPENSE') ||
+                l.accountClass === sectionCode,
+            ),
+          },
+        ];
+
+    return items.map((sec) => {
+      const key = sec.statementLineId || sec.sectionCode;
+      const isOpen = !collapsedSecs.has(key);
+      const accs: any[] = sec.accounts ?? [];
+      return (
+        <Fragment key={`sec-${key}`}>
+          <tr
+            className="bg-slate-100/85 font-bold dark:bg-slate-800/70 text-slate-900 dark:text-slate-100 border-t border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors"
+            onClick={() => toggleSec(key)}
+          >
+            <td className="px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                {isOpen ? <ChevronDown className="size-4 text-slate-500" /> : <ChevronLeft className="size-4 text-slate-500" />}
+                <span className={`inline-block size-2 rounded-full ${badgeColor}`} />
+                <span>{sec.nameAr}</span>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500">
+                  {accs.length} حساب
+                </span>
+              </div>
+            </td>
+            <td className="num px-4 font-mono font-black">{money(sec.total ?? fallbackTotal)}</td>
+            {hasComp && (
+              <>
+                <td className="num px-4 font-mono text-slate-600 dark:text-slate-300">{money(sec.previousAmount ?? 0)}</td>
+                <td className={`num px-4 font-mono font-bold ${Number(sec.variance ?? 0) >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
+                  {money(sec.variance ?? 0)} ({sec.variancePct ?? '0.0'}%)
+                </td>
+              </>
+            )}
+          </tr>
+          {isOpen && accs.map((l: any) => (
+            <tr key={`${key}-${l.accountId}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+              <td className="ps-10 py-2">
+                <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?accountId=${l.accountId}&from=${from}&to=${to}`}>
+                  <span className="font-mono text-xs font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{l.code}</span>
+                  <span className="text-slate-900 dark:text-slate-100 text-xs font-medium">{l.nameAr}</span>
+                </Link>
+              </td>
+              <td className="num font-mono text-xs font-semibold px-4">{money(l.amount)}</td>
+              {hasComp && (
+                <>
+                  <td className="num font-mono text-xs text-slate-500 px-4">{money(l.previousAmount ?? 0)}</td>
+                  <td className={`num font-mono text-xs px-4 ${Number(l.variance ?? 0) >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
+                    {money(l.variance ?? 0)} ({l.variancePct ?? '0.0'}%)
+                  </td>
+                </>
+              )}
+            </tr>
+          ))}
+        </Fragment>
+      );
+    });
+  };
+
+  const exportCols = [
+    { key: 'code', header: 'رمز الحساب', width: 14 },
+    { key: 'nameAr', header: 'الحساب', width: 30 },
+    { key: 'sectionLabel', header: 'بند القائمة المالية', width: 24 },
+    { key: 'amount', header: `الفترة الحالية (${base})`, width: 18, type: 'currency' as const, isTotal: true },
+    ...(hasComp
+      ? [
+          { key: 'previousAmount', header: `فترة المقارنة (${base})`, width: 18, type: 'currency' as const, isTotal: true },
+          { key: 'variance', header: 'التغير', width: 15, type: 'currency' as const },
+        ]
+      : []),
+  ];
+
+  const exportData = (dynSections.length > 0 ? dynSections.flatMap((s) => s.accounts.map((a: any) => ({ ...a, sectionLabel: s.nameAr }))) : (q.data?.lines ?? [])).map((l: any) => ({
+    ...l,
+    sectionLabel: l.sectionLabel || l.statementLineNameAr || STATEMENT_SECTION_LABELS[l.statementSection] || ACCOUNT_CLASS[l.accountClass] || l.accountClass,
+  }));
 
   return (
     <div>
       <PageHeader
-        title="قائمة الدخل (الأرباح والخسائر)"
-        subtitle={`بالعملة الأساسية (${base}). قياس الأداء التشغيلي والربحية للفترة المحددة. اضغط على أي حساب لعرض كشفه.`}
+        title="قائمة الدخل الديناميكية (الأرباح والخسائر)"
+        subtitle={`بالعملة الأساسية (${base}). تستمد بياناتها آلياً من ربط شجرة الحسابات والقيود المرحّلة فقط (مع استبعاد قيود الإقفال). اضغط على أي بند لعرض الحسابات.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Link to="/acc/accounts?tab=mapping" className="btn-secondary text-xs flex items-center gap-1.5">
+              <Settings2 className="size-3.5 text-indigo-600" /> ربط الحسابات بالقوائم
+            </Link>
             {q.data && (
               <>
                 <ExportMenu
                   title="قائمة الدخل - الأرباح والخسائر"
                   subtitle={`قياس الأداء التشغيلي والربحية بالعملة الأساسية (${base})`}
                   filename={`income-statement-${from}-${to}`}
-                  periodLabel={`من ${from} إلى ${to}`}
+                  periodLabel={hasComp ? `${from} إلى ${to} (مقارنة بـ ${compareFrom} إلى ${compareTo})` : `من ${from} إلى ${to}`}
                   currency={base}
                   summaryKpis={[
                     { label: 'إجمالي الإيرادات', value: `${money(rev)} ${base}`, tone: 'emerald' },
-                    { label: 'التكاليف المباشرة', value: `${money(dc)} ${base}`, tone: 'rose' },
+                    { label: 'تكلفة المبيعات', value: `${money(dc)} ${base}`, tone: 'rose' },
                     { label: 'مجمل الربح', value: `${money(gp)} ${base}`, tone: 'indigo' },
-                    { label: 'صافي الربح', value: `${money(q.data?.netProfit ?? 0)} ${base}`, tone: Number(q.data?.netProfit ?? 0) >= 0 ? 'emerald' : 'rose' },
+                    { label: 'صافي الربح', value: `${money(np)} ${base}`, tone: np >= 0 ? 'emerald' : 'rose' },
                   ]}
-                  columns={[
-                    { key: 'code', header: 'رمز الحساب', width: 14 },
-                    { key: 'nameAr', header: 'الحساب', width: 30 },
-                    { key: 'classLabel', header: 'التصنيف المالي', width: 22 },
-                    { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
-                  ]}
-                  data={(q.data?.lines ?? []).map((l: any) => ({
-                    ...l,
-                    classLabel: ACCOUNT_CLASS[l.accountClass] || l.accountClass,
-                  }))}
+                  columns={exportCols}
+                  data={exportData}
                 />
                 <button
                   className="btn-secondary text-xs flex items-center gap-1.5"
@@ -607,24 +702,16 @@ export function IncomeStatementPage() {
                     void ExportEngine.exportPdf({
                       title: 'قائمة الدخل (الأرباح والخسائر)',
                       subtitle: `قياس الأداء التشغيلي والربحية للفترة المحددة (${base})`,
-                      periodLabel: `من ${from} إلى ${to}`,
+                      periodLabel: hasComp ? `${from} إلى ${to} (مقارنة بـ ${compareFrom} إلى ${compareTo})` : `من ${from} إلى ${to}`,
                       currency: base,
                       summaryKpis: [
                         { label: 'إجمالي الإيرادات', value: `${money(rev)} ${base}`, tone: 'emerald' },
-                        { label: 'التكاليف المباشرة', value: `${money(dc)} ${base}`, tone: 'rose' },
+                        { label: 'تكلفة المبيعات', value: `${money(dc)} ${base}`, tone: 'rose' },
                         { label: 'مجمل الربح', value: `${money(gp)} ${base}`, tone: 'indigo' },
-                        { label: 'صافي الربح', value: `${money(q.data?.netProfit ?? 0)} ${base}`, tone: Number(q.data?.netProfit ?? 0) >= 0 ? 'emerald' : 'rose' },
+                        { label: 'صافي الربح', value: `${money(np)} ${base}`, tone: np >= 0 ? 'emerald' : 'rose' },
                       ],
-                      columns: [
-                        { key: 'code', header: 'رمز الحساب', width: 14 },
-                        { key: 'nameAr', header: 'الحساب', width: 30 },
-                        { key: 'classLabel', header: 'التصنيف المالي', width: 22 },
-                        { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
-                      ],
-                      data: (q.data?.lines ?? []).map((l: any) => ({
-                        ...l,
-                        classLabel: ACCOUNT_CLASS[l.accountClass] || l.accountClass,
-                      })),
+                      columns: exportCols,
+                      data: exportData,
                     })
                   }
                   title="طباعة ملكية A4 لقائمة الدخل"
@@ -637,7 +724,19 @@ export function IncomeStatementPage() {
         }
       />
 
-      <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data} />
+      <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data}>
+        <label className="flex items-center gap-2 pb-2 text-xs font-bold cursor-pointer select-none">
+          <input type="checkbox" className="rounded text-indigo-600" checked={compare} onChange={(e) => setCompare(e.target.checked)} />
+          <ArrowLeftRight className="size-3.5 text-indigo-600" />
+          <span>مقارنة بفترة سابقة</span>
+        </label>
+        {compare && (
+          <>
+            <Field label="مقارنة من"><input className="input w-36 font-mono text-xs" type="date" value={compareFrom} onChange={(e) => setCompareFrom(e.target.value)} /></Field>
+            <Field label="مقارنة إلى"><input className="input w-36 font-mono text-xs" type="date" value={compareTo} onChange={(e) => setCompareTo(e.target.value)} /></Field>
+          </>
+        )}
+      </Range>
 
       {/* 5 Executive KPI Cards */}
       {q.data && (
@@ -645,13 +744,17 @@ export function IncomeStatementPage() {
           <div className="card p-3.5 border-emerald-200/80 dark:border-emerald-800/50 bg-emerald-50/30 dark:bg-emerald-950/20">
             <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400">إجمالي الإيرادات</div>
             <div className="text-lg font-black font-mono text-emerald-900 dark:text-emerald-200 mt-1">{money(rev)}</div>
-            <div className="text-[10px] text-emerald-600 mt-0.5">مبيعات وخدمات تشغيلية</div>
+            <div className="text-[10px] text-emerald-600 mt-0.5">
+              {hasComp ? `السابق: ${money(q.data.comparative.revenue.previousAmount)} (${q.data.comparative.revenue.variancePct}%)` : 'مبيعات وخدمات تشغيلية'}
+            </div>
           </div>
 
           <div className="card p-3.5 border-rose-200/80 dark:border-rose-800/50 bg-rose-50/30 dark:bg-rose-950/20">
-            <div className="text-[11px] font-semibold text-rose-800 dark:text-rose-400">التكاليف المباشرة</div>
+            <div className="text-[11px] font-semibold text-rose-800 dark:text-rose-400">تكلفة المبيعات المباشرة</div>
             <div className="text-lg font-black font-mono text-rose-900 dark:text-rose-200 mt-1">{money(dc)}</div>
-            <div className="text-[10px] text-rose-600 mt-0.5">رواتب المطورين وتكلفة الخدمات</div>
+            <div className="text-[10px] text-rose-600 mt-0.5">
+              {hasComp ? `السابق: ${money(q.data.comparative.directCost.previousAmount)} (${q.data.comparative.directCost.variancePct}%)` : 'رواتب المطورين وتكلفة الخدمات'}
+            </div>
           </div>
 
           <div className="card p-3.5 border-indigo-200/80 dark:border-indigo-800/50 bg-indigo-50/30 dark:bg-indigo-950/20">
@@ -661,15 +764,17 @@ export function IncomeStatementPage() {
           </div>
 
           <div className="card p-3.5 border-amber-200/80 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-950/20">
-            <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-400">المصروفات التشغيلية</div>
-            <div className="text-lg font-black font-mono text-amber-900 dark:text-amber-200 mt-1">{money(opex)}</div>
-            <div className="text-[10px] text-amber-600 mt-0.5">إيجار، عموميات، إهلاك</div>
+            <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-400">المصروفات التشغيلية والزكاة</div>
+            <div className="text-lg font-black font-mono text-amber-900 dark:text-amber-200 mt-1">{money(opex + zakatTax)}</div>
+            <div className="text-[10px] text-amber-600 mt-0.5">تشغيلية {money(opex)} • زكاة {money(zakatTax)}</div>
           </div>
 
           <div className={`card p-3.5 border col-span-2 sm:col-span-1 shadow-sm ${np >= 0 ? 'border-emerald-300 dark:border-emerald-700 bg-gradient-to-br from-emerald-600 to-teal-700 text-white' : 'border-rose-300 dark:border-rose-700 bg-gradient-to-br from-rose-600 to-red-700 text-white'}`}>
             <div className="text-[11px] font-bold text-white/80">صافي الربح / (الخسارة)</div>
             <div className="text-xl font-black font-mono text-white mt-1">{money(np)}</div>
-            <div className="text-[10px] text-white/80 font-bold mt-0.5">صافي الهامش: {netMargin}</div>
+            <div className="text-[10px] text-white/80 font-bold mt-0.5">
+              {hasComp ? `التغير: ${q.data.comparative.netProfit.variancePct}% • هامش ${netMargin}` : `صافي الهامش: ${netMargin}`}
+            </div>
           </div>
         </div>
       )}
@@ -685,14 +790,23 @@ export function IncomeStatementPage() {
             className="lg:col-span-2"
           >
             <ExecutiveBarChart
-              categories={['الإيرادات', 'التكاليف المباشرة', 'مجمل الربح', 'المصروفات التشغيلية', 'صافي الربح']}
+              categories={['الإيرادات', 'تكلفة المبيعات', 'مجمل الربح', 'المصروفات التشغيلية', 'صافي الربح']}
               series={[
-                {
-                  name: `القيمة (${base})`,
-                  data: [rev, dc, gp, opex, np],
-                  color: '#4f46e5',
-                  colorEnd: '#0ea5e9',
-                },
+                { name: `الفترة الحالية (${base})`, data: [rev, dc, gp, opex, np], color: '#4f46e5', colorEnd: '#0ea5e9' },
+                ...(hasComp
+                  ? [{
+                      name: `فترة المقارنة (${base})`,
+                      data: [
+                        Number(q.data.comparative.revenue.previousAmount),
+                        Number(q.data.comparative.directCost.previousAmount),
+                        Number(q.data.comparative.grossProfit.previousAmount),
+                        Number(q.data.comparative.operatingExpenses.previousAmount),
+                        Number(q.data.comparative.netProfit.previousAmount),
+                      ],
+                      color: '#94a3b8',
+                      colorEnd: '#64748b',
+                    }]
+                  : []),
               ]}
               height={220}
               unit={base}
@@ -708,7 +822,7 @@ export function IncomeStatementPage() {
           >
             <ExecutiveDonutChart
               data={[
-                { name: 'التكاليف المباشرة', value: Math.max(0, dc), color: '#f43f5e' },
+                { name: 'تكلفة المبيعات', value: Math.max(0, dc), color: '#f43f5e' },
                 { name: 'المصروفات التشغيلية', value: Math.max(0, opex), color: '#f59e0b' },
                 { name: 'صافي الربح', value: Math.max(0, np), color: '#10b981' },
               ]}
@@ -723,11 +837,23 @@ export function IncomeStatementPage() {
       )}
 
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
-        <div className="card max-w-4xl overflow-hidden shadow-sm">
+        <div className="card max-w-5xl overflow-hidden shadow-sm">
           <table className="table w-full">
+            <thead>
+              <tr className="bg-slate-900 text-white dark:bg-slate-950">
+                <th className="text-white">البند / الحساب (اضغط على البند للطي/التفصيل)</th>
+                <th className="num text-white">الفترة الحالية ({base})</th>
+                {hasComp && (
+                  <>
+                    <th className="num text-white">فترة المقارنة ({base})</th>
+                    <th className="num text-white">التغير (%)</th>
+                  </>
+                )}
+              </tr>
+            </thead>
             <tbody>
-              {section(['REVENUE'], ACCOUNT_CLASS.REVENUE, q.data?.revenue ?? '0.00', 'bg-emerald-500')}
-              {section(['DIRECT_COST'], ACCOUNT_CLASS.DIRECT_COST, q.data?.directCost ?? '0.00', 'bg-rose-500')}
+              {renderDynamicGroup('REVENUE', 'الإيرادات التشغيلية', q.data?.revenue ?? '0.00', 'bg-emerald-500')}
+              {renderDynamicGroup('COST_OF_SALES', 'تكلفة المبيعات والخدمات المباشرة', q.data?.directCost ?? '0.00', 'bg-rose-500')}
 
               {/* Milestone Row: Gross Profit */}
               <tr className="bg-brand-50/90 font-black dark:bg-brand-950/40 text-brand-950 dark:text-brand-200 border-y-2 border-brand-200 dark:border-brand-800">
@@ -736,26 +862,45 @@ export function IncomeStatementPage() {
                   <span className="text-xs px-2 py-0.5 rounded bg-brand-100 dark:bg-brand-900/60 font-bold">الهامش: {gpMargin}</span>
                 </td>
                 <td className="num px-4 font-mono text-base font-black">{money(q.data?.grossProfit ?? '0.00')}</td>
+                {hasComp && (
+                  <>
+                    <td className="num px-4 font-mono">{money(q.data.comparative.grossProfit.previousAmount)}</td>
+                    <td className="num px-4 font-mono font-bold">{money(q.data.comparative.grossProfit.variance)} ({q.data.comparative.grossProfit.variancePct}%)</td>
+                  </>
+                )}
               </tr>
 
-              {section(['OPERATING_EXPENSE'], ACCOUNT_CLASS.OPERATING_EXPENSE, q.data?.operatingExpenses ?? '0.00', 'bg-amber-500')}
+              {renderDynamicGroup('OPERATING_EXPENSES', 'المصروفات التشغيلية والإدارية', q.data?.operatingExpenses ?? '0.00', 'bg-amber-500')}
 
               {/* Milestone Row: Operating Profit */}
               <tr className="bg-blue-50/90 font-bold dark:bg-blue-950/40 text-blue-950 dark:text-blue-200 border-y border-blue-200 dark:border-blue-800">
                 <td className="px-4 py-2.5">الربح التشغيلي قبل الفوائد والضرائب (Operating Profit - EBIT)</td>
                 <td className="num px-4 font-mono font-bold">{money(q.data?.operatingProfit ?? '0.00')}</td>
+                {hasComp && (
+                  <>
+                    <td className="num px-4 font-mono">{money(q.data.comparative.operatingProfit.previousAmount)}</td>
+                    <td className="num px-4 font-mono">{money(q.data.comparative.operatingProfit.variance)} ({q.data.comparative.operatingProfit.variancePct}%)</td>
+                  </>
+                )}
               </tr>
 
-              {section(['OTHER_INCOME'], ACCOUNT_CLASS.OTHER_INCOME, q.data?.otherIncome ?? '0.00', 'bg-sky-500')}
-              {section(['OTHER_EXPENSE'], ACCOUNT_CLASS.OTHER_EXPENSE, q.data?.otherExpenses ?? '0.00', 'bg-purple-500')}
+              {renderDynamicGroup('OTHER_INCOME', 'الإيرادات الأخرى', q.data?.otherIncome ?? '0.00', 'bg-sky-500')}
+              {renderDynamicGroup('OTHER_EXPENSES', 'المصروفات الأخرى', q.data?.otherExpenses ?? '0.00', 'bg-purple-500')}
+              {renderDynamicGroup('ZAKAT_TAX', 'مصروف الزكاة والضريبة', q.data?.zakatTax ?? '0.00', 'bg-slate-500')}
 
               {/* Grand Final Row: Net Profit */}
               <tr className="bg-slate-900 text-white dark:bg-slate-950 border-t-2 border-slate-950 font-black text-base">
                 <td className="px-4 py-3.5 text-white flex items-center justify-between">
-                  <span>صافي الربح / (الخسارة) للفترة</span>
+                  <span>صافي الربح / (الخسارة) للفترة (مربوط بحقوق الملكية)</span>
                   <span className="text-xs px-2.5 py-0.5 rounded bg-white/10 font-bold">صافي الهامش: {netMargin}</span>
                 </td>
-                <td className="num px-4 font-mono text-lg font-black text-white">{money(q.data?.netProfit ?? '0.00')}</td>
+                <td className="num px-4 font-mono text-lg font-black text-emerald-300">{money(q.data?.netProfit ?? '0.00')}</td>
+                {hasComp && (
+                  <>
+                    <td className="num px-4 font-mono text-slate-300">{money(q.data.comparative.netProfit.previousAmount)}</td>
+                    <td className="num px-4 font-mono text-amber-300">{money(q.data.comparative.netProfit.variance)} ({q.data.comparative.netProfit.variancePct}%)</td>
+                  </>
+                )}
               </tr>
             </tbody>
           </table>
@@ -770,99 +915,179 @@ export function BalanceSheetPage() {
   const base = useBaseCurrency();
   const [asOf, setAsOf] = useState(today());
   const [branchId, setBranchId] = useState('ALL');
+  const [compare, setCompare] = useState(false);
+  const [compareAsOf, setCompareAsOf] = useState(shiftIsoYear(today(), -1));
+  const [collapsedSecs, setCollapsedSecs] = useState<Set<string>>(new Set());
   const branchesQ = useBranchesList();
+
   const q = useQuery({
-    queryKey: ['bs', asOf, branchId],
-    queryFn: () => api.get<any>('/ledger/balance-sheet', {
-      asOf, ...(branchId !== 'ALL' ? { branchId } : {}),
-    }),
+    queryKey: ['bs', asOf, branchId, compare ? compareAsOf : ''],
+    queryFn: () =>
+      api.get<any>('/ledger/balance-sheet', {
+        asOf,
+        ...(branchId !== 'ALL' ? { branchId } : {}),
+        ...(compare ? { compareAsOf } : {}),
+      }),
   });
 
   const isBalanced = Boolean(q.data?.balanced ?? q.data?.isBalanced);
+  const hasComp = Boolean(compare && q.data?.comparative);
+  const dynSections: any[] = q.data?.sections ?? [];
 
-  const Section = ({ title, s, badgeColor }: { title: string; s: any; badgeColor: string }) => (
-    <>
-      <tr className="bg-slate-100/80 font-bold dark:bg-slate-800/60 text-slate-900 dark:text-slate-100 border-t border-slate-200 dark:border-slate-700">
-        <td colSpan={2} className="px-4 py-2.5">
-          <span className={`inline-block size-2 rounded-full ${badgeColor} me-2`} />
-          {title}
-        </td>
-      </tr>
-      {(s?.lines ?? []).map((l: any) => (
-        <tr key={l.accountId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-          <td className="ps-8 py-2">
-            <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?accountId=${l.accountId}&to=${asOf}`}>
-              <span className="font-mono text-xs font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{l.code}</span>
-              <span className="text-slate-900 dark:text-slate-100 text-xs font-medium">{l.nameAr}</span>
-            </Link>
-          </td>
-          <td className="num font-mono text-xs font-semibold px-4">{money(l.amount)}</td>
-        </tr>
-      ))}
-      <tr className="font-bold bg-slate-50 dark:bg-slate-800/30 text-slate-800 dark:text-slate-200">
-        <td className="px-4 py-2">إجمالي {title}</td>
-        <td className="num px-4 font-mono font-bold">{money(s?.total ?? '0.00')}</td>
-      </tr>
-    </>
-  );
+  const toggleSec = (k: string) => {
+    const next = new Set(collapsedSecs);
+    if (next.has(k)) next.delete(k);
+    else next.add(k);
+    setCollapsedSecs(next);
+  };
+
+  const renderBsSection = (sectionCode: string, fallbackTitle: string, fallbackObj: any, badgeColor: string) => {
+    const matching = dynSections.filter((s) => s.sectionCode === sectionCode);
+    const items = matching.length > 0
+      ? matching
+      : [
+          {
+            statementLineId: null,
+            sectionCode,
+            code: sectionCode,
+            nameAr: fallbackTitle,
+            total: fallbackObj?.total ?? '0.00',
+            accounts: fallbackObj?.lines ?? [],
+          },
+        ];
+
+    return items.map((sec) => {
+      const key = sec.statementLineId || sec.sectionCode;
+      const isOpen = !collapsedSecs.has(key);
+      const accs: any[] = sec.accounts ?? [];
+      return (
+        <Fragment key={`bs-sec-${key}`}>
+          <tr
+            className="bg-slate-100/85 font-bold dark:bg-slate-800/70 text-slate-900 dark:text-slate-100 border-t border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors"
+            onClick={() => toggleSec(key)}
+          >
+            <td className="px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                {isOpen ? <ChevronDown className="size-4 text-slate-500" /> : <ChevronLeft className="size-4 text-slate-500" />}
+                <span className={`inline-block size-2 rounded-full ${badgeColor}`} />
+                <span>{sec.nameAr}</span>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500">
+                  {accs.length} حساب
+                </span>
+              </div>
+            </td>
+            <td className="num px-4 font-mono font-black">{money(sec.total ?? '0.00')}</td>
+            {hasComp && (
+              <>
+                <td className="num px-4 font-mono text-slate-600 dark:text-slate-300">{money(sec.previousAmount ?? 0)}</td>
+                <td className="num px-4 font-mono text-xs">{money(sec.variance ?? 0)} ({sec.variancePct ?? '0.0'}%)</td>
+              </>
+            )}
+          </tr>
+          {isOpen && accs.length === 0 && (
+            <tr key={`bs-empty-${key}`}>
+              <td colSpan={hasComp ? 4 : 2} className="ps-10 py-2 text-xs text-slate-400 italic">لا توجد أرصدة في هذا البند حتى تاريخه.</td>
+            </tr>
+          )}
+          {isOpen && accs.map((l: any) => (
+            <tr key={`${key}-${l.accountId}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+              <td className="ps-10 py-2">
+                <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?accountId=${l.accountId}&to=${asOf}`}>
+                  <span className="font-mono text-xs font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{l.code}</span>
+                  <span className="text-slate-900 dark:text-slate-100 text-xs font-medium">{l.nameAr}</span>
+                  {l.isContra && <Badge color="amber">مقابل</Badge>}
+                </Link>
+              </td>
+              <td className={`num font-mono text-xs font-semibold px-4 ${Number(l.amount) < 0 ? 'text-rose-600 dark:text-rose-400' : ''}`}>
+                {money(l.amount)}
+              </td>
+              {hasComp && (
+                <>
+                  <td className="num font-mono text-xs text-slate-500 px-4">{money(l.previousAmount ?? 0)}</td>
+                  <td className="num font-mono text-xs px-4">{money(l.variance ?? 0)} ({l.variancePct ?? '0.0'}%)</td>
+                </>
+              )}
+            </tr>
+          ))}
+        </Fragment>
+      );
+    });
+  };
+
+  const bsExportCols = [
+    { key: 'section', header: 'تصنيف المركز المالي', width: 24 },
+    { key: 'code', header: 'رمز الحساب', width: 14 },
+    { key: 'nameAr', header: 'الحساب', width: 30 },
+    { key: 'amount', header: `كما في ${asOf} (${base})`, width: 18, type: 'currency' as const, isTotal: true },
+    ...(hasComp
+      ? [
+          { key: 'previousAmount', header: `المقارنة ${compareAsOf} (${base})`, width: 18, type: 'currency' as const, isTotal: true },
+          { key: 'variance', header: 'التغير', width: 15, type: 'currency' as const },
+        ]
+      : []),
+  ];
+
+  const bsExportData = [
+    ...(dynSections.length > 0
+      ? dynSections.flatMap((s) => s.accounts.map((a: any) => ({ ...a, section: s.nameAr })))
+      : [
+          ...(q.data?.assets?.lines ?? []).map((l: any) => ({ ...l, section: 'الأصول' })),
+          ...(q.data?.liabilities?.lines ?? []).map((l: any) => ({ ...l, section: 'الالتزامات' })),
+          ...(q.data?.equity?.lines ?? []).map((l: any) => ({ ...l, section: 'حقوق الملكية' })),
+        ]),
+    ...(Math.abs(Number(q.data?.currentEarnings ?? 0)) >= 0.005
+      ? [{
+          section: 'حقوق الملكية',
+          code: 'P&L',
+          nameAr: 'صافي أرباح / (خسائر) الفترة غير المقفلة',
+          amount: q.data?.currentEarnings,
+          ...(hasComp ? { previousAmount: q.data.comparative.currentEarnings.previousAmount, variance: q.data.comparative.currentEarnings.variance } : {}),
+        }]
+      : []),
+  ];
 
   return (
     <div>
       <PageHeader
-        title="قائمة المركز المالي (الميزانية العمومية)"
-        subtitle={`بالعملة الأساسية (${base}). المعادلة المحاسبية: الأصول = الالتزامات + حقوق الملكية + أرباح الفترة غير المقفلة.`}
+        title="قائمة المركز المالي الديناميكية (الميزانية العمومية)"
+        subtitle={`بالعملة الأساسية (${base}). مصنّفة تلقائياً من شجرة الحسابات (أصول متداولة / غير متداولة • التزامات متداولة / طويلة الأجل • حقوق الملكية + أرباح الفترة).`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Link to="/acc/accounts?tab=mapping" className="btn-secondary text-xs flex items-center gap-1.5">
+              <Settings2 className="size-3.5 text-indigo-600" /> ربط الحسابات بالقوائم
+            </Link>
             {q.data && (
               <>
                 <ExportMenu
                   title="قائمة المركز المالي (الميزانية العمومية)"
                   subtitle={`الأصول = الالتزامات + حقوق الملكية (${isBalanced ? 'المعادلة متوازنة 100%' : 'يوجد فرق'})`}
                   filename={`balance-sheet-${asOf}`}
-                  periodLabel={`كما في ${asOf}`}
+                  periodLabel={hasComp ? `كما في ${asOf} (مقارنة بـ ${compareAsOf})` : `كما في ${asOf}`}
                   currency={base}
                   summaryKpis={[
                     { label: 'إجمالي الأصول', value: `${money(q.data?.assets?.total ?? 0)} ${base}`, tone: 'indigo' },
+                    { label: 'الأصول المتداولة / الثابتة', value: `${money(q.data?.currentAssets?.total ?? q.data?.assets?.current ?? 0)} / ${money(q.data?.nonCurrentAssets?.total ?? q.data?.assets?.nonCurrent ?? 0)}`, tone: 'sky' },
                     { label: 'إجمالي الالتزامات', value: `${money(q.data?.liabilities?.total ?? 0)} ${base}`, tone: 'amber' },
-                    { label: 'حقوق الملكية', value: `${money(q.data?.equity?.total ?? 0)} ${base}`, tone: 'emerald' },
-                    { label: 'توازن الميزانية', value: isBalanced ? 'متوازنة 100%' : 'غير متوازنة', tone: isBalanced ? 'emerald' : 'rose' },
+                    { label: 'حقوق الملكية والأرباح', value: `${money(Number(q.data?.equity?.total ?? 0) + Number(q.data?.currentEarnings ?? 0))} ${base}`, tone: 'emerald' },
                   ]}
-                  columns={[
-                    { key: 'section', header: 'القسم', width: 20 },
-                    { key: 'code', header: 'رمز الحساب', width: 14 },
-                    { key: 'nameAr', header: 'الحساب', width: 30 },
-                    { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
-                  ]}
-                  data={[
-                    ...(q.data?.assets?.lines ?? []).map((l: any) => ({ ...l, section: 'الأصول' })),
-                    ...(q.data?.liabilities?.lines ?? []).map((l: any) => ({ ...l, section: 'الالتزامات' })),
-                    ...(q.data?.equity?.lines ?? []).map((l: any) => ({ ...l, section: 'حقوق الملكية' })),
-                  ]}
+                  columns={bsExportCols}
+                  data={bsExportData}
                 />
                 <button
                   className="btn-secondary text-xs flex items-center gap-1.5"
                   onClick={() =>
                     void ExportEngine.exportPdf({
                       title: 'قائمة المركز المالي (الميزانية العمومية)',
-                      subtitle: `الأصول = الالتزامات + حقوق الملكية (${base})`,
-                      periodLabel: `كما في ${asOf}`,
+                      subtitle: `الأصول المتداولة وغير المتداولة = الالتزامات المتداولة وطويلة الأجل + حقوق الملكية (${base})`,
+                      periodLabel: hasComp ? `كما في ${asOf} (مقارنة بـ ${compareAsOf})` : `كما في ${asOf}`,
                       currency: base,
                       summaryKpis: [
                         { label: 'إجمالي الأصول', value: `${money(q.data?.assets?.total ?? 0)} ${base}`, tone: 'indigo' },
                         { label: 'إجمالي الالتزامات', value: `${money(q.data?.liabilities?.total ?? 0)} ${base}`, tone: 'amber' },
-                        { label: 'حقوق الملكية', value: `${money(q.data?.equity?.total ?? 0)} ${base}`, tone: 'emerald' },
+                        { label: 'حقوق الملكية + الأرباح', value: `${money(Number(q.data?.equity?.total ?? 0) + Number(q.data?.currentEarnings ?? 0))} ${base}`, tone: 'emerald' },
                       ],
-                      columns: [
-                        { key: 'section', header: 'القسم', width: 20 },
-                        { key: 'code', header: 'رمز الحساب', width: 14 },
-                        { key: 'nameAr', header: 'الحساب', width: 30 },
-                        { key: 'amount', header: `المبلغ (${base})`, width: 18, type: 'currency', isTotal: true },
-                      ],
-                      data: [
-                        ...(q.data?.assets?.lines ?? []).map((l: any) => ({ ...l, section: 'الأصول' })),
-                        ...(q.data?.liabilities?.lines ?? []).map((l: any) => ({ ...l, section: 'الالتزامات' })),
-                        ...(q.data?.equity?.lines ?? []).map((l: any) => ({ ...l, section: 'حقوق الملكية' })),
-                      ],
+                      columns: bsExportCols,
+                      data: bsExportData,
                     })
                   }
                   title="طباعة ملكية A4 للميزانية العمومية"
@@ -876,19 +1101,22 @@ export function BalanceSheetPage() {
       />
 
       <div className="card mb-5 p-4 relative z-30 overflow-visible bg-white/95 dark:bg-[#0c1324]/95 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-wrap items-end gap-3.5">
-        <Field label="كما في تاريخ"><input className="input w-40" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
+        <Field label="كما في تاريخ"><input className="input w-40 font-mono text-xs" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
         <Field label="الفرع / المركز المالي">
-          <select className="input min-w-[14rem] sm:w-72 font-medium" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
-            <option value="ALL">الكل (قوائم موحدة - Consolidated SAR)</option>
+          <select className="input min-w-[14rem] sm:w-64 text-xs font-medium" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+            <option value="ALL">الكل (قوائم موحدة - Consolidated {base})</option>
             {(branchesQ.data ?? []).map((b: any) => (
               <option key={b.id} value={b.id}>{b.nameAr} ({b.functionalCurrency || b.countryCode})</option>
             ))}
           </select>
         </Field>
-        {branchId === 'ALL' && (
-          <div className="text-xs text-blue-700 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 flex items-center gap-2">
-            <span className="font-bold">قوائم موحدة:</span> تشمل المركز الرئيسي وفرع مصر مع تسوية القيود المتبادلة.
-          </div>
+        <label className="flex items-center gap-2 pb-2 text-xs font-bold cursor-pointer select-none">
+          <input type="checkbox" className="rounded text-indigo-600" checked={compare} onChange={(e) => setCompare(e.target.checked)} />
+          <ArrowLeftRight className="size-3.5 text-indigo-600" />
+          <span>مقارنة بتاريخ سابق</span>
+        </label>
+        {compare && (
+          <Field label="تاريخ المقارنة"><input className="input w-40 font-mono text-xs" type="date" value={compareAsOf} onChange={(e) => setCompareAsOf(e.target.value)} /></Field>
         )}
         {q.data && (
           <div className="ms-auto flex items-center gap-2 pb-1">
@@ -906,13 +1134,17 @@ export function BalanceSheetPage() {
           <div className="card p-3.5 border-emerald-200/80 dark:border-emerald-800/50 bg-emerald-50/30 dark:bg-emerald-950/20">
             <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400">إجمالي الأصول (Assets)</div>
             <div className="text-xl font-black font-mono text-emerald-900 dark:text-emerald-200 mt-1">{money(q.data?.assets?.total ?? '0.00')}</div>
-            <div className="text-[10px] text-emerald-600 mt-0.5">نقدية، بنوك، عملاء، أصول ثابتة</div>
+            <div className="text-[10px] text-emerald-600 mt-0.5">
+              متداولة: {money(q.data?.currentAssets?.total ?? q.data?.assets?.current ?? 0)} • غير متداولة: {money(q.data?.nonCurrentAssets?.total ?? q.data?.assets?.nonCurrent ?? 0)}
+            </div>
           </div>
 
           <div className="card p-3.5 border-amber-200/80 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-950/20">
             <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-400">إجمالي الالتزامات (Liabilities)</div>
             <div className="text-xl font-black font-mono text-amber-900 dark:text-amber-200 mt-1">{money(q.data?.liabilities?.total ?? '0.00')}</div>
-            <div className="text-[10px] text-amber-600 mt-0.5">موردين، ضريبة VAT، مستحقات</div>
+            <div className="text-[10px] text-amber-600 mt-0.5">
+              متداولة: {money(q.data?.currentLiabilities?.total ?? q.data?.liabilities?.current ?? 0)} • طويلة الأجل: {money(q.data?.nonCurrentLiabilities?.total ?? q.data?.liabilities?.nonCurrent ?? 0)}
+            </div>
           </div>
 
           <div className="card p-3.5 border-indigo-200/80 dark:border-indigo-800/50 bg-indigo-50/30 dark:bg-indigo-950/20">
@@ -921,7 +1153,7 @@ export function BalanceSheetPage() {
               {money(parseFloat(q.data?.equity?.total ?? '0') + parseFloat(q.data?.currentEarnings ?? '0'))}
             </div>
             <div className="text-[10px] text-indigo-600 mt-0.5">
-              رأس المال + أرباح الفترة ({money(q.data?.currentEarnings ?? '0.00')})
+              رأس المال والأرباح المبقاة: {money(q.data?.equity?.total ?? 0)} • أرباح الفترة: {money(q.data?.currentEarnings ?? 0)}
             </div>
           </div>
 
@@ -945,22 +1177,22 @@ export function BalanceSheetPage() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 mb-5 print:hidden">
           <ExecutiveChartCard
             title="هيكل المركز المالي والتوازن المحاسبي"
-            subtitle={`الأصول مقابل الالتزامات وحقوق الملكية والأرباح غير المقفلة (${base})`}
+            subtitle={`الأصول المتداولة والثابتة مقابل الالتزامات وحقوق الملكية (${base})`}
             icon={BarChart3}
             accent="indigo"
             className="lg:col-span-2"
           >
             <ExecutiveBarChart
-              categories={['إجمالي الأصول', 'إجمالي الالتزامات', 'حقوق الملكية', 'أرباح الفترة', 'الالتزامات والملكية']}
+              categories={['أصول متداولة', 'أصول غير متداولة', 'التزامات متداولة', 'التزامات طويلة الأجل', 'حقوق الملكية والأرباح']}
               series={[
                 {
                   name: `الرصيد (${base})`,
                   data: [
-                    Number(q.data?.assets?.total ?? 0),
-                    Number(q.data?.liabilities?.total ?? 0),
-                    Number(q.data?.equity?.total ?? 0),
-                    Number(q.data?.currentEarnings ?? 0),
-                    Number(q.data?.liabilitiesAndEquity ?? 0),
+                    Number(q.data?.currentAssets?.total ?? q.data?.assets?.current ?? 0),
+                    Number(q.data?.nonCurrentAssets?.total ?? q.data?.assets?.nonCurrent ?? 0),
+                    Number(q.data?.currentLiabilities?.total ?? q.data?.liabilities?.current ?? 0),
+                    Number(q.data?.nonCurrentLiabilities?.total ?? q.data?.liabilities?.nonCurrent ?? 0),
+                    Number(q.data?.equity?.total ?? 0) + Number(q.data?.currentEarnings ?? 0),
                   ],
                   color: '#4f46e5',
                   colorEnd: '#10b981',
@@ -995,36 +1227,81 @@ export function BalanceSheetPage() {
 
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : (
         <div className="grid gap-5 lg:grid-cols-2">
-          {/* Assets Side */}
+          {/* Assets Side: Current + Non-Current */}
           <div className="card overflow-hidden shadow-sm">
             <div className="bg-slate-900 text-white dark:bg-slate-950 px-4 py-3 font-bold text-sm flex items-center justify-between">
               <span>الأصول والموجودات (Assets)</span>
               <span className="font-mono text-xs font-bold text-emerald-400">{money(q.data?.assets?.total ?? '0.00')}</span>
             </div>
             <table className="table w-full">
+              <thead>
+                <tr>
+                  <th>البند / الحساب</th>
+                  <th className="num">الرصيد ({base})</th>
+                  {hasComp && (<><th className="num">المقارنة</th><th className="num">التغير</th></>)}
+                </tr>
+              </thead>
               <tbody>
-                <Section title="الأصول المتداولة والثابتة" s={q.data?.assets} badgeColor="bg-emerald-500" />
+                {renderBsSection('CURRENT_ASSETS', 'الأصول المتداولة', q.data?.currentAssets ?? q.data?.assets, 'bg-emerald-500')}
+                {renderBsSection('NON_CURRENT_ASSETS', 'الأصول غير المتداولة (الثابتة بالصافي)', q.data?.nonCurrentAssets ?? { total: '0.00', lines: [] }, 'bg-teal-500')}
+                <tr className="bg-slate-800 text-white dark:bg-slate-900 font-black text-sm border-t-2 border-slate-700">
+                  <td className="px-4 py-3 text-white">إجمالي الأصول والموجودات</td>
+                  <td className="num px-4 font-mono font-black text-emerald-300 text-base">{money(q.data?.assets?.total ?? '0.00')}</td>
+                  {hasComp && (
+                    <>
+                      <td className="num px-4 font-mono text-slate-300">{money(q.data.comparative.totalAssets.previousAmount)}</td>
+                      <td className="num px-4 font-mono text-amber-300">{q.data.comparative.totalAssets.variancePct}%</td>
+                    </>
+                  )}
+                </tr>
               </tbody>
             </table>
           </div>
 
-          {/* Liabilities & Equity Side */}
+          {/* Liabilities & Equity Side: Current Liab + Non-Current Liab + Equity + Current Earnings */}
           <div className="card overflow-hidden shadow-sm">
             <div className="bg-slate-900 text-white dark:bg-slate-950 px-4 py-3 font-bold text-sm flex items-center justify-between">
               <span>الالتزامات وحقوق الملكية (Liabilities & Equity)</span>
               <span className="font-mono text-xs font-bold text-indigo-400">{money(q.data?.liabilitiesAndEquity ?? '0.00')}</span>
             </div>
             <table className="table w-full">
+              <thead>
+                <tr>
+                  <th>البند / الحساب</th>
+                  <th className="num">الرصيد ({base})</th>
+                  {hasComp && (<><th className="num">المقارنة</th><th className="num">التغير</th></>)}
+                </tr>
+              </thead>
               <tbody>
-                <Section title="الالتزامات والخصوم" s={q.data?.liabilities} badgeColor="bg-amber-500" />
-                <Section title="حقوق الملكية ورأس المال" s={q.data?.equity} badgeColor="bg-indigo-500" />
-                <tr className="bg-slate-50/80 font-bold dark:bg-slate-800/40 text-slate-900 dark:text-slate-100">
-                  <td className="px-4 py-2.5">أرباح (خسائر) الفترة الحالية غير المقفلة</td>
+                {renderBsSection('CURRENT_LIABILITIES', 'الالتزامات المتداولة', q.data?.currentLiabilities ?? q.data?.liabilities, 'bg-amber-500')}
+                {renderBsSection('NON_CURRENT_LIABILITIES', 'الالتزامات طويلة الأجل', q.data?.nonCurrentLiabilities ?? { total: '0.00', lines: [] }, 'bg-orange-500')}
+                {renderBsSection('EQUITY', 'حقوق الملكية', q.data?.equity, 'bg-indigo-500')}
+                <tr className="bg-emerald-50/70 font-bold dark:bg-emerald-950/30 text-slate-900 dark:text-slate-100">
+                  <td className="px-4 py-2.5">
+                    <Link to={`/reports/income-statement`} className="hover:underline flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
+                      <span>صافي أرباح / (خسائر) الفترة غير المقفلة</span>
+                      <ArrowUpRight className="size-3.5" />
+                    </Link>
+                  </td>
                   <td className="num px-4 font-mono font-bold text-emerald-700 dark:text-emerald-400">{money(q.data?.currentEarnings ?? '0.00')}</td>
+                  {hasComp && (
+                    <>
+                      <td className="num px-4 font-mono text-slate-500">{money(q.data.comparative.currentEarnings.previousAmount)}</td>
+                      <td className="num px-4 font-mono text-xs">{q.data.comparative.currentEarnings.variancePct}%</td>
+                    </>
+                  )}
                 </tr>
                 <tr className="bg-slate-800 text-white dark:bg-slate-900 font-black text-sm border-t-2 border-slate-700">
                   <td className="px-4 py-3 text-white">إجمالي الالتزامات وحقوق الملكية</td>
-                  <td className="num px-4 font-mono font-black text-white text-base">{money(q.data?.liabilitiesAndEquity ?? '0.00')}</td>
+                  <td className="num px-4 font-mono font-black text-indigo-300 text-base">{money(q.data?.liabilitiesAndEquity ?? '0.00')}</td>
+                  {hasComp && (
+                    <>
+                      <td className="num px-4 font-mono text-slate-300">
+                        {money(Number(q.data.comparative.totalLiabilities.previousAmount) + Number(q.data.comparative.totalEquity.previousAmount))}
+                      </td>
+                      <td className="num px-4 font-mono text-amber-300">—</td>
+                    </>
+                  )}
                 </tr>
               </tbody>
             </table>

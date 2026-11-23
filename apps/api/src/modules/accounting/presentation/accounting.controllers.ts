@@ -7,7 +7,15 @@ import { crudController } from '../../../shared/http/crud.controller';
 import { activeCompanyId } from '../../../shared/http/request';
 import { ZodPipe } from '../../../shared/http/zod.pipe';
 import { RequirePermission } from '../../iam/presentation/decorators';
-import { AccountCreate, AccountsService, AccountUpdate } from '../application/accounts.service';
+import {
+  AccountCreate,
+  AccountMoveSchema,
+  AccountReclassifySchema,
+  AccountsService,
+  AccountUpdate,
+  StatementLineCreate,
+  StatementLineUpdate,
+} from '../application/accounts.service';
 import { ClosingService } from '../application/closing.service';
 import { JournalService } from '../application/journal.service';
 import { LedgerService } from '../application/ledger.service';
@@ -58,17 +66,40 @@ export const BankAccountsController = crudController({
 });
 
 // ------------------------------------------------------------------ chart of accounts
+const AccountTreeQuery = z.object({
+  q: z.string().max(100).optional(),
+  accountClass: z.string().max(40).optional(),
+  statementSection: z.string().max(40).optional(),
+  cashFlowCategory: z.string().max(20).optional(),
+  activeOnly: z.coerce.boolean().optional(),
+  postingOnly: z.coerce.boolean().optional(),
+  headerOnly: z.coerce.boolean().optional(),
+  asOf: isoDate.optional(),
+});
+
 @Controller('accounts')
 export class AccountsController {
   constructor(private readonly accounts: AccountsService) {}
 
   @Get()
   @RequirePermission('acc.coa.view')
-  tree(
-    @Query(new ZodPipe(z.object({ q: z.string().max(100).optional(), activeOnly: z.coerce.boolean().optional(), postingOnly: z.coerce.boolean().optional() })))
-    q: { q?: string; activeOnly?: boolean; postingOnly?: boolean },
-  ) {
+  tree(@Query(new ZodPipe(AccountTreeQuery)) q: z.infer<typeof AccountTreeQuery>) {
     return this.accounts.tree(activeCompanyId(), q);
+  }
+
+  @Get('suggest-code')
+  @RequirePermission('acc.coa.view')
+  suggestCode(
+    @Query(new ZodPipe(z.object({ parentId: optUuid, accountClass: z.string().max(40).optional() })))
+    q: { parentId?: string | null; accountClass?: string },
+  ) {
+    return this.accounts.suggestCode(activeCompanyId(), q.parentId, q.accountClass);
+  }
+
+  @Get('reclassifications')
+  @RequirePermission('acc.coa.view')
+  reclassifications(@Query(new ZodPipe(z.object({ accountId: optUuid }))) q: { accountId?: string | null }) {
+    return this.accounts.listReclassifications(activeCompanyId(), q.accountId || undefined);
   }
 
   @Get(':id')
@@ -92,6 +123,20 @@ export class AccountsController {
     return this.accounts.importTemplate(activeCompanyId(), body.accounts);
   }
 
+  @Post(':id/move')
+  @HttpCode(200)
+  @RequirePermission('acc.coa.edit')
+  move(@Param('id', id) aid: string, @Body(new ZodPipe(AccountMoveSchema)) body: z.infer<typeof AccountMoveSchema>) {
+    return this.accounts.moveAccount(activeCompanyId(), aid, body);
+  }
+
+  @Post(':id/reclassify')
+  @HttpCode(200)
+  @RequirePermission('acc.coa.edit')
+  reclassify(@Param('id', id) aid: string, @Body(new ZodPipe(AccountReclassifySchema)) body: z.infer<typeof AccountReclassifySchema>) {
+    return this.accounts.reclassifyAccount(activeCompanyId(), aid, body);
+  }
+
   @Patch(':id')
   @RequirePermission('acc.coa.edit')
   update(@Param('id', id) aid: string, @Body(new ZodPipe(AccountUpdate)) body: z.infer<typeof AccountUpdate>) {
@@ -103,6 +148,37 @@ export class AccountsController {
   @RequirePermission('acc.coa.delete')
   async remove(@Param('id', id) aid: string) {
     await this.accounts.remove(activeCompanyId(), aid);
+  }
+}
+
+// ------------------------------------------------------------------ dynamic statement lines
+@Controller('statement-lines')
+export class StatementLinesController {
+  constructor(private readonly accounts: AccountsService) {}
+
+  @Get()
+  @RequirePermission('acc.coa.view')
+  list(@Query(new ZodPipe(z.object({ statementType: z.string().max(40).optional() }))) q: { statementType?: string }) {
+    return this.accounts.listStatementLines(activeCompanyId(), q.statementType);
+  }
+
+  @Post()
+  @RequirePermission('acc.coa.edit')
+  create(@Body(new ZodPipe(StatementLineCreate)) body: z.infer<typeof StatementLineCreate>) {
+    return this.accounts.createStatementLine(activeCompanyId(), body);
+  }
+
+  @Patch(':id')
+  @RequirePermission('acc.coa.edit')
+  update(@Param('id', id) sid: string, @Body(new ZodPipe(StatementLineUpdate)) body: z.infer<typeof StatementLineUpdate>) {
+    return this.accounts.updateStatementLine(activeCompanyId(), sid, body);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @RequirePermission('acc.coa.edit')
+  async remove(@Param('id', id) sid: string) {
+    await this.accounts.removeStatementLine(activeCompanyId(), sid);
   }
 }
 
@@ -299,6 +375,17 @@ const RangeQuery = DimQuery.extend({
   ledger: z.enum(['FINANCIAL', 'MANAGEMENT']).default('FINANCIAL'),
 });
 
+const ComparativeRangeQuery = RangeQuery.extend({
+  compareFrom: isoDate.optional(),
+  compareTo: isoDate.optional(),
+});
+
+const BalanceSheetQuery = DimQuery.extend({
+  asOf: isoDate,
+  compareAsOf: isoDate.optional(),
+  ledger: z.enum(['FINANCIAL', 'MANAGEMENT']).default('FINANCIAL'),
+});
+
 @Controller('ledger')
 export class LedgerController {
   constructor(private readonly ledger: LedgerService) {}
@@ -317,14 +404,26 @@ export class LedgerController {
 
   @Get('income-statement')
   @RequirePermission('rpt.financial.view')
-  incomeStatement(@Query(new ZodPipe(RangeQuery)) q: any) {
+  incomeStatement(@Query(new ZodPipe(ComparativeRangeQuery)) q: any) {
     return this.ledger.incomeStatement(activeCompanyId(), q);
   }
 
   @Get('balance-sheet')
   @RequirePermission('rpt.financial.view')
-  balanceSheet(@Query(new ZodPipe(z.object({ asOf: isoDate, ledger: z.enum(['FINANCIAL', 'MANAGEMENT']).default('FINANCIAL') }))) q: any) {
-    return this.ledger.balanceSheet(activeCompanyId(), q.asOf, q.ledger);
+  balanceSheet(@Query(new ZodPipe(BalanceSheetQuery)) q: any) {
+    return this.ledger.balanceSheet(activeCompanyId(), q);
+  }
+
+  @Get('cash-flow')
+  @RequirePermission('rpt.financial.view')
+  cashFlow(@Query(new ZodPipe(ComparativeRangeQuery)) q: any) {
+    return this.ledger.cashFlowStatement(activeCompanyId(), q);
+  }
+
+  @Get('equity-changes')
+  @RequirePermission('rpt.financial.view')
+  equityChanges(@Query(new ZodPipe(ComparativeRangeQuery)) q: any) {
+    return this.ledger.equityChangesStatement(activeCompanyId(), q);
   }
 }
 

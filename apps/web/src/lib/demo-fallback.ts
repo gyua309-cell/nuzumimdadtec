@@ -26,12 +26,24 @@ import {
   computeTrialBalance,
   computeIncomeStatement,
   computeBalanceSheet,
+  computeCashFlowStatement,
+  computeEquityChangesStatement,
   computeAccountStatement,
   evaluatePeriodClosingChecks,
   isAssignmentActiveInPeriod,
   matchesEmployee,
   matchesProject,
 } from './fallback-engine';
+import {
+  createLocalAccount,
+  deleteLocalAccount,
+  getReclassifications,
+  getStatementLines,
+  moveLocalAccount,
+  reclassifyLocalAccount,
+  suggestNextLocalCode,
+  updateLocalAccount,
+} from './coa-statements-engine';
 import {
   activateAssetItem,
   addCustodyExpenseLine,
@@ -1239,7 +1251,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     }
 
     // --- 2.39 Journal Entries Manual CRUD, Post, Cancel & Reverse ---
-    if (path.startsWith('/journal-entries')) {
+    if (path.startsWith('/journal-entries') || path.startsWith('/journals')) {
       const cleanP = path.split('?')[0].replace(/\/$/, '');
       const segs = cleanP.split('/').filter(Boolean); // ['journal-entries', id?, action?]
       const jeId = segs[1];
@@ -1252,6 +1264,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         if (idx < 0) throw new Error('القيد غير موجود');
         const je = normalizeJournalEntry(list[idx], accounts);
         assertPeriodOpen(je.entryDate, 'ترحيل القيد المحاسبي');
+        // Enforce accounting rule: only active posting (leaf) accounts may accept posted lines
+        for (const line of (je.lines || [])) {
+          const targetAcc = accounts.find((a) => a.id === line.accountId || a.code === line.accountCode);
+          if (!targetAcc) throw new Error(`الحساب (${line.accountCode || line.accountId}) غير موجود في شجرة الحسابات`);
+          if (!targetAcc.isPosting) throw new Error(`لا يمكن الترحيل المباشر على الحساب التجميعي الرئيسي (${targetAcc.code} — ${targetAcc.nameAr})؛ اختر حساباً فرعياً تفصيلياً`);
+          if (targetAcc.isActive === false) throw new Error(`الحساب (${targetAcc.code} — ${targetAcc.nameAr}) غير نشط ولا يقبل الترحيل`);
+        }
         if (Math.abs(Number(je.totalDebitBase) - Number(je.totalCreditBase)) > 0.01 || Number(je.totalDebitBase) <= 0) {
           throw new Error('لا يمكن ترحيل قيد غير متوازن (مجموع المدين لا يساوي مجموع الدائن) أو صفري');
         }
@@ -1533,6 +1552,77 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     }
 
     const cleanActionPath = path.split('?')[0].replace(/\/$/, '');
+
+    // --- Chart of Accounts (Full Hierarchical CRUD + Move + Reclassify) ---
+    if (cleanActionPath === '/accounts' && method === 'POST') {
+      return createLocalAccount(body, getNormalizedAccounts());
+    }
+    if (cleanActionPath.startsWith('/accounts/')) {
+      const segs = cleanActionPath.split('/').filter(Boolean);
+      const accId = segs[1];
+      const subAction = segs[2];
+      const allAccs = getNormalizedAccounts();
+      if (accId && subAction === 'move' && method === 'POST') {
+        return moveLocalAccount(accId, body || {}, allAccs);
+      }
+      if (accId && subAction === 'reclassify' && method === 'POST') {
+        return reclassifyLocalAccount(accId, body || {}, allAccs);
+      }
+      if (accId && !subAction && (method === 'PATCH' || method === 'PUT')) {
+        return updateLocalAccount(accId, body || {}, allAccs);
+      }
+      if (accId && !subAction && method === 'DELETE') {
+        return deleteLocalAccount(accId, allAccs);
+      }
+    }
+
+    // --- Dynamic Financial Statement Lines CRUD ---
+    if (cleanActionPath === '/statement-lines' && method === 'POST') {
+      const list = getStatementLines();
+      const code = String(body?.code || '').trim();
+      if (!code || !body?.nameAr) throw new Error('يرجى إدخال رمز واسم بند القائمة المالية');
+      if (list.some((s) => s.code === code)) throw new Error(`رمز البند (${code}) مستخدم بالفعل`);
+      const item = {
+        id: uid('sl'),
+        statementType: body.statementType || 'BALANCE_SHEET',
+        sectionCode: body.sectionCode || 'CURRENT_ASSETS',
+        code,
+        nameAr: String(body.nameAr).trim(),
+        nameEn: body.nameEn || null,
+        normalSign: body.normalSign === -1 ? -1 : 1,
+        sortOrder: Number(body.sortOrder || 100),
+        isSystem: false,
+        isActive: body.isActive !== false,
+        description: body.description || null,
+      };
+      // Ensure defaults seeded before adding custom line
+      if (getEntityList<any>('statement_lines', []).length === 0) {
+        for (const d of list) saveEntityItem('statement_lines', d);
+      }
+      saveEntityItem('statement_lines', item);
+      return item;
+    }
+    if (cleanActionPath.startsWith('/statement-lines/')) {
+      const slId = cleanActionPath.split('/').filter(Boolean)[1];
+      const list = getStatementLines();
+      if (getEntityList<any>('statement_lines', []).length === 0) {
+        for (const d of list) saveEntityItem('statement_lines', d);
+      }
+      const existing = list.find((s) => s.id === slId);
+      if (!existing) throw new Error('بند القائمة المالية غير موجود');
+      if (method === 'PATCH' || method === 'PUT') {
+        const next = { ...existing, ...body, id: slId };
+        saveEntityItem('statement_lines', next);
+        return next;
+      }
+      if (method === 'DELETE') {
+        if (existing.isSystem) throw new Error('لا يمكن حذف بند نظامي أساسي في القوائم المالية');
+        const used = getNormalizedAccounts().some((a) => a.statementLineId === slId || a.equityLineId === slId);
+        if (used) throw new Error('لا يمكن حذف بند مرتبط بحسابات في شجرة الحسابات — أعد تصنيف الحسابات أولاً');
+        deleteEntityItem('statement_lines', slId);
+        return { deleted: true };
+      }
+    }
 
     // --- ZATCA Phase 2 Operations ---
     if (cleanActionPath === '/zatca/settings' && (method === 'PUT' || method === 'PATCH')) {
@@ -3156,8 +3246,55 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(getEntityList('tax_codes', defaultTaxes));
   }
 
+  if (path.includes('/statement-lines')) {
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const stType = p.get('statementType') || undefined;
+    const allAccs = getNormalizedAccounts();
+    const lines = getStatementLines(stType).map((sl) => ({
+      ...sl,
+      mappedAccountsCount: allAccs.filter((a) => a.isPosting && (a.statementLineId === sl.id || a.equityLineId === sl.id)).length,
+    }));
+    return makeList(lines);
+  }
+
+  if (path.includes('/accounts/suggest-code')) {
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const parentId = p.get('parentId') || null;
+    const accountClass = p.get('accountClass') || 'ASSET';
+    const allAccs = getNormalizedAccounts();
+    const parent = parentId ? allAccs.find((a) => a.id === parentId) : null;
+    const siblings = allAccs.filter((a) => (a.parentId || null) === (parent?.id || null)).map((a) => a.code);
+    return {
+      suggestedCode: suggestNextLocalCode(parent?.code || null, siblings, parent?.accountClass || accountClass),
+      level: parent ? Number(parent.level || 1) + 1 : 1,
+      parentCode: parent?.code || null,
+      accountClass: parent?.accountClass || accountClass,
+      statementSection: parent?.statementSection || null,
+    };
+  }
+
+  if (path.includes('/accounts/reclassifications')) {
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return makeList(getReclassifications(p.get('accountId') || undefined));
+  }
+
   if (path.includes('/accounts')) {
-    return makeList(getNormalizedAccounts());
+    const cleanP = path.split('?')[0].replace(/\/$/, '');
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    let list = getNormalizedAccounts({ asOf: p.get('asOf') || undefined });
+    const singleAcc = list.find((a) => cleanP.endsWith(`/${a.id}`));
+    if (singleAcc && !cleanP.endsWith('/accounts')) return singleAcc;
+    if (p.get('activeOnly') === 'true') list = list.filter((a) => a.isActive !== false);
+    if (p.get('postingOnly') === 'true') list = list.filter((a) => a.isPosting);
+    if (p.get('headerOnly') === 'true') list = list.filter((a) => !a.isPosting);
+    if (p.get('accountClass')) list = list.filter((a) => a.accountClass === p.get('accountClass'));
+    if (p.get('statementSection')) list = list.filter((a) => a.statementSection === p.get('statementSection'));
+    if (p.get('cashFlowCategory')) list = list.filter((a) => a.cashFlowCategory === p.get('cashFlowCategory'));
+    if (p.get('q')) {
+      const term = p.get('q')!.trim().toLowerCase();
+      list = list.filter((a) => String(a.code).toLowerCase().includes(term) || String(a.nameAr).toLowerCase().includes(term) || String(a.nameEn || '').toLowerCase().includes(term));
+    }
+    return makeList(list);
   }
 
   if (path.includes('/bank-accounts') || path.includes('/banks')) {
@@ -3207,6 +3344,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       to: p.get('to') || undefined,
       ledger: p.get('ledger') || 'FINANCIAL',
       branchId: p.get('branchId') || undefined,
+      includeZero: p.get('includeZero') === 'true',
     });
   }
 
@@ -3215,6 +3353,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return computeIncomeStatement({
       from: p.get('from') || undefined,
       to: p.get('to') || undefined,
+      compareFrom: p.get('compareFrom') || undefined,
+      compareTo: p.get('compareTo') || undefined,
       branchId: p.get('branchId') || undefined,
     });
   }
@@ -3223,6 +3363,29 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
     return computeBalanceSheet({
       asOf: p.get('asOf') || undefined,
+      compareAsOf: p.get('compareAsOf') || undefined,
+      branchId: p.get('branchId') || undefined,
+    });
+  }
+
+  if (path.includes('/ledger/cash-flow')) {
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeCashFlowStatement({
+      from: p.get('from') || undefined,
+      to: p.get('to') || undefined,
+      compareFrom: p.get('compareFrom') || undefined,
+      compareTo: p.get('compareTo') || undefined,
+      branchId: p.get('branchId') || undefined,
+    });
+  }
+
+  if (path.includes('/ledger/equity-changes')) {
+    const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeEquityChangesStatement({
+      from: p.get('from') || undefined,
+      to: p.get('to') || undefined,
+      compareFrom: p.get('compareFrom') || undefined,
+      compareTo: p.get('compareTo') || undefined,
       branchId: p.get('branchId') || undefined,
     });
   }

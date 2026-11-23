@@ -26,6 +26,7 @@ export interface ExportMenuProps {
   columns: ExportColumnDef[];
   data: Array<Record<string, any>>;
   summaryKpis?: RoyalKpiItem[];
+  summaryRows?: Array<Record<string, any>>;
   filename?: string;
   periodLabel?: string;
   branchName?: string;
@@ -55,6 +56,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   columns,
   data,
   summaryKpis,
+  summaryRows,
   filename,
   periodLabel,
   branchName,
@@ -167,6 +169,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           columns: activeColumns,
           data: safeRows,
           summaryKpis,
+          summaryRows,
           periodLabel,
           branchName,
           currency,
@@ -195,6 +198,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         columns: activeColumns,
         data: safeRows,
         summaryKpis,
+        summaryRows,
         periodLabel,
         branchName,
         currency,

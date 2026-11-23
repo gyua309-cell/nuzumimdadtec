@@ -319,7 +319,9 @@ export const NAV_GROUPS: NavGroup[] = [
           { to: '/reports/income-statement', label: 'قائمة الدخل' },
           { to: '/reports/balance-sheet', label: 'الميزانية العمومية' },
           { to: '/reports/cash-flow', label: 'التدفقات النقدية' },
+          { to: '/reports/equity-changes', label: 'التغيرات في حقوق الملكية' },
           { to: '/reports/account-statement', label: 'كشف الحساب' },
+          { to: '/acc/accounts?tab=mapping', label: 'ربط الحسابات بالقوائم' },
         ],
       },
       {

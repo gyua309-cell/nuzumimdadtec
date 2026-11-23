@@ -1,213 +1,194 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity, ArrowLeftRight, BarChart3, PieChart, Plus, Printer, RefreshCw, TrendingUp, Wallet
+  Activity, ArrowLeftRight, BarChart3, CheckCircle2, ChevronDown, ChevronLeft,
+  PieChart, Printer, RefreshCw, Settings2, TrendingUp, Wallet, XCircle,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
-import { money, today } from '../lib/format';
-import { SOURCE_MODULE_LABELS } from '../lib/labels';
+import { money, today, yearStart } from '../lib/format';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { ExportEngine } from '../engine/export-engine';
-import { JournalLinkBadge } from '../components/JournalPreviewPill';
-import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Field, Loading, PageHeader, Stat } from '../components/ui';
+import { useBranchesList } from './reports';
+
+function shiftYear(iso: string, years: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() + years);
+  return d.toISOString().slice(0, 10);
+}
 
 export function CashFlowReportPage() {
   const base = useBaseCurrency();
-  const [fromDate, setFromDate] = useState('2026-01-01');
+  const [fromDate, setFromDate] = useState(yearStart());
   const [toDate, setToDate] = useState(today());
+  const [branchId, setBranchId] = useState('ALL');
+  const [compare, setCompare] = useState(false);
+  const [compareFrom, setCompareFrom] = useState(shiftYear(yearStart(), -1));
+  const [compareTo, setCompareTo] = useState(shiftYear(today(), -1));
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set(['OPERATING_ACTIVITIES', 'INVESTING_ACTIVITIES', 'FINANCING_ACTIVITIES']),
+  );
 
-  // Query: General Ledger accounts to compute actual bank, custody and FX balances
-  const { data: accounts = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['cash-flow-accounts', fromDate, toDate],
-    queryFn: () => api.get<any[]>('/accounts', { postingOnly: 'true' }).catch(() => []),
+  const branchesQ = useBranchesList();
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['cf', fromDate, toDate, branchId, compare ? compareFrom : '', compare ? compareTo : ''],
+    queryFn: () =>
+      api.get<any>('/ledger/cash-flow', {
+        from: fromDate,
+        to: toDate,
+        ...(branchId !== 'ALL' ? { branchId } : {}),
+        ...(compare ? { compareFrom, compareTo } : {}),
+      }),
   });
 
-  // Query: Custody report for real custody liquidity
-  const { data: custodyReport } = useQuery({
-    queryKey: ['custody-report-liquidity'],
-    queryFn: () => api.get<any>('/custodies/report').catch(() => null),
-  });
+  const sections: any[] = data?.sections ?? [];
+  const operatingTotal = Number(data?.operating?.total ?? 0);
+  const investingTotal = Number(data?.investing?.total ?? 0);
+  const financingTotal = Number(data?.financing?.total ?? 0);
+  const openingCash = Number(data?.openingCash ?? 0);
+  const netCashChange = Number(data?.netCashChange ?? 0);
+  const endingCash = Number(data?.endingCash ?? 0);
+  const reconciled = data ? Boolean(data.reconciled) : true;
+  const cashAccounts: any[] = data?.cashAccounts ?? [];
+  const nonCashAdjustments: any[] = data?.nonCashAdjustments ?? [];
 
-  // Query: Journal entries / cash flow transactions for the period
-  const { data: journalEntries = [] } = useQuery({
-    queryKey: ['cash-flow-journals', fromDate, toDate],
-    queryFn: () => api.get<any[]>('/journal-entries', { fromDate, toDate, status: 'POSTED' }).catch(() => []),
-  });
+  const toggleSec = (code: string) => {
+    const next = new Set(expanded);
+    if (next.has(code)) next.delete(code);
+    else next.add(code);
+    setExpanded(next);
+  };
 
-  // Dynamically compute liquidity and FX balances strictly from real accounts data (Zero-baseline for production)
-  const liquidityData = useMemo(() => {
-    let sarBankBalance = 0;
-    let egpBankBalance = 0;
-    let realizedFxGains = 0;
-    let realizedFxLosses = 0;
+  const flatExportRows = [
+    ...sections.flatMap((sec) =>
+      (sec.accounts || []).map((a: any) => ({
+        section: sec.nameAr,
+        code: a.code,
+        nameAr: a.nameAr,
+        inflow: Number(a.inflow || 0),
+        outflow: Number(a.outflow || 0),
+        amount: Number(a.amount || 0),
+        txCount: a.txCount || 0,
+      })),
+    ),
+  ];
 
-    if (Array.isArray(accounts)) {
-      for (const acc of accounts) {
-        const code = String(acc.code || '');
-        const bal = Number(acc.currentBalance ?? acc.balance ?? 0);
-        const cur = acc.currencyCode || acc.currency || 'SAR';
-        const isCashOrBank = code.startsWith('101') || code.startsWith('102') || code.startsWith('111') || code.startsWith('112');
-
-        if (isCashOrBank && (code.startsWith('111') || code === '10201' || cur === 'SAR')) {
-          sarBankBalance += bal;
-        } else if (isCashOrBank && (code.startsWith('112') || code === '10202' || cur === 'EGP')) {
-          egpBankBalance += bal;
-        } else if (code.startsWith('4300') || acc.nameAr?.includes('أرباح فروق')) {
-          realizedFxGains += Math.abs(bal);
-        } else if (code.startsWith('5700') || acc.nameAr?.includes('خسائر فروق')) {
-          realizedFxLosses += Math.abs(bal);
-        }
-      }
-    }
-
-    const custodyBalanceEgp = Number(custodyReport?.kpis?.totalRemainingBalanceEgp || 0);
-    const netFxGain = realizedFxGains - realizedFxLosses;
-
-    return {
-      sarBankBalance,
-      egpBankBalance,
-      custodyBalanceEgp,
-      realizedFxGains,
-      realizedFxLosses,
-      netFxGain,
-    };
-  }, [accounts, custodyReport]);
-
-  // Cash flow statement lines derived dynamically from journal entries (normalizing paged response)
-  const journalArr: any[] = Array.isArray(journalEntries) ? journalEntries : ((journalEntries as any)?.data ?? []);
-  const cashFlowLines = useMemo(() => {
-    if (!journalArr.length) {
-      return [];
-    }
-
-    return journalArr.map((je: any) => ({
-      id: je.id,
-      entryNo: je.entryNo,
-      title: je.description || je.narrationAr || je.narration || `قيد رقم ${je.entryNo || je.code}`,
-      category: SOURCE_MODULE_LABELS[je.sourceModule] || je.sourceModule || 'تشغيلي',
-      currency: je.currencyCode || base,
-      originalAmount: Number(je.totalDebitBase || je.totalDebit || 0),
-      baseAmount: Number(je.totalDebitBase || je.totalDebit || 0),
-    }));
-  }, [journalArr, base]);
-
-  const cashFlowExportData =
-    cashFlowLines.length > 0
-      ? cashFlowLines
-      : [
-          { entryNo: '1110', title: 'رصيد بنوك الرياض (SAR)', category: 'أصول نقدية', currency: 'SAR', originalAmount: liquidityData.sarBankBalance, baseAmount: liquidityData.sarBankBalance },
-          { entryNo: '1120', title: 'رصيد بنوك مصر (EGP)', category: 'أصول نقدية', currency: 'EGP', originalAmount: liquidityData.egpBankBalance, baseAmount: liquidityData.egpBankBalance * 0.076 },
-          { entryNo: '1310', title: 'أرصدة العهد النقدية (EGP)', category: 'عهد فروع', currency: 'EGP', originalAmount: liquidityData.custodyBalanceEgp, baseAmount: liquidityData.custodyBalanceEgp * 0.076 },
-        ];
+  const exportCols = [
+    { key: 'section', header: 'نشاط التدفق النقدي', width: 26 },
+    { key: 'code', header: 'كود الحساب', width: 14 },
+    { key: 'nameAr', header: 'الحساب المقابل', width: 28 },
+    { key: 'inflow', header: `تدفق داخل (${base})`, width: 16, type: 'currency' as const, isTotal: true },
+    { key: 'outflow', header: `تدفق خارج (${base})`, width: 16, type: 'currency' as const, isTotal: true },
+    { key: 'amount', header: `صافي التدفق (${base})`, width: 18, type: 'currency' as const, isTotal: true },
+  ];
 
   const handlePrint = () => {
     void ExportEngine.exportPdf({
-      title: 'قائمة التدفقات النقدية والسيولة وفروق العملات',
-      subtitle: 'متابعة السيولة النقدية الفعلية لبنوك الرياض والقاهرة وأرصدة العهد النقدية',
+      title: 'قائمة التدفقات النقدية (IAS 7)',
+      subtitle: `مشتقة تلقائياً من شجرة الحسابات والقيود المرحّلة (${reconciled ? 'متطابقة 100% مع أرصدة النقدية' : 'يوجد فرق مطابقة'})`,
       periodLabel: `من ${fromDate} إلى ${toDate}`,
       currency: base,
       summaryKpis: [
-        { label: 'بنوك الرياض (SAR)', value: `${money(liquidityData.sarBankBalance)} SAR`, tone: 'emerald' },
-        { label: 'بنوك مصر (EGP)', value: `${money(liquidityData.egpBankBalance)} EGP`, tone: 'sky' },
-        { label: 'أرصدة العهد (EGP)', value: `${money(liquidityData.custodyBalanceEgp)} EGP`, tone: 'amber' },
+        { label: 'التدفق التشغيلي', value: `${money(operatingTotal)} ${base}`, tone: operatingTotal >= 0 ? 'emerald' : 'rose' },
+        { label: 'التدفق الاستثماري', value: `${money(investingTotal)} ${base}`, tone: 'indigo' },
+        { label: 'التدفق التمويلي', value: `${money(financingTotal)} ${base}`, tone: 'sky' },
+        { label: 'نقدية آخر المدة', value: `${money(endingCash)} ${base}`, tone: 'navy' },
       ],
-      columns: [
-        { key: 'entryNo', header: 'رقم القيد', width: 14 },
-        { key: 'title', header: 'بيان التدفق النقدي', width: 32 },
-        { key: 'category', header: 'التصنيف', width: 16 },
-        { key: 'currency', header: 'العملة', width: 10 },
-        { key: 'originalAmount', header: 'المبلغ الأصلي', width: 16, type: 'currency', isTotal: true },
-        { key: 'baseAmount', header: `المعادل (${base})`, width: 16, type: 'currency', isTotal: true },
-      ],
-      data: cashFlowExportData,
+      columns: exportCols,
+      data: flatExportRows.length > 0
+        ? flatExportRows
+        : cashAccounts.map((c) => ({
+            section: 'النقدية وما في حكمها',
+            code: c.code,
+            nameAr: c.nameAr,
+            inflow: Number(c.openingBalance),
+            outflow: 0,
+            amount: Number(c.endingBalance),
+          })),
     });
   };
 
+  const sectionAccent = (code: string) =>
+    code === 'OPERATING_ACTIVITIES'
+      ? 'bg-emerald-500'
+      : code === 'INVESTING_ACTIVITIES'
+      ? 'bg-indigo-500'
+      : 'bg-amber-500';
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 animate-fade-in">
       <PageHeader
-        title="قائمة التدفقات النقدية والسيولة وفروق العملات (Cash Flow & FX Report)"
-        subtitle="متابعة السيولة النقدية الفعلية لبنوك الرياض والقاهرة، وأرصدة العهد النقدية، وأثر تقلبات أسعار صرف العملات الأجنبية المحققة"
+        title="قائمة التدفقات النقدية الديناميكية (IAS 7 Cash Flow Statement)"
+        subtitle={`مبنية مباشرة على تصنيفات التدفق النقدي في شجرة الحسابات والقيود المرحّلة فقط (${base}). اضغط على أي نشاط لاستعراض الحسابات ثم كشف الحساب.`}
         icon={Wallet}
         badge={
-          <Badge color="cyan" dot>
-            سيولة SAR / EGP
-          </Badge>
+          reconciled ? (
+            <Badge color="green" dot>متطابقة 100% مع النقدية</Badge>
+          ) : (
+            <Badge color="red" dot>فرق مطابقة {money(data?.reconciliationDiff ?? 0)}</Badge>
+          )
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => refetch()}
-              className="btn-secondary text-xs flex items-center gap-1.5"
-            >
-              <RefreshCw className="size-3.5" />
-              تحديث
+            <Link to="/acc/accounts?tab=mapping" className="btn-secondary text-xs flex items-center gap-1.5">
+              <Settings2 className="size-3.5 text-indigo-600" /> ربط تصنيفات التدفق النقدي
+            </Link>
+            <button onClick={() => refetch()} className="btn-secondary text-xs flex items-center gap-1.5">
+              <RefreshCw className="size-3.5" /> تحديث
             </button>
             <ExportMenu
-              title="قائمة التدفقات النقدية والسيولة وفروق العملات"
+              title="قائمة التدفقات النقدية (IAS 7)"
+              subtitle="التدفقات النقدية التشغيلية والاستثمارية والتمويلية ومطابقة النقدية"
               filename={`cash-flow-${fromDate}-${toDate}`}
               periodLabel={`من ${fromDate} إلى ${toDate}`}
               currency={base}
-              columns={[
-                { key: 'entryNo', header: 'رقم القيد', width: 14 },
-                { key: 'title', header: 'بيان التدفق النقدي', width: 32 },
-                { key: 'category', header: 'التصنيف', width: 16 },
-                { key: 'currency', header: 'العملة', width: 10 },
-                { key: 'originalAmount', header: 'المبلغ الأصلي', width: 16, type: 'currency', isTotal: true },
-                { key: 'baseAmount', header: `المعادل (${base})`, width: 16, type: 'currency', isTotal: true },
+              summaryKpis={[
+                { label: 'التدفق التشغيلي', value: `${money(operatingTotal)} ${base}`, tone: operatingTotal >= 0 ? 'emerald' : 'rose' },
+                { label: 'التدفق الاستثماري', value: `${money(investingTotal)} ${base}`, tone: 'indigo' },
+                { label: 'التدفق التمويلي', value: `${money(financingTotal)} ${base}`, tone: 'sky' },
+                { label: 'نقدية آخر المدة', value: `${money(endingCash)} ${base}`, tone: 'navy' },
               ]}
-              data={
-                cashFlowLines.length > 0
-                  ? cashFlowLines
-                  : [
-                      { entryNo: '1110', title: 'رصيد بنوك الرياض (SAR)', category: 'أصول نقدية', currency: 'SAR', originalAmount: liquidityData.sarBankBalance, baseAmount: liquidityData.sarBankBalance },
-                      { entryNo: '1120', title: 'رصيد بنوك مصر (EGP)', category: 'أصول نقدية', currency: 'EGP', originalAmount: liquidityData.egpBankBalance, baseAmount: liquidityData.egpBankBalance * 0.076 },
-                      { entryNo: '1310', title: 'أرصدة العهد النقدية (EGP)', category: 'عهد فروع', currency: 'EGP', originalAmount: liquidityData.custodyBalanceEgp, baseAmount: liquidityData.custodyBalanceEgp * 0.076 },
-                    ]
-              }
+              columns={exportCols}
+              data={flatExportRows}
             />
-            <button
-              onClick={handlePrint}
-              className="btn-primary text-xs flex items-center gap-1.5"
-            >
-              <Printer className="size-3.5" />
-              طباعة التقرير
+            <button onClick={handlePrint} className="btn-primary text-xs flex items-center gap-1.5">
+              <Printer className="size-3.5" /> طباعة ملكية (A4)
             </button>
           </div>
         }
       />
 
-      {/* Date Filter Strip */}
-      <div className="card p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">الفترة المالية للتدفقات:</span>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">من:</span>
-            <input
-              type="date"
-              className="input text-xs py-1.5 w-36 font-mono"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">إلى:</span>
-            <input
-              type="date"
-              className="input text-xs py-1.5 w-36 font-mono"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="text-xs text-slate-500 flex items-center gap-2">
-          <span className="inline-block size-2 rounded-full bg-emerald-500" />
-          <span>العملة الأساسية للقوائم الموحدة: <strong>الريال السعودي ({base})</strong> مع تتبع سيولة الجنيه المصري (EGP)</span>
-        </div>
+      {/* Period & Comparison Bar */}
+      <div className="card p-4 bg-white/95 dark:bg-[#0c1324]/95 border border-slate-200 dark:border-slate-800 flex flex-wrap items-end gap-3.5">
+        <Field label="من تاريخ">
+          <input type="date" className="input text-xs py-1.5 w-36 font-mono" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+        </Field>
+        <Field label="إلى تاريخ">
+          <input type="date" className="input text-xs py-1.5 w-36 font-mono" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        </Field>
+        <Field label="الفرع / المركز المالي">
+          <select className="input min-w-[13rem] text-xs font-medium" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+            <option value="ALL">الكل (قوائم موحدة - {base})</option>
+            {(branchesQ.data ?? []).map((b: any) => (
+              <option key={b.id} value={b.id}>{b.nameAr}</option>
+            ))}
+          </select>
+        </Field>
+        <label className="flex items-center gap-2 pb-2 text-xs font-bold cursor-pointer select-none">
+          <input type="checkbox" className="rounded text-indigo-600" checked={compare} onChange={(e) => setCompare(e.target.checked)} />
+          <ArrowLeftRight className="size-3.5 text-indigo-600" />
+          <span>مقارنة بفترة سابقة</span>
+        </label>
+        {compare && (
+          <>
+            <Field label="مقارنة من"><input type="date" className="input text-xs py-1.5 w-36 font-mono" value={compareFrom} onChange={(e) => setCompareFrom(e.target.value)} /></Field>
+            <Field label="مقارنة إلى"><input type="date" className="input text-xs py-1.5 w-36 font-mono" value={compareTo} onChange={(e) => setCompareTo(e.target.value)} /></Field>
+          </>
+        )}
       </div>
 
       {isLoading ? (
@@ -215,195 +196,272 @@ export function CashFlowReportPage() {
       ) : error ? (
         <div className="p-8"><ErrorState error={error} /></div>
       ) : (
-        <div className="space-y-6">
-          {/* Executive Liquidity & FX Banner */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="space-y-5">
+          {/* Top 5 Executive KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
             <Stat
-              label="سيولة بنوك الرياض (SAR)"
-              value={`${money(liquidityData.sarBankBalance)} SAR`}
-              tone="indigo"
-              icon={Wallet}
-              hint="حساب 1110 / 10201 (ريال سعودي)"
+              label="التدفق من الأنشطة التشغيلية"
+              value={`${money(operatingTotal)} ${base}`}
+              tone={operatingTotal >= 0 ? 'green' : 'red'}
+              icon={Activity}
+              hint={data?.comparative ? `السابق: ${money(data.comparative.operating.previousAmount)}` : 'تحصيلات ومدفوعات تشغيلية'}
             />
             <Stat
-              label="سيولة بنوك مصر (EGP)"
-              value={`${money(liquidityData.egpBankBalance)} EGP`}
-              tone="green"
-              icon={Wallet}
-              hint="حساب 1120 / 10202 (جنيه مصري)"
+              label="التدفق من الأنشطة الاستثمارية"
+              value={`${money(investingTotal)} ${base}`}
+              tone="blue"
+              icon={BarChart3}
+              hint={data?.comparative ? `السابق: ${money(data.comparative.investing.previousAmount)}` : 'الأصول الثابتة والاستثمارات'}
             />
             <Stat
-              label="أرصدة عهد الفروع النقدية"
-              value={`${money(liquidityData.custodyBalanceEgp)} EGP`}
-              tone="cyan"
-              icon={ArrowLeftRight}
-              hint="حساب 1310 (عهد نقدية طرف الأمناء)"
-            />
-            <Stat
-              label="صافي أرباح/خسائر فروق العملات"
-              value={`${liquidityData.netFxGain >= 0 ? `+${money(liquidityData.netFxGain)}` : money(liquidityData.netFxGain)} ${base}`}
-              tone={liquidityData.netFxGain >= 0 ? 'purple' : 'red'}
+              label="التدفق من الأنشطة التمويلية"
+              value={`${money(financingTotal)} ${base}`}
+              tone="amber"
               icon={TrendingUp}
-              hint="أرباح محققة حـ/ 4300 مقابل حـ/ 5700"
+              hint={data?.comparative ? `السابق: ${money(data.comparative.financing.previousAmount)}` : 'رأس المال والتمويل والتوزيعات'}
+            />
+            <Stat
+              label="صافي التغير في النقدية"
+              value={`${netCashChange >= 0 ? `+${money(netCashChange)}` : money(netCashChange)} ${base}`}
+              tone={netCashChange >= 0 ? 'cyan' : 'red'}
+              icon={ArrowLeftRight}
+              hint={`نقدية أول المدة: ${money(openingCash)}`}
+            />
+            <Stat
+              label="رصيد النقدية وما في حكمها آخر المدة"
+              value={`${money(endingCash)} ${base}`}
+              tone="purple"
+              icon={Wallet}
+              hint={reconciled ? 'مطابق 100% لأرصدة البنوك والصناديق' : 'يرجى مراجعة المطابقة'}
             />
           </div>
 
-          {/* Interactive Cash & Liquidity Charts */}
+          {/* Interactive Charts */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 print:hidden">
             <ExecutiveChartCard
-              title="مقارنة أرصدة السيولة النقدية والفروع"
-              subtitle={`القيم المعادلة بالعملة الأساسية (${base}) عبر البنوك والعهد`}
+              title="ملخص التدفقات النقدية حسب نوع النشاط (IAS 7)"
+              subtitle={`مقارنة الأنشطة التشغيلية والاستثمارية والتمويلية (${base})`}
               icon={BarChart3}
               accent="indigo"
               className="lg:col-span-2"
             >
               <ExecutiveBarChart
-                categories={['بنوك الرياض (SAR)', 'بنوك مصر (معادل SAR)', 'عهد الفروع (معادل SAR)', 'فروق العملة المحققة']}
+                categories={['نقدية أول المدة', 'الأنشطة التشغيلية', 'الأنشطة الاستثمارية', 'الأنشطة التمويلية', 'نقدية آخر المدة']}
                 series={[
                   {
-                    name: `المعادل (${base})`,
-                    data: [
-                      Number(liquidityData.sarBankBalance.toFixed(2)),
-                      Number((liquidityData.egpBankBalance * 0.076).toFixed(2)),
-                      Number((liquidityData.custodyBalanceEgp * 0.076).toFixed(2)),
-                      Number(liquidityData.netFxGain.toFixed(2)),
-                    ],
+                    name: `المبلغ (${base})`,
+                    data: [openingCash, operatingTotal, investingTotal, financingTotal, endingCash],
                     color: '#4f46e5',
-                    colorEnd: '#0ea5e9',
+                    colorEnd: '#10b981',
                   },
                 ]}
-                height={220}
+                height={210}
                 unit={base}
-                emptyText="لا توجد أرصدة نقدية مسجلة بعد"
+                emptyText="لا توجد تدفقات نقدية مرحّلة للفترة"
               />
             </ExecutiveChartCard>
 
             <ExecutiveChartCard
-              title="توزيع محافظ السيولة النقدية"
-              subtitle={`هيكل النقدية المتاحة (${base})`}
+              title="توزيع أرصدة النقدية وما في حكمها"
+              subtitle={`الأرصدة الختامية في حسابات النقدية والبنوك (${base})`}
               icon={PieChart}
               accent="emerald"
             >
               <ExecutiveDonutChart
-                data={[
-                  { name: 'بنوك الرياض (SAR)', value: Math.max(0, liquidityData.sarBankBalance), color: '#4f46e5' },
-                  { name: 'بنوك مصر (معادل)', value: Math.max(0, Number((liquidityData.egpBankBalance * 0.076).toFixed(2))), color: '#10b981' },
-                  { name: 'عهد الفروع (معادل)', value: Math.max(0, Number((liquidityData.custodyBalanceEgp * 0.076).toFixed(2))), color: '#0ea5e9' },
-                ]}
-                centerValue={money(
-                  Math.max(0, liquidityData.sarBankBalance) +
-                    Math.max(0, liquidityData.egpBankBalance * 0.076) +
-                    Math.max(0, liquidityData.custodyBalanceEgp * 0.076),
-                )}
-                centerLabel={`إجمالي السيولة (${base})`}
-                height={220}
+                data={cashAccounts
+                  .filter((c) => Number(c.endingBalance) > 0)
+                  .map((c) => ({ name: `${c.code} — ${c.nameAr}`, value: Number(c.endingBalance) }))}
+                centerValue={money(endingCash)}
+                centerLabel={`نقدية آخر المدة (${base})`}
+                height={210}
                 unit={base}
-                emptyText="لا توجد سيولة"
+                emptyText="لا توجد أرصدة نقدية موجبة"
               />
             </ExecutiveChartCard>
           </div>
 
-          {/* Section 1: Detailed FX Gains/Losses Revaluation */}
-          <div className="card bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl p-6">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-              <ArrowLeftRight className="size-4 text-blue-600" />
-              أثر تقلبات أسعار صرف العملات الأجنبية المحققة بدفاتر الحسابات (Foreign Exchange Realized P&L)
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* FX Gains (4300) */}
-              <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-emerald-900 dark:text-emerald-300">
-                    أرباح فروق العملات الأجنبية المحققة (حساب 4300)
+          {/* Interactive Expandable IAS 7 Statement Table */}
+          <div className="card overflow-hidden shadow-sm">
+            <div className="px-4 py-3 bg-slate-900 text-white dark:bg-slate-950 flex items-center justify-between">
+              <span className="font-extrabold text-sm">قائمة التدفقات النقدية التفصيلية — اضغط على أي نشاط لعرض الحسابات</span>
+              <div className="flex items-center gap-2 text-xs">
+                {reconciled ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-400 font-bold">
+                    <CheckCircle2 className="size-4" /> معادلة النقدية متطابقة 100%
                   </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200">
-                    إيرادات دائنة
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-rose-400 font-bold">
+                    <XCircle className="size-4" /> فرق: {money(data?.reconciliationDiff ?? 0)}
                   </span>
-                </div>
-                <div className="mt-3 text-xl font-mono font-black text-emerald-700 dark:text-emerald-400">
-                  +{money(liquidityData.realizedFxGains)} {base}
-                </div>
-                <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-300/80 leading-relaxed">
-                  ناتجة عن تحويل وصرف عهد الريال السعودي لفرع مصر بأسعار صرف تفضيلية أعلى من سعر الأساس الدفتري، وتحصيل إيرادات العقود بالعملة الأجنبية.
-                </p>
-              </div>
-
-              {/* FX Losses (5700) */}
-              <div className="p-4 rounded-xl border border-rose-200 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-rose-900 dark:text-rose-300">
-                    خسائر فروق العملات الأجنبية المحققة (حساب 5700)
-                  </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200">
-                    مصروفات مدينة
-                  </span>
-                </div>
-                <div className="mt-3 text-xl font-mono font-black text-rose-700 dark:text-rose-400">
-                  -{money(liquidityData.realizedFxLosses)} {base}
-                </div>
-                <p className="mt-2 text-xs text-rose-800 dark:text-rose-300/80 leading-relaxed">
-                  ناتجة عن عمولات التحويلات البنكية الدولية وتغيرات سعر الصرف عند سداد التزامات الموردين بالعملات الأجنبية.
-                </p>
+                )}
               </div>
             </div>
-          </div>
 
-          {/* Section 2: Cash Flow Statement Table */}
-          <div className="card bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl overflow-hidden p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Activity className="size-4 text-emerald-600" />
-                حركات وقائمة التدفقات النقدية الفعلية (Cash Flow Statement)
-              </h3>
-              <Link to="/acc/journals/new" className="btn btn-secondary text-xs flex items-center gap-1">
-                <Plus className="size-3" />
-                إضافة قيد محاسبي
-              </Link>
-            </div>
-
-            {cashFlowLines.length === 0 ? (
-              <div className="p-8 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-900/40">
-                <EmptyState
-                  text="لا توجد حركات تدفقات نقدية مسجلة لهذه الفترة المالية حتى الآن."
-                  action={
-                    <Link to="/acc/journals/new" className="btn-primary text-xs inline-flex items-center gap-1.5 mt-2">
-                      <Plus className="size-3.5" />
-                      تسجيل حركة نقدية أو قيد يومية
-                    </Link>
-                  }
-                />
-              </div>
-            ) : (
-              <table className="table w-full text-right text-xs">
+            <div className="overflow-x-auto">
+              <table className="table w-full text-xs">
                 <thead>
                   <tr>
-                    <th>سند القيد</th>
-                    <th>بيان التدفق النقدي</th>
-                    <th className="text-center">التصنيف</th>
-                    <th className="text-center">المبلغ بالعملة الأصلية</th>
-                    <th className="text-center font-bold">المبلغ المعادل ({base})</th>
+                    <th>النشاط / الحساب المقابل</th>
+                    <th className="num">تدفق نقدي داخل</th>
+                    <th className="num">تدفق نقدي خارج</th>
+                    <th className="num">صافي التدفق ({base})</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {cashFlowLines.map((row) => (
-                    <tr key={row.id}>
-                      <td><JournalLinkBadge entryId={row.id} entryNo={row.entryNo} compact /></td>
-                      <td className="font-medium">{row.title}</td>
-                      <td className="text-center">
-                        <Badge color="cyan">{row.category}</Badge>
-                      </td>
-                      <td className="text-center font-mono font-bold text-slate-800 dark:text-slate-200">
-                        {money(row.originalAmount)} {row.currency}
-                      </td>
-                      <td className="text-center font-mono font-bold text-emerald-600">
-                        {money(row.baseAmount)} {base}
-                      </td>
-                    </tr>
-                  ))}
+                  {sections.map((sec) => {
+                    const isOpen = expanded.has(sec.sectionCode);
+                    const accs: any[] = sec.accounts ?? [];
+                    return (
+                      <Fragment key={sec.sectionCode}>
+                        <tr
+                          className="bg-slate-100/90 dark:bg-slate-800/70 font-extrabold cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors"
+                          onClick={() => toggleSec(sec.sectionCode)}
+                        >
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              {isOpen ? <ChevronDown className="size-4 text-slate-500" /> : <ChevronLeft className="size-4 text-slate-500" />}
+                              <span className={`inline-block size-2.5 rounded-full ${sectionAccent(sec.sectionCode)}`} />
+                              <span className="text-slate-900 dark:text-white">{sec.nameAr}</span>
+                              <Badge color="slate">{accs.length} حساب</Badge>
+                            </div>
+                          </td>
+                          <td className="num font-mono text-emerald-700 dark:text-emerald-400">
+                            {money(accs.reduce((s, a) => s + Number(a.inflow || 0), 0))}
+                          </td>
+                          <td className="num font-mono text-rose-700 dark:text-rose-400">
+                            {money(accs.reduce((s, a) => s + Number(a.outflow || 0), 0))}
+                          </td>
+                          <td className={`num font-mono font-black ${Number(sec.total) >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
+                            {money(sec.total)}
+                          </td>
+                        </tr>
+                        {isOpen && accs.length === 0 && (
+                          <tr key={`${sec.sectionCode}-empty`}>
+                            <td colSpan={4} className="ps-10 py-2.5 text-slate-400 italic">
+                              لا توجد تدفقات نقدية مصنفة ضمن هذا النشاط خلال الفترة المحددة.
+                            </td>
+                          </tr>
+                        )}
+                        {isOpen && accs.map((a) => (
+                          <tr key={`${sec.sectionCode}-${a.accountId}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                            <td className="ps-10 py-2">
+                              <Link
+                                to={`/reports/account-statement?accountId=${a.accountId}&from=${fromDate}&to=${toDate}`}
+                                className="flex items-center gap-2 hover:underline"
+                              >
+                                <span className="font-mono font-bold text-[11px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{a.code}</span>
+                                <span className="font-semibold text-slate-900 dark:text-slate-100">{a.nameAr}</span>
+                                <span className="text-[10px] text-slate-400">({a.txCount} حركة)</span>
+                              </Link>
+                            </td>
+                            <td className="num font-mono text-emerald-700 dark:text-emerald-400">{money(a.inflow)}</td>
+                            <td className="num font-mono text-rose-700 dark:text-rose-400">{money(a.outflow)}</td>
+                            <td className={`num font-mono font-bold ${Number(a.amount) >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600 dark:text-rose-400'}`}>
+                              {money(a.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                      </Fragment>
+                    );
+                  })}
+
+                  {/* Reconciliation Summary Rows */}
+                  <tr className="bg-indigo-50/80 dark:bg-indigo-950/40 font-extrabold border-t-2 border-indigo-200 dark:border-indigo-800">
+                    <td colSpan={3} className="px-4 py-2.5 text-indigo-950 dark:text-indigo-200">
+                      صافي الزيادة / (النقص) في النقدية وما في حكمها خلال الفترة
+                    </td>
+                    <td className="num px-4 font-mono font-black text-indigo-950 dark:text-indigo-100">{money(netCashChange)}</td>
+                  </tr>
+                  <tr className="bg-slate-50 dark:bg-slate-900/50 font-bold">
+                    <td colSpan={3} className="px-4 py-2 text-slate-700 dark:text-slate-300">
+                      (+) رصيد النقدية وما في حكمها في بداية الفترة ({fromDate})
+                    </td>
+                    <td className="num px-4 font-mono font-bold">{money(openingCash)}</td>
+                  </tr>
+                  <tr className="bg-slate-900 text-white dark:bg-slate-950 font-black text-sm">
+                    <td colSpan={3} className="px-4 py-3 text-white">
+                      (=) رصيد النقدية وما في حكمها في نهاية الفترة ({toDate})
+                    </td>
+                    <td className="num px-4 font-mono text-emerald-300 font-black">{money(endingCash)}</td>
+                  </tr>
                 </tbody>
               </table>
-            )}
+            </div>
+          </div>
+
+          {/* Cash Accounts Reconciliation + Non-Cash Items */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="card overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 font-extrabold text-sm text-slate-900 dark:text-white">
+                كشف مطابقة حسابات النقدية والبنوك ({cashAccounts.length})
+              </div>
+              {cashAccounts.length === 0 ? (
+                <EmptyState text="لا توجد حسابات مصنفة كـ 'نقدية وما في حكمها' في شجرة الحسابات." />
+              ) : (
+                <table className="table text-xs">
+                  <thead>
+                    <tr>
+                      <th>الحساب النقدي</th>
+                      <th className="num">أول المدة</th>
+                      <th className="num">حركة الفترة</th>
+                      <th className="num">آخر المدة ({base})</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cashAccounts.map((c) => (
+                      <tr key={c.accountId}>
+                        <td>
+                          <Link
+                            to={`/reports/account-statement?accountId=${c.accountId}&from=${fromDate}&to=${toDate}`}
+                            className="font-bold text-indigo-700 dark:text-indigo-300 hover:underline"
+                          >
+                            <span className="font-mono me-1.5">{c.code}</span> {c.nameAr}
+                          </Link>
+                        </td>
+                        <td className="num font-mono">{money(c.openingBalance)}</td>
+                        <td className={`num font-mono font-bold ${Number(c.periodChange) >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                          {money(c.periodChange)}
+                        </td>
+                        <td className="num font-mono font-black">{money(c.endingBalance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="card overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 font-extrabold text-sm text-slate-900 dark:text-white">
+                إفصاح البنود غير النقدية (الإهلاك والمخصصات — Non-Cash Items)
+              </div>
+              {nonCashAdjustments.length === 0 ? (
+                <EmptyState text="لا توجد حركات غير نقدية (إهلاك أو مخصصات) خلال الفترة المحددة." />
+              ) : (
+                <table className="table text-xs">
+                  <thead>
+                    <tr>
+                      <th>الحساب غير النقدي</th>
+                      <th className="num">أثر الفترة ({base})</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {nonCashAdjustments.map((n) => (
+                      <tr key={n.accountId}>
+                        <td>
+                          <Link
+                            to={`/reports/account-statement?accountId=${n.accountId}&from=${fromDate}&to=${toDate}`}
+                            className="font-bold text-slate-900 dark:text-white hover:underline"
+                          >
+                            <span className="font-mono me-1.5">{n.code}</span> {n.nameAr}
+                          </Link>
+                        </td>
+                        <td className="num font-mono font-bold text-amber-700 dark:text-amber-400">{money(n.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -9,7 +9,36 @@ export const ACCOUNT_SUBTYPE: Record<string, string> = {
   RETAINED_EARNINGS: 'أرباح مرحلة', OPENING_BALANCE: 'أرصدة افتتاحية', FX_GAIN_LOSS: 'فروق عملة', ROUNDING: 'فروق تقريب',
   OVERHEAD_APPLIED: 'مصروفات عامة محمّلة', OVERHEAD_ABSORBED: 'مصروفات عامة مستوعبة', PREPAID: 'مقدمات', ACCRUED: 'مستحقات', OTHER: 'أخرى',
 };
-export const CASH_FLOW: Record<string, string> = { CASH: 'نقدية', OPERATING: 'تشغيلية', INVESTING: 'استثمارية', FINANCING: 'تمويلية', NON_CASH: 'غير نقدية' };
+export const CASH_FLOW: Record<string, string> = { CASH: 'نقدية وما في حكمها', OPERATING: 'أنشطة تشغيلية', INVESTING: 'أنشطة استثمارية', FINANCING: 'أنشطة تمويلية', NON_CASH: 'بنود غير نقدية' };
+
+export const STATEMENT_TYPE_LABELS: Record<string, string> = {
+  BALANCE_SHEET: 'قائمة المركز المالي (الميزانية)',
+  INCOME_STATEMENT: 'قائمة الدخل (الأرباح والخسائر)',
+  CASH_FLOW: 'قائمة التدفقات النقدية',
+  EQUITY_CHANGES: 'قائمة التغيرات في حقوق الملكية',
+};
+
+export const STATEMENT_SECTION_LABELS: Record<string, string> = {
+  CURRENT_ASSETS: 'الأصول المتداولة',
+  NON_CURRENT_ASSETS: 'الأصول غير المتداولة',
+  CURRENT_LIABILITIES: 'الالتزامات المتداولة',
+  NON_CURRENT_LIABILITIES: 'الالتزامات طويلة الأجل',
+  EQUITY: 'حقوق الملكية',
+  REVENUE: 'الإيرادات التشغيلية',
+  COST_OF_SALES: 'تكلفة المبيعات والخدمات المباشرة',
+  OPERATING_EXPENSES: 'المصروفات التشغيلية والإدارية',
+  OTHER_INCOME: 'الإيرادات الأخرى',
+  OTHER_EXPENSES: 'المصروفات الأخرى',
+  ZAKAT_TAX: 'مصروف الزكاة والضريبة',
+};
+
+export const EQUITY_SECTION_LABELS: Record<string, string> = {
+  PAID_IN_CAPITAL: 'رأس المال المدفوع',
+  STATUTORY_RESERVE: 'الاحتياطي النظامي',
+  RETAINED_EARNINGS: 'الأرباح المبقاة',
+  DIVIDENDS_DISTRIBUTIONS: 'التوزيعات وجاري الشركاء',
+  OTHER_EQUITY: 'بنود حقوق ملكية أخرى',
+};
 export const JE_STATUS: Record<string, { label: string; color: 'green' | 'red' | 'amber' | 'slate' | 'blue' }> = {
   DRAFT: { label: 'مسودة', color: 'amber' },
   POSTED: { label: 'مرحّل', color: 'green' },
