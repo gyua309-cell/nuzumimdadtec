@@ -13,6 +13,7 @@ import {
   SECTION_LABELS_AR,
   StatementLineDef,
 } from '../domain/financial-statements';
+import { CostCenterMeta, expandCostCenterTreeIds } from '../domain/cost-center-rollup';
 
 export type Ledger = 'FINANCIAL' | 'MANAGEMENT';
 
@@ -35,7 +36,9 @@ export interface TrialBalanceRow {
   closingCredit: string;
 }
 
-interface DimFilter extends Dimensions {}
+interface DimFilter extends Dimensions {
+  costCenterIds?: string[];
+}
 
 const DIM_COLUMNS: Record<keyof Dimensions, string> = {
   branchId: 'l.branch_id', costCenterId: 'l.cost_center_id', departmentId: 'l.department_id', projectId: 'l.project_id',
@@ -45,6 +48,11 @@ const DIM_COLUMNS: Record<keyof Dimensions, string> = {
 function dimWhere(f: DimFilter, params: unknown[]): string {
   const parts: string[] = [];
   for (const [k, col] of Object.entries(DIM_COLUMNS)) {
+    if (k === 'costCenterId' && f.costCenterIds?.length) {
+      params.push(f.costCenterIds);
+      parts.push(`l.cost_center_id = ANY($${params.length}::uuid[])`);
+      continue;
+    }
     const v = f[k as keyof Dimensions];
     if (!v) continue;
     params.push(v);
@@ -67,6 +75,17 @@ const split = (net: Decimal) => ({
 @Injectable()
 export class LedgerService {
   constructor(private readonly db: DbService) {}
+
+  private async resolveDimFilter<T extends DimFilter>(companyId: string, f: T): Promise<T> {
+    if (!f.costCenterId) return f;
+    const centers = await this.db.query<CostCenterMeta>(
+      `SELECT id, parent_id AS "parentId", code, name_ar AS "nameAr", cc_type AS "ccType", is_posting AS "isPosting", is_active AS "isActive"
+         FROM core.cost_centers WHERE company_id = $1`,
+      [companyId],
+    );
+    const ids = expandCostCenterTreeIds(f.costCenterId, centers);
+    return { ...f, costCenterIds: ids.length ? ids : [f.costCenterId] };
+  }
 
   private async loadAccountsAndMapping(companyId: string): Promise<{
     accounts: CoaAccountMeta[];
@@ -111,8 +130,9 @@ export class LedgerService {
     opts: { from: string; to: string; ledger?: Ledger; includeZero?: boolean } & DimFilter,
   ): Promise<{ rows: TrialBalanceRow[]; totals: Record<string, string>; balanced: boolean }> {
     if (opts.from > opts.to) throw new DomainError('INVALID_DATE_RANGE');
-    const params: unknown[] = [companyId, opts.from, opts.to, opts.ledger ?? 'FINANCIAL'];
-    const dims = dimWhere(opts, params);
+    const resolvedOpts = await this.resolveDimFilter(companyId, opts);
+    const params: unknown[] = [companyId, resolvedOpts.from, resolvedOpts.to, resolvedOpts.ledger ?? 'FINANCIAL'];
+    const dims = dimWhere(resolvedOpts, params);
     const sums = await this.db.query<{ account_id: string; opening: string; pd: string; pc: string }>(
       `SELECT l.account_id,
               COALESCE(SUM(CASE WHEN e.entry_date < $2 THEN l.debit_base - l.credit_base END), 0) AS opening,
@@ -204,11 +224,16 @@ export class LedgerService {
       [companyId, opts.accountId],
     );
     if (!acct) throw new NotFoundError('Account', opts.accountId);
-    const params: unknown[] = [companyId, acct.path, opts.from, opts.to, opts.ledger ?? 'FINANCIAL'];
-    const dims = dimWhere(opts, params);
+    const resolvedOpts = await this.resolveDimFilter(companyId, opts);
+    const params: unknown[] = [companyId, acct.path, resolvedOpts.from, resolvedOpts.to, resolvedOpts.ledger ?? 'FINANCIAL'];
+    const dims = dimWhere(resolvedOpts, params);
     const base = `FROM acc.journal_lines l
         JOIN acc.journal_entries e ON e.id = l.entry_id
         JOIN acc.accounts a ON a.id = l.account_id
+        LEFT JOIN core.cost_centers cc ON cc.id = l.cost_center_id
+        LEFT JOIN prj.projects p ON p.id = l.project_id
+        LEFT JOIN prj.clients cl ON cl.id = COALESCE(l.client_id, p.client_id)
+        LEFT JOIN hr.employees emp ON emp.id = l.employee_id
        WHERE l.company_id = $1 AND a.path <@ $2::ltree AND e.status = 'POSTED' AND e.ledger = $5
          AND e.entry_date <= $4::date AND $3::date IS NOT NULL${dims}`;
     const opening = await this.db.one<{ v: string }>(
@@ -226,7 +251,10 @@ export class LedgerService {
                 COALESCE(l.description, e.description) AS description, e.reference, a.code AS "accountCode", a.name_ar AS "accountNameAr",
                 l.line_no AS "lineNo", l.currency_code AS "currencyCode", l.exchange_rate AS "exchangeRate", l.debit_tx AS "debitTx",
                 l.credit_tx AS "creditTx", l.debit_base AS "debitBase", l.credit_base AS "creditBase",
-                l.project_id AS "projectId", l.employee_id AS "employeeId", l.cost_center_id AS "costCenterId", l.client_id AS "clientId",
+                l.project_id AS "projectId", p.name_ar AS "projectName",
+                l.employee_id AS "employeeId", emp.full_name_ar AS "employeeName",
+                l.cost_center_id AS "costCenterId", cc.code AS "costCenterCode", cc.name_ar AS "costCenterName",
+                l.client_id AS "clientId", cl.name_ar AS "clientName",
                 ($${params.length + 1}::numeric + SUM(l.debit_base - l.credit_base)
                    OVER (ORDER BY e.entry_date, e.entry_no, l.line_no ROWS UNBOUNDED PRECEDING)) AS "runningBalance",
                 ROW_NUMBER() OVER (ORDER BY e.entry_date, e.entry_no, l.line_no) AS rn
@@ -404,13 +432,14 @@ export class LedgerService {
     opts: { from: string; to: string; compareFrom?: string; compareTo?: string; ledger?: Ledger } & DimFilter,
   ) {
     if (opts.from > opts.to) throw new DomainError('INVALID_DATE_RANGE');
+    const resolvedOpts = await this.resolveDimFilter(companyId, opts);
     const ctx = await this.loadAccountsAndMapping(companyId);
-    const current = await this.computeSingleIncomeStatement(companyId, opts, ctx);
+    const current = await this.computeSingleIncomeStatement(companyId, resolvedOpts, ctx);
 
     if (opts.compareFrom && opts.compareTo) {
       const prev = await this.computeSingleIncomeStatement(
         companyId,
-        { ...opts, from: opts.compareFrom, to: opts.compareTo },
+        { ...resolvedOpts, from: opts.compareFrom, to: opts.compareTo },
         ctx,
       );
       const prevAccMap = new Map(prev.lines.map((l) => [l.accountId, D(l.amount)]));
@@ -617,9 +646,10 @@ export class LedgerService {
     asOfOrOpts: string | ({ asOf: string; compareAsOf?: string; ledger?: Ledger } & DimFilter),
     ledgerArg: Ledger = 'FINANCIAL',
   ) {
-    const opts = typeof asOfOrOpts === 'string'
+    const baseOpts = typeof asOfOrOpts === 'string'
       ? { asOf: asOfOrOpts, ledger: ledgerArg }
       : { ledger: ledgerArg, ...asOfOrOpts };
+    const opts = await this.resolveDimFilter(companyId, baseOpts);
     const ctx = await this.loadAccountsAndMapping(companyId);
     const current = await this.computeSingleBalanceSheet(companyId, opts, ctx);
 
@@ -837,11 +867,12 @@ export class LedgerService {
     opts: { from: string; to: string; compareFrom?: string; compareTo?: string; ledger?: Ledger } & DimFilter,
   ) {
     if (opts.from > opts.to) throw new DomainError('INVALID_DATE_RANGE');
+    const resolvedOpts = await this.resolveDimFilter(companyId, opts);
     const ctx = await this.loadAccountsAndMapping(companyId);
-    const current = await this.computeSingleCashFlow(companyId, opts, ctx);
+    const current = await this.computeSingleCashFlow(companyId, resolvedOpts, ctx);
 
     if (opts.compareFrom && opts.compareTo) {
-      const prev = await this.computeSingleCashFlow(companyId, { ...opts, from: opts.compareFrom, to: opts.compareTo }, ctx);
+      const prev = await this.computeSingleCashFlow(companyId, { ...resolvedOpts, from: opts.compareFrom, to: opts.compareTo }, ctx);
       return {
         ...current,
         comparative: {
@@ -1002,11 +1033,12 @@ export class LedgerService {
     opts: { from: string; to: string; compareFrom?: string; compareTo?: string; ledger?: Ledger } & DimFilter,
   ) {
     if (opts.from > opts.to) throw new DomainError('INVALID_DATE_RANGE');
+    const resolvedOpts = await this.resolveDimFilter(companyId, opts);
     const ctx = await this.loadAccountsAndMapping(companyId);
-    const current = await this.computeSingleEquityChanges(companyId, opts, ctx);
+    const current = await this.computeSingleEquityChanges(companyId, resolvedOpts, ctx);
 
     if (opts.compareFrom && opts.compareTo) {
-      const prev = await this.computeSingleEquityChanges(companyId, { ...opts, from: opts.compareFrom, to: opts.compareTo }, ctx);
+      const prev = await this.computeSingleEquityChanges(companyId, { ...resolvedOpts, from: opts.compareFrom, to: opts.compareTo }, ctx);
       return {
         ...current,
         comparative: {

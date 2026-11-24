@@ -1,11 +1,12 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
-import { listQuery, uuid } from '../../../shared/http/common';
+import { isoDate, listQuery, uuid } from '../../../shared/http/common';
 import { activeCompanyId } from '../../../shared/http/request';
 import { ZodPipe } from '../../../shared/http/zod.pipe';
 import { RequirePermission } from '../../iam/presentation/decorators';
 import {
   OverheadPolicyUpdate,
+  ProfitabilityFilter,
   RetroactiveAdjustmentCreate,
   RevenueRunCancel,
   RevenueRunCreate,
@@ -14,8 +15,22 @@ import {
 
 const idPipe = new ZodPipe(uuid);
 const listPipe = new ZodPipe(listQuery.passthrough());
+const optUuid = z.preprocess((v) => (v === '' || v === null ? undefined : v), uuid.optional());
+const optIso = z.preprocess((v) => (v === '' || v === null ? undefined : v), isoDate.optional());
 const periodQuery = new ZodPipe(z.object({ periodId: uuid }));
-const optPeriodQuery = new ZodPipe(z.object({ periodId: uuid.optional() }));
+const optPeriodQuery = new ZodPipe(z.object({ periodId: optUuid }));
+const profitabilityQuery = new ZodPipe(
+  z.object({
+    periodId: optUuid,
+    from: optIso,
+    to: optIso,
+    clientId: optUuid,
+    projectId: optUuid,
+    employeeId: optUuid,
+    costCenterId: optUuid,
+    departmentId: optUuid,
+  }),
+);
 
 @Controller('revenue-runs')
 export class RevenueRunsController {
@@ -70,20 +85,20 @@ export class ProfitabilityController {
 
   @Get('projects')
   @RequirePermission('cost.profitability.view')
-  projects(@Query(periodQuery) q: { periodId: string }) {
-    return this.svc.getProjectProfitability(activeCompanyId(), q.periodId);
+  projects(@Query(profitabilityQuery) q: ProfitabilityFilter) {
+    return this.svc.getProjectProfitability(activeCompanyId(), q);
   }
 
   @Get('employees')
   @RequirePermission('cost.profitability.view')
-  employees(@Query(periodQuery) q: { periodId: string }) {
-    return this.svc.getEmployeeProfitability(activeCompanyId(), q.periodId);
+  employees(@Query(profitabilityQuery) q: ProfitabilityFilter) {
+    return this.svc.getEmployeeProfitability(activeCompanyId(), q);
   }
 
   @Get('clients')
   @RequirePermission('cost.profitability.view')
-  clients(@Query(periodQuery) q: { periodId: string }) {
-    return this.svc.getClientProfitability(activeCompanyId(), q.periodId);
+  clients(@Query(profitabilityQuery) q: ProfitabilityFilter) {
+    return this.svc.getClientProfitability(activeCompanyId(), q);
   }
 }
 
@@ -93,8 +108,8 @@ export class ProjectProfitabilityController {
 
   @Get()
   @RequirePermission('cost.profitability.view')
-  get(@Query(periodQuery) q: { periodId: string }) {
-    return this.svc.getProjectProfitability(activeCompanyId(), q.periodId);
+  get(@Query(profitabilityQuery) q: ProfitabilityFilter) {
+    return this.svc.getProjectProfitability(activeCompanyId(), q);
   }
 }
 

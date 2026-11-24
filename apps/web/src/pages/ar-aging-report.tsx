@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Calendar, PieChart, Printer, RefreshCw, Search, ShieldAlert, Wallet
+  BarChart3, PieChart, Printer, RefreshCw, ShieldAlert, Wallet
 } from 'lucide-react';
+import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
-import { money, today } from '../lib/format';
+import { money } from '../lib/format';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { ExportEngine } from '../engine/export-engine';
@@ -32,15 +33,24 @@ export interface AgingBucketRow {
 export function AccountsReceivableAgingReportPage() {
   const qc = useQueryClient();
   const base = useBaseCurrency();
-  const [asOfDate, setAsOfDate] = useState(today());
+  const { filters, setFilters, resetAll } = useReportFilters({
+    syncUrl: true,
+    singleDateAsOf: true,
+  });
+  const asOfDate = filters.asOf;
+  const search = filters.search;
   const [riskFilter, setRiskFilter] = useState<'ALL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('ALL');
-  const [search, setSearch] = useState('');
   const [collectingInv, setCollectingInv] = useState<any | null>(null);
 
-  // Queries: Clients and Invoices
+  // Queries: Clients, Projects and Invoices
   const { data: clients = [], isLoading: isClientsLoading, error: clientsError, refetch } = useQuery({
     queryKey: ['ar-clients'],
     queryFn: () => api.get<any[]>('/clients', { pageSize: '100' }).then((r: any) => r.data || []),
+  });
+
+  const { data: projects = [] } = useQuery({
+    queryKey: ['ar-projects'],
+    queryFn: () => api.get<any[]>('/projects', { pageSize: '200' }).then((r: any) => r.data || []).catch(() => []),
   });
 
   const { data: invoices = [] } = useQuery({
@@ -51,10 +61,21 @@ export function AccountsReceivableAgingReportPage() {
   // Calculate Aging Data from real invoices strictly
   const agingData = useMemo<AgingBucketRow[]>(() => {
     const asOfMs = new Date(asOfDate).getTime();
+    const prjMap = new Map<string, any>(projects.map((p: any) => [p.id, p]));
+    const filteredClientsList = filters.clientId ? clients.filter((c: any) => c.id === filters.clientId) : clients;
 
-    return clients.map((cl: any, idx: number) => {
+    return filteredClientsList.map((cl: any, idx: number) => {
       const clientInvoices = invoices.filter(
-        (inv: any) => (inv.clientId === cl.id || inv.client_id === cl.id || inv.clientName === cl.nameAr) && inv.status !== 'CANCELLED' && inv.status !== 'DRAFT'
+        (inv: any) => {
+          if (inv.clientId !== cl.id && inv.client_id !== cl.id && inv.clientName !== cl.nameAr) return false;
+          if (inv.status === 'CANCELLED' || inv.status === 'DRAFT') return false;
+          if (filters.projectId && inv.projectId !== filters.projectId) return false;
+          if (filters.costCenterId) {
+            const cc = inv.costCenterId || (inv.projectId && prjMap.get(inv.projectId)?.costCenterId) || null;
+            if (cc !== filters.costCenterId) return false;
+          }
+          return true;
+        }
       );
 
       let current0to30 = 0;
@@ -287,56 +308,44 @@ export function AccountsReceivableAgingReportPage() {
       </div>
 
       {/* Filter and Date Strip */}
-      <div className="card p-4 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Calendar className="size-4 text-slate-500" />
-          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">تاريخ احتساب الاستحقاق (As of Date):</span>
-          <input
-            type="date"
-            className="input text-xs py-1.5 w-36 font-mono"
-            value={asOfDate}
-            onChange={(e) => setAsOfDate(e.target.value)}
-          />
-        </div>
-
-        {/* Search */}
-        <div className="flex-1 max-w-xs">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="ابحث باسم العميل أو الكود…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="input text-xs w-full ps-8 py-1.5"
-            />
-            <Search className="size-3.5 text-slate-400 absolute start-2.5 top-1/2 -translate-y-1/2" />
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onReset={resetAll}
+        showPeriod={false}
+        showDateRange
+        singleDateAsOf
+        showCostCenter
+        showClient
+        showProject
+        showEmployee={false}
+        showSearch
+        searchPlaceholder="ابحث باسم العميل أو الكود…"
+        extraRight={
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-slate-500 me-1">تصنيف المخاطر:</span>
+            {[
+              { id: 'ALL', label: 'كافة العملاء' },
+              { id: 'CRITICAL', label: 'متعثر (+90)' },
+              { id: 'HIGH', label: 'مخاطر عالية' },
+              { id: 'MEDIUM', label: 'متوسط' },
+              { id: 'LOW', label: 'منتظم' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setRiskFilter(tab.id as any)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                  riskFilter === tab.id
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-        </div>
-
-        {/* Risk Tabs */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-semibold text-slate-500 me-1">تصنيف المخاطر:</span>
-          {[
-            { id: 'ALL', label: 'كافة العملاء' },
-            { id: 'CRITICAL', label: 'متعثر (+90)' },
-            { id: 'HIGH', label: 'مخاطر عالية' },
-            { id: 'MEDIUM', label: 'متوسط' },
-            { id: 'LOW', label: 'منتظم' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setRiskFilter(tab.id as any)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                riskFilter === tab.id
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+        }
+      />
 
       {/* Main Table */}
       {isClientsLoading ? (

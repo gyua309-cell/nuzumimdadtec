@@ -6,6 +6,8 @@ import {
   Activity, AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, CheckCircle2, ChevronDown, ChevronLeft,
   Cloud, Coins, Command, Contrast, Database, FileText, Globe, Landmark, LayoutDashboard, Loader2, LogOut, Menu, Moon, Package,
   PanelRightClose, Plus, Search, Server, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet, X, Zap,
+  GitBranch,
+  PieChart,
 } from 'lucide-react';
 import { api, getApiBaseUrl, getCustomApiUrl, resetApiOfflineCache, setCustomApiUrl } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -159,6 +161,8 @@ export const PINNED_FAVORITES: Array<{
   { label: 'شجرة الحسابات', path: '/acc/accounts', icon: BookOpen, color: 'text-violet-500' },
   { label: 'قيود اليومية', path: '/acc/journals', icon: Landmark, color: 'text-cyan-500' },
   { label: 'ميزان المراجعة', path: '/reports/trial-balance', icon: BarChart3, color: 'text-amber-500' },
+  { label: 'مراكز التكلفة', path: '/reports/cost-centers', icon: GitBranch, color: 'text-indigo-500' },
+  { label: 'التقارير الموحدة', path: '/reports/hub', icon: PieChart, color: 'text-emerald-500' },
   { label: 'منصة زاتكا', path: '/zatca/hub', icon: ShieldCheck, color: 'text-rose-500' },
 ];
 
@@ -330,6 +334,8 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: BarChart3,
         color: 'purple',
         items: [
+          { to: '/reports/hub', label: 'مركز التقارير الموحد (كل المستويات)' },
+          { to: '/reports/cost-centers', label: 'تقرير مراكز التكلفة' },
           { to: '/reports/executive-intelligence', label: 'الرقابة والذكاء المالي' },
           { to: '/reports/employee-profitability', label: 'ربحية الكوادر' },
           { to: '/rev/profitability', label: 'ربحية المشاريع' },

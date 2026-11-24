@@ -1,25 +1,33 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Banknote, Calendar, Users
+  Banknote, Users
 } from 'lucide-react';
 import { ExportMenu } from '../components/ExportMenu';
+import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
-import { date, downloadCsv, money, today } from '../lib/format';
+import { downloadCsv, money, today } from '../lib/format';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { Badge, EmptyState, ErrorState, Loading, PageHeader, useToast } from '../components/ui';
 
 export function MultiCurrencyPayrollReportPage() {
   const toast = useToast();
   const base = useBaseCurrency();
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
+  const { filters, setFilters, resetAll } = useReportFilters({
+    syncUrl: true,
+  });
+  const selectedPeriodId = filters.periodId;
   const [currencyFilter, setCurrencyFilter] = useState<'ALL' | 'SAR' | 'EGP'>('ALL');
 
-  // Query: Fiscal periods
+  // Query: Fiscal periods & Employees for dimension matching
   const { data: periods = [] } = useQuery({
     queryKey: ['fiscal-periods'],
     queryFn: () => api.get<any[]>('/fiscal-periods').then((r: any) => r || []),
+  });
+  const { data: employees = [] } = useQuery({
+    queryKey: ['mc-payroll-emps'],
+    queryFn: () => api.get<any>('/employees?pageSize=200').then((r: any) => (Array.isArray(r) ? r : r?.data || [])),
   });
 
   // Default to first open or recent period
@@ -30,16 +38,13 @@ export function MultiCurrencyPayrollReportPage() {
     queryKey: ['payroll-runs-report', activePeriodId],
     queryFn: async () => {
       if (!activePeriodId) return null;
-      // Fetch latest posted or draft run for this period
       const runs = await api.get<any>('/payroll-runs', { pageSize: '50' }).catch(() => []);
       const runList = Array.isArray(runs) ? runs : (Array.isArray(runs?.data) ? runs.data : []);
       const run = runList.find((r: any) => r.fiscalPeriodId === activePeriodId && r.status !== 'CANCELLED') || runList[0];
       if (!run) {
-        // Return preview lines if no run exists
         const prev = await api.get<any>(`/payroll-runs/preview?periodId=${activePeriodId}`).catch(() => ({ lines: [] }));
         return { isPreview: true, ...prev };
       }
-      // Fetch detailed run with lines
       const detailed = await api.get<any>(`/payroll-runs/${run.id}`).catch(() => ({ lines: [] }));
       return { isPreview: false, ...detailed };
     },
@@ -48,11 +53,26 @@ export function MultiCurrencyPayrollReportPage() {
 
   const lines = Array.isArray(runsData?.lines) ? runsData.lines : (Array.isArray(runsData?.entries) ? runsData.entries : []);
 
-  // Filter lines by payout currency if selected
+  // Filter lines by currency, employee, cost center, department & search
   const filteredLines = useMemo(() => {
-    if (currencyFilter === 'ALL') return lines;
-    return lines.filter((l: any) => (l.payoutCurrency || l.contractCurrency || base).toUpperCase() === currencyFilter);
-  }, [lines, currencyFilter, base]);
+    const empMap = new Map(employees.map((e: any) => [e.id, e]));
+    const q = (filters.search || '').trim().toLowerCase();
+    return lines.filter((l: any) => {
+      if (currencyFilter !== 'ALL' && (l.payoutCurrency || l.contractCurrency || base).toUpperCase() !== currencyFilter) {
+        return false;
+      }
+      if (filters.employeeId && l.employeeId !== filters.employeeId) return false;
+      const emp: any = empMap.get(l.employeeId);
+      if (filters.departmentId && emp && emp.departmentId !== filters.departmentId) return false;
+      if (filters.costCenterId && emp && (emp.costCenterId || emp.placement?.costCenterId) !== filters.costCenterId) return false;
+      if (q) {
+        const name = String(l.employeeName || emp?.fullNameAr || '').toLowerCase();
+        const code = String(l.employeeCode || emp?.code || '').toLowerCase();
+        if (!name.includes(q) && !code.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [lines, currencyFilter, base, employees, filters.employeeId, filters.departmentId, filters.costCenterId, filters.search]);
 
   // Aggregate Totals
   const totals = useMemo(() => {
@@ -147,55 +167,50 @@ export function MultiCurrencyPayrollReportPage() {
         }
       />
 
-      {/* Period Selection & Filter Strip */}
-      <div className="card p-4 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Calendar className="size-4 text-amber-500" />
-          <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200">فترة مسيّر الرواتب:</span>
-          <select
-            className="input text-xs py-1.5 w-64 font-bold"
-            value={activePeriodId}
-            onChange={(e) => setSelectedPeriodId(e.target.value)}
-          >
-            {periods.map((p: any) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({date(p.startDate)} إلى {date(p.endDate)})
-              </option>
-            ))}
-          </select>
-
-          {runsData?.status && (
-            <Badge color={runsData.status === 'POSTED' ? 'green' : 'amber'}>
-              {runsData.status === 'POSTED' ? 'مسير معتمد ومرحل' : 'مسودة قيد المراجعة'}
-            </Badge>
-          )}
-          {runsData?.journalEntryId && (
-            <JournalLinkBadge entryId={runsData.journalEntryId} entryNo={runsData.journalEntryNo} labelPrefix="قيد الاستحقاق" compact />
-          )}
-        </div>
-
-        {/* Currency Filter Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 me-2">تصفية حسب عملة الصرف:</span>
-          {[
-            { id: 'ALL', label: `كافة الرواتب (${totals.totalCount})` },
-            { id: 'SAR', label: `صرف بالريال (${totals.sarCount})` },
-            { id: 'EGP', label: `صرف بالجنيه (${totals.egpCount})` },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setCurrencyFilter(tab.id as any)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                currencyFilter === tab.id
-                  ? 'bg-amber-500 text-slate-950 shadow-2xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#080d1a] dark:text-slate-300 dark:hover:bg-slate-800'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Multi-Dimensional Filter Strip */}
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onReset={resetAll}
+        showPeriod
+        showDateRange={false}
+        showCostCenter
+        showEmployee
+        showDepartment
+        showSearch
+        searchPlaceholder="ابحث بكود أو اسم الموظف..."
+        extraRight={
+          <div className="flex flex-wrap items-center gap-2">
+            {runsData?.status && (
+              <Badge color={runsData.status === 'POSTED' ? 'green' : 'amber'}>
+                {runsData.status === 'POSTED' ? 'مسير معتمد ومرحل' : 'مسودة قيد المراجعة'}
+              </Badge>
+            )}
+            {runsData?.journalEntryId && (
+              <JournalLinkBadge entryId={runsData.journalEntryId} entryNo={runsData.journalEntryNo} labelPrefix="قيد الاستحقاق" compact />
+            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { id: 'ALL', label: `كافة الرواتب (${totals.totalCount})` },
+                { id: 'SAR', label: `صرف بالريال (${totals.sarCount})` },
+                { id: 'EGP', label: `صرف بالجنيه (${totals.egpCount})` },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setCurrencyFilter(tab.id as any)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                    currencyFilter === tab.id
+                      ? 'bg-amber-500 text-slate-950 shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#080d1a] dark:text-slate-300 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        }
+      />
 
       {isLoading ? (
         <div className="p-12 text-center"><Loading /></div>

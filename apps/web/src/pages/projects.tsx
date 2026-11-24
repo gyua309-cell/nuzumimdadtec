@@ -61,6 +61,8 @@ const projectFormFields: FieldDef[] = [
   { name: 'startDate', label: 'تاريخ البداية', type: 'date', section: 'الجدول الزمني والربحية' },
   { name: 'endDate', label: 'تاريخ النهاية المتوقعة', type: 'date', section: 'الجدول الزمني والربحية' },
   { name: 'requiredMarginPct', label: 'الهامش المستهدف %', type: 'decimal', min: 0, max: 100, hint: 'نسبة الربحية المطلوبة. مثال: 30 تعني 30%', section: 'الجدول الزمني والربحية' },
+  { name: 'costCenterId', label: 'مركز التكلفة', type: 'ref', ref: REF.costCenter, section: 'التنظيم والربط المحاسبي', hint: 'يربط قيود وإيرادات ومصاريف المشروع بمركز التكلفة مباشرة' },
+  { name: 'branchId', label: 'الفرع', type: 'ref', ref: REF.branch, section: 'التنظيم والربط المحاسبي' },
   { name: 'notes', label: 'ملاحظات', type: 'textarea', section: 'ملاحظات إضافية', sectionCollapsible: true },
 ];
 

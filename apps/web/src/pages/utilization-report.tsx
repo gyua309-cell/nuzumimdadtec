@@ -17,7 +17,6 @@ import {
   Lightbulb,
   PieChart,
   Plus,
-  Search,
   Sparkles,
   Target,
   TrendingUp,
@@ -25,13 +24,14 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
+import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { api } from '../lib/api';
 import { date, money, today } from '../lib/format';
 import { useBaseCurrency } from '../lib/auth';
 import { ExportMenu } from '../components/ExportMenu';
 import { ExportColumnDef } from '../engine/export-engine';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
-import { FormModal, PeriodSelect, REF } from '../components/forms';
+import { FormModal, REF } from '../components/forms';
 import { FieldDef } from '../components/CrudPage';
 import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat, useToast } from '../components/ui';
 
@@ -209,9 +209,12 @@ export function UtilizationPage() {
   const qc = useQueryClient();
   const baseCurrency = useBaseCurrency() || 'SAR';
 
-  const [periodId, setPeriodId] = useState('');
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+  });
+  const periodId = filters.periodId;
+  const searchQuery = filters.search;
   const [tierFilter, setTierFilter] = useState<'ALL' | UtilizationTier>('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
   const [deptFilter, setDeptFilter] = useState('ALL');
   const [projectFilter, setProjectFilter] = useState('ALL');
   const [expandedEmpIds, setExpandedEmpIds] = useState<Record<string, boolean>>({});
@@ -231,15 +234,21 @@ export function UtilizationPage() {
   }, [periodsQ.data]);
 
   useEffect(() => {
-    if (!periodId && periodList.length > 0) {
+    if (!periodId && !filters.from && !filters.to && periodList.length > 0) {
       const t = today();
       const current =
         periodList.find((p) => !p.isAdjustmentPeriod && p.startDate <= t && p.endDate >= t) ||
         periodList.find((p) => p.status === 'OPEN') ||
         periodList[0];
-      if (current?.id) setPeriodId(current.id);
+      if (current?.id) {
+        setFilters({
+          periodId: current.id,
+          from: String(current.startDate).slice(0, 10),
+          to: String(current.endDate).slice(0, 10),
+        });
+      }
     }
-  }, [periodId, periodList]);
+  }, [periodId, filters.from, filters.to, periodList, setFilters]);
 
   const activePeriod = useMemo(
     () => periodList.find((p) => p.id === periodId) || null,
@@ -248,9 +257,9 @@ export function UtilizationPage() {
 
   // Primary live query
   const report = useQuery({
-    queryKey: ['utilization', periodId],
-    enabled: !!periodId,
-    queryFn: () => api.get<any>('/assignments/utilization', { periodId }),
+    queryKey: ['utilization', periodId, queryParams],
+    enabled: Boolean(periodId || queryParams.from || queryParams.to),
+    queryFn: () => api.get<any>('/assignments/utilization', { ...queryParams, ...(periodId ? { periodId } : {}) }),
   });
 
   // Normalize rows from both fallback-engine & NestJS backend
@@ -373,23 +382,6 @@ export function UtilizationPage() {
       };
     });
   }, [report.data, activePeriod, baseCurrency]);
-
-  // Distinct departments & projects for filter dropdowns
-  const departmentOptions = useMemo(
-    () => Array.from(new Set(allRows.map((r) => r.departmentName).filter(Boolean))),
-    [allRows],
-  );
-  const projectOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of allRows) {
-      for (const p of r.projects) {
-        if (p.projectId) {
-          map.set(p.projectId, `${p.projectCode ? `${p.projectCode} — ` : ''}${p.projectName}`);
-        }
-      }
-    }
-    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
-  }, [allRows]);
 
   // Filtered rows
   const filteredRows = useMemo(() => {
@@ -782,60 +774,28 @@ export function UtilizationPage() {
         }
       />
 
-      {/* 2. Period, Tier Tabs & Filters Command Bar */}
+      {/* 2. Period, Multi-Dimensional Filters & Tier Tabs Command Bar */}
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onReset={() => {
+          resetAll();
+          setTierFilter('ALL');
+          setDeptFilter('ALL');
+          setProjectFilter('ALL');
+        }}
+        showPeriod
+        showDateRange
+        showCostCenter
+        showClient
+        showProject
+        showEmployee
+        showDepartment
+        showSearch
+        searchPlaceholder="اسم موظف، مشروع، عميل..."
+      />
+
       <div className="card p-4 space-y-3.5">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-          <div className="md:col-span-3">
-            <label className="label">الفترة المالية</label>
-            <PeriodSelect value={periodId} onChange={setPeriodId} />
-          </div>
-
-          <div className="md:col-span-3">
-            <label className="label">القسم / الإدارة</label>
-            <select
-              className="input"
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-            >
-              <option value="ALL">جميع الأقسام ({departmentOptions.length})</option>
-              {departmentOptions.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="md:col-span-3">
-            <label className="label">المشروع التعاقدي</label>
-            <select
-              className="input"
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-            >
-              <option value="ALL">جميع المشاريع ({projectOptions.length})</option>
-              {projectOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="md:col-span-3">
-            <label className="label">بحث فوري</label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-              <input
-                type="text"
-                className="input ps-9"
-                placeholder="اسم موظف، مشروع، عميل..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
 
         {/* Tier Segmented Tabs with Live Counters */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
@@ -1088,13 +1048,13 @@ export function UtilizationPage() {
                     : 'لا يوجد موظفون مطابقون لمعايير التصفية المختارة.'
                 }
                 action={
-                  tierFilter !== 'ALL' || searchQuery || deptFilter !== 'ALL' || projectFilter !== 'ALL' ? (
+                  tierFilter !== 'ALL' || searchQuery || filters.costCenterId || filters.clientId || filters.projectId || filters.employeeId || filters.departmentId || deptFilter !== 'ALL' || projectFilter !== 'ALL' ? (
                     <button
                       type="button"
                       className="btn-secondary text-xs"
                       onClick={() => {
+                        resetAll();
                         setTierFilter('ALL');
-                        setSearchQuery('');
                         setDeptFilter('ALL');
                         setProjectFilter('ALL');
                       }}

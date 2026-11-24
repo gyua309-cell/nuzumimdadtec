@@ -66,6 +66,116 @@ export type AccountStatementSection =
 
 export type CashFlowCategory = 'CASH' | 'OPERATING' | 'INVESTING' | 'FINANCING' | 'NON_CASH';
 
+export interface DimensionFilterParams {
+  branchId?: string;
+  costCenterId?: string;
+  departmentId?: string;
+  projectId?: string;
+  clientId?: string;
+  employeeId?: string;
+  ledger?: string;
+}
+
+export const DEFAULT_LOCAL_COST_CENTERS = [
+  { id: 'cc-ops', code: 'CC-OPS', nameAr: 'قطاع العمليات والتشغيل والتنفيذ', nameEn: 'Operations & Delivery Sector', ccType: 'DIRECT', isPosting: false, isActive: true, parentId: null },
+  { id: 'cc-del', code: 'CC-DEL', nameAr: 'مركز تكلفة التسليم والمشاريع', nameEn: 'Project Delivery Center', ccType: 'DIRECT', isPosting: true, isActive: true, parentId: 'cc-ops' },
+  { id: 'cc-rnd', code: 'CC-RND', nameAr: 'مركز تكلفة البحوث والتطوير R&D', nameEn: 'R&D & Innovation Center', ccType: 'INDIRECT', isPosting: true, isActive: true, parentId: 'cc-ops' },
+  { id: 'cc-adm', code: 'CC-ADM', nameAr: 'الإدارة العامة والخدمات المشتركة', nameEn: 'General & Admin Center', ccType: 'ADMIN', isPosting: true, isActive: true, parentId: null },
+];
+
+export function getLocalCostCenters(): any[] {
+  return getEntityList<any>('cost_centers', DEFAULT_LOCAL_COST_CENTERS);
+}
+
+export function expandLocalCostCenterIds(rootId?: string | null): Set<string> | null {
+  if (!rootId) return null;
+  const centers = getLocalCostCenters();
+  const childrenMap = new Map<string, string[]>();
+  for (const c of centers) {
+    if (c.parentId) {
+      const list = childrenMap.get(c.parentId) ?? [];
+      list.push(c.id);
+      childrenMap.set(c.parentId, list);
+    }
+  }
+  const out = new Set<string>();
+  const stack = [rootId];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    if (out.has(cur)) continue;
+    out.add(cur);
+    for (const ch of childrenMap.get(cur) ?? []) stack.push(ch);
+  }
+  return out;
+}
+
+export function createLineDimResolver() {
+  const centers = getLocalCostCenters();
+  const prjs = getEntityList<any>('projects', []);
+  const emps = getEntityList<any>('employees', []);
+  const depts = getEntityList<any>('departments', []);
+  const clients = getEntityList<any>('clients', []);
+
+  const ccById = new Map(centers.map((c: any) => [c.id, c]));
+  const prjById = new Map(prjs.map((p: any) => [p.id, p]));
+  const prjByCode = new Map(prjs.map((p: any) => [p.code, p]));
+  const empById = new Map(emps.map((e: any) => [e.id, e]));
+  const empByCode = new Map(emps.map((e: any) => [e.code, e]));
+  const deptById = new Map(depts.map((d: any) => [d.id, d]));
+  const cliById = new Map(clients.map((c: any) => [c.id, c]));
+
+  return (l: any) => {
+    const prj = (l.projectId && (prjById.get(l.projectId) || prjByCode.get(l.projectId))) || null;
+    const emp = (l.employeeId && (empById.get(l.employeeId) || empByCode.get(l.employeeId))) || null;
+    const departmentId = l.departmentId || emp?.departmentId || emp?.placement?.departmentId || null;
+    const dept = departmentId ? deptById.get(departmentId) : null;
+    const costCenterId = l.costCenterId || prj?.costCenterId || emp?.costCenterId || emp?.placement?.costCenterId || dept?.defaultCostCenterId || null;
+    const cc = costCenterId ? ccById.get(costCenterId) : null;
+    const clientId = l.clientId || prj?.clientId || null;
+    const cli = clientId ? cliById.get(clientId) : null;
+    const branchId = l.branchId || prj?.branchId || emp?.branchId || emp?.placement?.branchId || dept?.branchId || null;
+    const projectId = prj?.id || l.projectId || null;
+    const employeeId = emp?.id || l.employeeId || null;
+
+    return {
+      branchId,
+      departmentId,
+      costCenterId,
+      costCenterCode: cc?.code || null,
+      costCenterName: cc?.nameAr || l.costCenterName || null,
+      projectId,
+      projectCode: prj?.code || l.projectCode || null,
+      projectName: prj?.nameAr || l.projectName || null,
+      clientId,
+      clientCode: cli?.code || null,
+      clientName: cli?.nameAr || prj?.clientName || l.clientName || null,
+      employeeId,
+      employeeCode: emp?.code || null,
+      employeeName: emp?.fullNameAr || l.employeeName || null,
+    };
+  };
+}
+
+export function createLineDimMatcher(params: DimensionFilterParams) {
+  const needsDim = Boolean(
+    params.branchId || params.costCenterId || params.departmentId || params.projectId || params.clientId || params.employeeId,
+  );
+  if (!needsDim) return () => true;
+  const ccSet = expandLocalCostCenterIds(params.costCenterId);
+  const resolve = createLineDimResolver();
+
+  return (l: any): boolean => {
+    const d = resolve(l);
+    if (params.branchId && d.branchId !== params.branchId) return false;
+    if (ccSet && (!d.costCenterId || !ccSet.has(d.costCenterId))) return false;
+    if (params.departmentId && d.departmentId !== params.departmentId) return false;
+    if (params.projectId && d.projectId !== params.projectId) return false;
+    if (params.clientId && d.clientId !== params.clientId) return false;
+    if (params.employeeId && d.employeeId !== params.employeeId) return false;
+    return true;
+  };
+}
+
 export const BS_SECTIONS = new Set<string>([
   'CURRENT_ASSETS',
   'NON_CURRENT_ASSETS',
@@ -815,12 +925,12 @@ export function deleteLocalAccount(id: string, allAccounts: any[]) {
 export function computeDynamicTrialBalance(
   accounts: any[],
   postedJournals: any[],
-  params: { from?: string; to?: string; ledger?: string; branchId?: string; includeZero?: boolean } = {},
+  params: { from?: string; to?: string; ledger?: string; includeZero?: boolean } & DimensionFilterParams = {},
 ) {
   const from = params.from || `${new Date().getFullYear()}-01-01`;
   const to = params.to || new Date().toISOString().slice(0, 10);
   const ledger = params.ledger || 'FINANCIAL';
-  const branchId = params.branchId || '';
+  const dimMatch = createLineDimMatcher(params);
 
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const byCode = new Map(accounts.map((a) => [a.code, a]));
@@ -829,11 +939,11 @@ export function computeDynamicTrialBalance(
   const leafAgg = new Map<string, { opening: number; pd: number; pc: number }>();
   for (const je of postedJournals) {
     if (je.status !== 'POSTED') continue;
-    if (ledger && je.ledger && je.ledger !== ledger) continue;
+    if (ledger && ledger !== 'ALL' && je.ledger && je.ledger !== ledger) continue;
     if (String(je.entryDate) > to) continue;
     const isOpening = String(je.entryDate) < from;
     for (const l of (je.lines || [])) {
-      if (branchId && l.branchId !== branchId) continue;
+      if (!dimMatch(l)) continue;
       const acc = byId.get(l.accountId) || byCode.get(l.accountCode);
       if (!acc) continue;
       const prev = leafAgg.get(acc.id) || { opening: 0, pd: 0, pc: 0 };
@@ -931,10 +1041,13 @@ export function computeDynamicTrialBalance(
 export function computeDynamicAccountStatement(
   accounts: any[],
   postedJournals: any[],
-  params: { accountId?: string; from?: string; to?: string; branchId?: string },
+  params: { accountId?: string; from?: string; to?: string; ledger?: string } & DimensionFilterParams,
 ) {
   const from = params.from || `${new Date().getFullYear()}-01-01`;
   const to = params.to || new Date().toISOString().slice(0, 10);
+  const ledger = params.ledger || '';
+  const dimMatch = createLineDimMatcher(params);
+  const dimResolve = createLineDimResolver();
   const acc = accounts.find((a) => a.id === params.accountId || a.code === params.accountId) || accounts[0];
   if (!acc) {
     return { account: null, openingBalance: '0.00', closingBalance: '0.00', periodDebit: '0.00', periodCredit: '0.00', lines: [], data: [], meta: { page: 1, pageSize: 100, total: 0 } };
@@ -959,7 +1072,7 @@ export function computeDynamicAccountStatement(
 
   const isDebitNormal = acc.normalBalance !== 'CREDIT';
   const sortedJes = [...postedJournals]
-    .filter((j) => j.status === 'POSTED')
+    .filter((j) => j.status === 'POSTED' && (!ledger || ledger === 'ALL' || !j.ledger || j.ledger === ledger))
     .sort((a, b) => String(a.entryDate).localeCompare(String(b.entryDate)) || String(a.entryNo || '').localeCompare(String(b.entryNo || '')));
 
   let opening = 0;
@@ -971,7 +1084,7 @@ export function computeDynamicAccountStatement(
   for (const je of sortedJes) {
     if (String(je.entryDate) > to) continue;
     for (const l of (je.lines || [])) {
-      if (params.branchId && l.branchId !== params.branchId) continue;
+      if (!dimMatch(l)) continue;
       if (!includedIds.has(l.accountId) && !includedCodes.has(l.accountCode)) continue;
       const dr = Number(l.debitBase || 0);
       const cr = Number(l.creditBase || 0);
@@ -982,6 +1095,7 @@ export function computeDynamicAccountStatement(
         periodDebit += dr;
         periodCredit += cr;
         const running = opening + (isDebitNormal ? (periodDebit - periodCredit) : (periodCredit - periodDebit));
+        const d = dimResolve(l);
         statementLines.push({
           entryId: je.id,
           entryNo: je.entryNo,
@@ -997,6 +1111,17 @@ export function computeDynamicAccountStatement(
           debitBase: l.debitBase,
           creditBase: l.creditBase,
           runningBalance: running.toFixed(2),
+          projectId: d.projectId,
+          projectName: d.projectName,
+          clientId: d.clientId,
+          clientName: d.clientName,
+          employeeId: d.employeeId,
+          employeeName: d.employeeName,
+          costCenterId: d.costCenterId,
+          costCenterCode: d.costCenterCode,
+          costCenterName: d.costCenterName,
+          branchId: d.branchId,
+          departmentId: d.departmentId,
         });
       }
     }
@@ -1022,17 +1147,19 @@ function computeSingleLocalIncomeStatement(
   postedJournals: any[],
   statementLines: any[],
   reclassifications: any[],
-  params: { from: string; to: string; branchId?: string },
+  params: { from: string; to: string } & DimensionFilterParams,
 ) {
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const byCode = new Map(accounts.map((a) => [a.code, a]));
+  const dimMatch = createLineDimMatcher(params);
 
   const sums = new Map<string, { dr: number; cr: number }>();
   for (const je of postedJournals) {
     if (je.status !== 'POSTED' || je.journalType === 'CLOSING') continue;
+    if (params.ledger && params.ledger !== 'ALL' && je.ledger && je.ledger !== params.ledger) continue;
     if (String(je.entryDate) < params.from || String(je.entryDate) > params.to) continue;
     for (const l of (je.lines || [])) {
-      if (params.branchId && l.branchId !== params.branchId) continue;
+      if (!dimMatch(l)) continue;
       const acc = byId.get(l.accountId) || byCode.get(l.accountCode);
       if (!acc || !acc.isPosting) continue;
       const prev = sums.get(acc.id) || { dr: 0, cr: 0 };
@@ -1145,16 +1272,16 @@ function computeSingleLocalIncomeStatement(
 export function computeDynamicIncomeStatement(
   accounts: any[],
   postedJournals: any[],
-  params: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string } = {},
+  params: { from?: string; to?: string; compareFrom?: string; compareTo?: string } & DimensionFilterParams = {},
 ) {
   const from = params.from || `${new Date().getFullYear()}-01-01`;
   const to = params.to || new Date().toISOString().slice(0, 10);
   const slList = getStatementLines();
   const reclass = getReclassifications();
-  const current = computeSingleLocalIncomeStatement(accounts, postedJournals, slList, reclass, { from, to, branchId: params.branchId });
+  const current = computeSingleLocalIncomeStatement(accounts, postedJournals, slList, reclass, { ...params, from, to });
 
   if (params.compareFrom && params.compareTo) {
-    const prev = computeSingleLocalIncomeStatement(accounts, postedJournals, slList, reclass, { from: params.compareFrom, to: params.compareTo, branchId: params.branchId });
+    const prev = computeSingleLocalIncomeStatement(accounts, postedJournals, slList, reclass, { ...params, from: params.compareFrom, to: params.compareTo });
     const prevAcc = new Map(prev.lines.map((l: any) => [l.accountId, Number(l.amount)]));
     const prevSec = new Map(prev.sections.map((s: any) => [s.statementLineId || s.sectionCode, Number(s.total)]));
     return {
@@ -1190,16 +1317,18 @@ function computeSingleLocalBalanceSheet(
   postedJournals: any[],
   statementLines: any[],
   reclassifications: any[],
-  params: { asOf: string; branchId?: string },
+  params: { asOf: string } & DimensionFilterParams,
 ) {
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const byCode = new Map(accounts.map((a) => [a.code, a]));
+  const dimMatch = createLineDimMatcher(params);
 
   const sums = new Map<string, { dr: number; cr: number }>();
   for (const je of postedJournals) {
     if (je.status !== 'POSTED' || String(je.entryDate) > params.asOf) continue;
+    if (params.ledger && params.ledger !== 'ALL' && je.ledger && je.ledger !== params.ledger) continue;
     for (const l of (je.lines || [])) {
-      if (params.branchId && l.branchId !== params.branchId) continue;
+      if (!dimMatch(l)) continue;
       const acc = byId.get(l.accountId) || byCode.get(l.accountCode);
       if (!acc || !acc.isPosting) continue;
       const prev = sums.get(acc.id) || { dr: 0, cr: 0 };
@@ -1325,15 +1454,15 @@ function computeSingleLocalBalanceSheet(
 export function computeDynamicBalanceSheet(
   accounts: any[],
   postedJournals: any[],
-  params: { asOf?: string; compareAsOf?: string; branchId?: string } = {},
+  params: { asOf?: string; compareAsOf?: string } & DimensionFilterParams = {},
 ) {
   const asOf = params.asOf || new Date().toISOString().slice(0, 10);
   const slList = getStatementLines();
   const reclass = getReclassifications();
-  const current = computeSingleLocalBalanceSheet(accounts, postedJournals, slList, reclass, { asOf, branchId: params.branchId });
+  const current = computeSingleLocalBalanceSheet(accounts, postedJournals, slList, reclass, { ...params, asOf });
 
   if (params.compareAsOf) {
-    const prev = computeSingleLocalBalanceSheet(accounts, postedJournals, slList, reclass, { asOf: params.compareAsOf, branchId: params.branchId });
+    const prev = computeSingleLocalBalanceSheet(accounts, postedJournals, slList, reclass, { ...params, asOf: params.compareAsOf });
     const prevAcc = new Map<string, number>();
     for (const s of prev.sections) for (const a of s.accounts) prevAcc.set(a.accountId, Number(a.amount));
     const prevSec = new Map(prev.sections.map((s: any) => [s.statementLineId || s.sectionCode, Number(s.total)]));
@@ -1370,10 +1499,11 @@ function computeSingleLocalCashFlow(
   accounts: any[],
   postedJournals: any[],
   reclassifications: any[],
-  params: { from: string; to: string; branchId?: string },
+  params: { from: string; to: string } & DimensionFilterParams,
 ) {
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const byCode = new Map(accounts.map((a) => [a.code, a]));
+  const dimMatch = createLineDimMatcher(params);
   const cashIds = new Set<string>();
   const cfCat = new Map<string, string>();
 
@@ -1395,8 +1525,9 @@ function computeSingleLocalCashFlow(
 
   for (const je of postedJournals) {
     if (je.status !== 'POSTED' || String(je.entryDate) > params.to) continue;
+    if (params.ledger && params.ledger !== 'ALL' && je.ledger && je.ledger !== params.ledger) continue;
     const eLines = (je.lines || [])
-      .filter((l: any) => !params.branchId || l.branchId === params.branchId)
+      .filter((l: any) => dimMatch(l))
       .map((l: any) => ({ ...l, resolvedAcc: byId.get(l.accountId) || byCode.get(l.accountCode) }))
       .filter((l: any) => l.resolvedAcc);
 
@@ -1518,15 +1649,15 @@ function computeSingleLocalCashFlow(
 export function computeDynamicCashFlowStatement(
   accounts: any[],
   postedJournals: any[],
-  params: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string } = {},
+  params: { from?: string; to?: string; compareFrom?: string; compareTo?: string } & DimensionFilterParams = {},
 ) {
   const from = params.from || `${new Date().getFullYear()}-01-01`;
   const to = params.to || new Date().toISOString().slice(0, 10);
   const reclass = getReclassifications();
-  const current = computeSingleLocalCashFlow(accounts, postedJournals, reclass, { from, to, branchId: params.branchId });
+  const current = computeSingleLocalCashFlow(accounts, postedJournals, reclass, { ...params, from, to });
 
   if (params.compareFrom && params.compareTo) {
-    const prev = computeSingleLocalCashFlow(accounts, postedJournals, reclass, { from: params.compareFrom, to: params.compareTo, branchId: params.branchId });
+    const prev = computeSingleLocalCashFlow(accounts, postedJournals, reclass, { ...params, from: params.compareFrom, to: params.compareTo });
     return {
       ...current,
       comparative: {
@@ -1550,10 +1681,11 @@ function computeSingleLocalEquityChanges(
   accounts: any[],
   postedJournals: any[],
   reclassifications: any[],
-  params: { from: string; to: string; branchId?: string },
+  params: { from: string; to: string } & DimensionFilterParams,
 ) {
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const byCode = new Map(accounts.map((a) => [a.code, a]));
+  const dimMatch = createLineDimMatcher(params);
   const equityAccounts = accounts.filter(
     (a) => a.isPosting && resolveLocalEffectiveClassification(a, params.to, reclassifications).statementSection === 'EQUITY',
   );
@@ -1574,8 +1706,9 @@ function computeSingleLocalEquityChanges(
 
   for (const je of postedJournals) {
     if (je.status !== 'POSTED' || String(je.entryDate) > params.to) continue;
+    if (params.ledger && params.ledger !== 'ALL' && je.ledger && je.ledger !== params.ledger) continue;
     for (const l of (je.lines || [])) {
-      if (params.branchId && l.branchId !== params.branchId) continue;
+      if (!dimMatch(l)) continue;
       const acc = byId.get(l.accountId) || byCode.get(l.accountCode);
       if (!acc || !acc.isPosting) continue;
       const eff = resolveLocalEffectiveClassification(acc, params.to, reclassifications);
@@ -1653,15 +1786,15 @@ function computeSingleLocalEquityChanges(
 export function computeDynamicEquityChangesStatement(
   accounts: any[],
   postedJournals: any[],
-  params: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string } = {},
+  params: { from?: string; to?: string; compareFrom?: string; compareTo?: string } & DimensionFilterParams = {},
 ) {
   const from = params.from || `${new Date().getFullYear()}-01-01`;
   const to = params.to || new Date().toISOString().slice(0, 10);
   const reclass = getReclassifications();
-  const current = computeSingleLocalEquityChanges(accounts, postedJournals, reclass, { from, to, branchId: params.branchId });
+  const current = computeSingleLocalEquityChanges(accounts, postedJournals, reclass, { ...params, from, to });
 
   if (params.compareFrom && params.compareTo) {
-    const prev = computeSingleLocalEquityChanges(accounts, postedJournals, reclass, { from: params.compareFrom, to: params.compareTo, branchId: params.branchId });
+    const prev = computeSingleLocalEquityChanges(accounts, postedJournals, reclass, { ...params, from: params.compareFrom, to: params.compareTo });
     return {
       ...current,
       comparative: {

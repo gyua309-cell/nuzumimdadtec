@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactECharts from 'echarts-for-react';
 import {
-  Activity, ArrowLeftRight, ArrowUpRight, BarChart3, Briefcase, Building2, Calendar,
+  Activity, ArrowUpRight, BarChart3, Briefcase, Building2, Calendar,
   CheckCircle2, ChevronDown, ChevronLeft, Clock, DollarSign, FileText,
   HelpCircle, Landmark, Layers, Lock, LockOpen, PieChart, Plus, Printer, Receipt,
   Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, TrendingUp, Users, Wallet, XCircle,
@@ -12,7 +12,6 @@ import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, dateTime, money, monthStart, today, yearStart } from '../lib/format';
 import { ACCOUNT_CLASS, CHECK_STATUS, STATEMENT_SECTION_LABELS } from '../lib/labels';
-import { PeriodSelect } from '../components/forms';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { ExportEngine } from '../engine/export-engine';
@@ -21,43 +20,13 @@ import { AccountSelect, useAccounts, useQueryParam } from './accounting';
 import { PERIOD_STATUS } from './org';
 import { Badge, Drawer, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Spinner, Stat, useToast } from '../components/ui';
 
+import { ReportFilterBar, buildFilterQueryString, useReportFilters } from '../components/ReportFilterBar';
+
 export function useBranchesList() {
   return useQuery({
     queryKey: ['branches-picker'],
     queryFn: () => api.get<any[]>('/branches').then((r: any) => r.data || r || []),
   });
-}
-
-function Range({
-  from, to, setFrom, setTo, branchId, setBranchId, branches, children,
-}: {
-  from: string; to: string; setFrom: (v: string) => void; setTo: (v: string) => void;
-  branchId?: string; setBranchId?: (v: string) => void; branches?: any[];
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="card mb-5 p-4 relative z-40 overflow-visible bg-white/95 dark:bg-[#0c1324]/95 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-      <div className="flex flex-wrap items-end gap-3.5">
-        <Field label="من تاريخ"><input className="input w-36 sm:w-40" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-        <Field label="إلى تاريخ"><input className="input w-36 sm:w-40" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
-        {setBranchId && (
-          <Field label="الفرع / المركز المالي">
-            <select
-              className="input min-w-[14rem] sm:w-72 font-medium"
-              value={branchId || 'ALL'}
-              onChange={(e) => setBranchId(e.target.value)}
-            >
-              <option value="ALL">الكل (قوائم موحدة - Consolidated SAR)</option>
-              {(branches ?? []).map((b: any) => (
-                <option key={b.id} value={b.id}>{b.nameAr} ({b.functionalCurrency || b.countryCode})</option>
-              ))}
-            </select>
-          </Field>
-        )}
-        {children}
-      </div>
-    </div>
-  );
 }
 
 const BalancedBadge = ({ ok }: { ok: boolean }) => (ok ? <Badge color="green"><CheckCircle2 className="me-1 size-3.5" /> متوازن</Badge> : <Badge color="red"><XCircle className="me-1 size-3.5" /> غير متوازن</Badge>);
@@ -66,17 +35,21 @@ const BalancedBadge = ({ ok }: { ok: boolean }) => (ok ? <Badge color="green"><C
 export function TrialBalancePage() {
   const nav = useNavigate();
   const base = useBaseCurrency();
-  const [from, setFrom] = useState(yearStart());
-  const [to, setTo] = useState(today());
-  const [ledger, setLedger] = useState('FINANCIAL');
-  const [branchId, setBranchId] = useState('ALL');
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+    defaultLedger: 'FINANCIAL',
+  });
+  const from = filters.from;
+  const to = filters.to;
+  const ledger = filters.ledger || 'FINANCIAL';
   const [postingOnly, setPostingOnly] = useState(false);
   const [includeZero, setIncludeZero] = useState(false);
-  const branchesQ = useBranchesList();
   const q = useQuery({
-    queryKey: ['tb', from, to, ledger, branchId, includeZero],
+    queryKey: ['tb', queryParams, ledger, includeZero],
     queryFn: () => api.get<any>('/ledger/trial-balance', {
-      from, to, ledger, ...(includeZero ? { includeZero: 'true' } : {}), ...(branchId !== 'ALL' ? { branchId } : {}),
+      ...queryParams,
+      ledger,
+      ...(includeZero ? { includeZero: 'true' } : {}),
     }),
   });
   const rows = (q.data?.rows ?? []).filter((r: any) => !postingOnly || r.isPosting);
@@ -154,22 +127,35 @@ export function TrialBalancePage() {
         }
       />
 
-      <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data}>
-        <Field label="الدفتر"><select className="input w-32" value={ledger} onChange={(e) => setLedger(e.target.value)}><option value="FINANCIAL">مالي</option><option value="MANAGEMENT">إداري</option></select></Field>
-        <label className="flex items-center gap-2 pb-2 text-sm cursor-pointer select-none">
-          <input type="checkbox" className="rounded text-brand-600" checked={postingOnly} onChange={(e) => setPostingOnly(e.target.checked)} />
-          <span>الحسابات التفصيلية فقط</span>
-        </label>
-        <label className="flex items-center gap-2 pb-2 text-sm cursor-pointer select-none">
-          <input type="checkbox" className="rounded text-brand-600" checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)} />
-          <span>إظهار الحسابات الصفرية</span>
-        </label>
-        {q.data && (
-          <div className="ms-auto pb-1 flex items-center gap-2">
-            <BalancedBadge ok={isBalanced} />
-          </div>
-        )}
-      </Range>
+      <div className="space-y-2.5 mb-5">
+        <ReportFilterBar
+          filters={filters}
+          onChange={setFilters}
+          onReset={resetAll}
+          showPeriod
+          showDateRange
+          showCostCenter
+          showClient
+          showProject
+          showEmployee
+          showBranch
+          showDepartment
+          showLedger
+          extraRight={
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer select-none">
+                <input type="checkbox" className="rounded text-brand-600" checked={postingOnly} onChange={(e) => setPostingOnly(e.target.checked)} />
+                <span>التفصيلية فقط</span>
+              </label>
+              <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer select-none">
+                <input type="checkbox" className="rounded text-brand-600" checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)} />
+                <span>الصفرية</span>
+              </label>
+              {q.data && <BalancedBadge ok={isBalanced} />}
+            </div>
+          }
+        />
+      </div>
 
       {/* Executive KPI Cards */}
       {q.data && (
@@ -244,7 +230,7 @@ export function TrialBalancePage() {
             </thead>
             <tbody>
               {rows.map((r: any) => (
-                <tr key={r.accountId} className={`${r.isPosting ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60' : 'bg-slate-50/70 font-semibold dark:bg-slate-800/40'}`} onClick={() => r.isPosting && nav(`/reports/account-statement?accountId=${r.accountId}&from=${from}&to=${to}`)}>
+                <tr key={r.accountId} className={`${r.isPosting ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60' : 'bg-slate-50/70 font-semibold dark:bg-slate-800/40'}`} onClick={() => r.isPosting && nav(`/reports/account-statement?${buildFilterQueryString(filters, { accountId: r.accountId })}`)}>
                   <td className="num text-start font-mono font-bold text-slate-600 dark:text-slate-400">{r.code}</td>
                   <td style={{ paddingInlineStart: `${(r.level - 1) * 16 + 12}px` }} className="font-medium text-slate-900 dark:text-slate-100">{r.nameAr}</td>
                   {cols.map((c) => <td key={c} className="num font-mono text-xs">{money(r[c])}</td>)}
@@ -269,18 +255,21 @@ export function AccountStatementPage() {
   const nav = useNavigate();
   const accounts = useAccounts(true);
   const [accountId, setAccountId] = useQueryParam('accountId');
-  const [fromP] = useQueryParam('from');
-  const [toP] = useQueryParam('to');
-  const [from, setFrom] = useState(fromP || yearStart());
-  const [to, setTo] = useState(toP || today());
-  const [branchId, setBranchId] = useState('ALL');
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+    defaultLedger: 'FINANCIAL',
+  });
+  const from = filters.from;
+  const to = filters.to;
   const [page, setPage] = useState(1);
-  const branchesQ = useBranchesList();
   const q = useQuery({
-    queryKey: ['stmt', accountId, from, to, page, branchId],
+    queryKey: ['stmt', accountId, queryParams, page],
     enabled: !!accountId,
     queryFn: () => api.get<any>('/ledger/account-statement', {
-      accountId, from, to, page, pageSize: 100, ...(branchId !== 'ALL' ? { branchId } : {}),
+      accountId,
+      ...queryParams,
+      page,
+      pageSize: 100,
     }),
   });
   const statementRows: any[] = Array.isArray(q.data?.lines)
@@ -370,15 +359,33 @@ export function AccountStatementPage() {
         }
       />
 
-      <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data}>
-        <Field label="الحساب المحاسبي" className="w-80 sm:w-96">
-          <AccountSelect
-            accounts={accounts.data ?? []}
-            value={accountId}
-            onChange={(v) => { setAccountId(v); setPage(1); }}
-          />
-        </Field>
-      </Range>
+      <div className="mb-5">
+        <ReportFilterBar
+          filters={filters}
+          onChange={setFilters}
+          onReset={resetAll}
+          showPeriod
+          showDateRange
+          showCostCenter
+          showClient
+          showProject
+          showEmployee
+          showBranch
+          showDepartment
+          showLedger
+          extraRight={
+            <div className="min-w-[260px] sm:min-w-[320px]">
+              <Field label="الحساب المحاسبي">
+                <AccountSelect
+                  accounts={accounts.data ?? []}
+                  value={accountId}
+                  onChange={(v) => { setAccountId(v); setPage(1); }}
+                />
+              </Field>
+            </div>
+          }
+        />
+      </div>
 
       {!accountId ? (
         <div className="card p-10 text-center">
@@ -493,7 +500,31 @@ export function AccountStatementPage() {
                             <JournalLinkBadge entryId={l.entryId} entryNo={l.entryNo} compact />
                           </td>
                           <td className="max-w-md text-xs text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
-                            {l.lineDescription ?? l.description}
+                            <div>{l.lineDescription ?? l.description}</div>
+                            {(l.costCenterName || l.clientName || l.projectName || l.employeeName) && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {l.costCenterName && (
+                                  <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 text-[10px] font-semibold">
+                                    مركز: {l.costCenterCode ? `${l.costCenterCode} — ` : ''}{l.costCenterName}
+                                  </span>
+                                )}
+                                {l.clientName && (
+                                  <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 text-[10px] font-semibold">
+                                    عميل: {l.clientName}
+                                  </span>
+                                )}
+                                {l.projectName && (
+                                  <span className="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 text-[10px] font-semibold">
+                                    مشروع: {l.projectName}
+                                  </span>
+                                )}
+                                {l.employeeName && (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 text-[10px] font-semibold">
+                                    موظف: {l.employeeName}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="text-xs font-mono text-slate-500">{l.currencyCode}</td>
                           <td className="num font-mono text-xs text-slate-600 dark:text-slate-400">{money(l.debitTx)}</td>
@@ -528,33 +559,23 @@ export function AccountStatementPage() {
   );
 }
 
-function shiftIsoYear(iso: string, deltaYears: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCFullYear(d.getUTCFullYear() + deltaYears);
-  return d.toISOString().slice(0, 10);
-}
-
 // ------------------------------------------------------------------ income statement
 export function IncomeStatementPage() {
   const base = useBaseCurrency();
-  const [from, setFrom] = useState(yearStart());
-  const [to, setTo] = useState(today());
-  const [branchId, setBranchId] = useState('ALL');
-  const [compare, setCompare] = useState(false);
-  const [compareFrom, setCompareFrom] = useState(shiftIsoYear(yearStart(), -1));
-  const [compareTo, setCompareTo] = useState(shiftIsoYear(today(), -1));
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+    defaultLedger: 'FINANCIAL',
+  });
+  const from = filters.from;
+  const to = filters.to;
+  const compare = filters.compareEnabled;
+  const compareFrom = filters.compareFrom;
+  const compareTo = filters.compareTo;
   const [collapsedSecs, setCollapsedSecs] = useState<Set<string>>(new Set());
-  const branchesQ = useBranchesList();
 
   const q = useQuery({
-    queryKey: ['is', from, to, branchId, compare ? compareFrom : '', compare ? compareTo : ''],
-    queryFn: () =>
-      api.get<any>('/ledger/income-statement', {
-        from,
-        to,
-        ...(branchId !== 'ALL' ? { branchId } : {}),
-        ...(compare ? { compareFrom, compareTo } : {}),
-      }),
+    queryKey: ['is', queryParams],
+    queryFn: () => api.get<any>('/ledger/income-statement', queryParams),
   });
 
   const rev = parseFloat(q.data?.revenue || '0');
@@ -630,7 +651,7 @@ export function IncomeStatementPage() {
           {isOpen && accs.map((l: any) => (
             <tr key={`${key}-${l.accountId}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
               <td className="ps-10 py-2">
-                <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?accountId=${l.accountId}&from=${from}&to=${to}`}>
+                <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?${buildFilterQueryString(filters, { accountId: l.accountId })}`}>
                   <span className="font-mono text-xs font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{l.code}</span>
                   <span className="text-slate-900 dark:text-slate-100 text-xs font-medium">{l.nameAr}</span>
                 </Link>
@@ -724,19 +745,23 @@ export function IncomeStatementPage() {
         }
       />
 
-      <Range from={from} to={to} setFrom={setFrom} setTo={setTo} branchId={branchId} setBranchId={setBranchId} branches={branchesQ.data}>
-        <label className="flex items-center gap-2 pb-2 text-xs font-bold cursor-pointer select-none">
-          <input type="checkbox" className="rounded text-indigo-600" checked={compare} onChange={(e) => setCompare(e.target.checked)} />
-          <ArrowLeftRight className="size-3.5 text-indigo-600" />
-          <span>مقارنة بفترة سابقة</span>
-        </label>
-        {compare && (
-          <>
-            <Field label="مقارنة من"><input className="input w-36 font-mono text-xs" type="date" value={compareFrom} onChange={(e) => setCompareFrom(e.target.value)} /></Field>
-            <Field label="مقارنة إلى"><input className="input w-36 font-mono text-xs" type="date" value={compareTo} onChange={(e) => setCompareTo(e.target.value)} /></Field>
-          </>
-        )}
-      </Range>
+      <div className="mb-5">
+        <ReportFilterBar
+          filters={filters}
+          onChange={setFilters}
+          onReset={resetAll}
+          showPeriod
+          showDateRange
+          showCompare
+          showCostCenter
+          showClient
+          showProject
+          showEmployee
+          showBranch
+          showDepartment
+          showLedger
+        />
+      </div>
 
       {/* 5 Executive KPI Cards */}
       {q.data && (
@@ -913,21 +938,19 @@ export function IncomeStatementPage() {
 // ------------------------------------------------------------------ balance sheet
 export function BalanceSheetPage() {
   const base = useBaseCurrency();
-  const [asOf, setAsOf] = useState(today());
-  const [branchId, setBranchId] = useState('ALL');
-  const [compare, setCompare] = useState(false);
-  const [compareAsOf, setCompareAsOf] = useState(shiftIsoYear(today(), -1));
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+    singleDateAsOf: true,
+    defaultLedger: 'FINANCIAL',
+  });
+  const asOf = filters.asOf;
+  const compare = filters.compareEnabled;
+  const compareAsOf = filters.compareAsOf;
   const [collapsedSecs, setCollapsedSecs] = useState<Set<string>>(new Set());
-  const branchesQ = useBranchesList();
 
   const q = useQuery({
-    queryKey: ['bs', asOf, branchId, compare ? compareAsOf : ''],
-    queryFn: () =>
-      api.get<any>('/ledger/balance-sheet', {
-        asOf,
-        ...(branchId !== 'ALL' ? { branchId } : {}),
-        ...(compare ? { compareAsOf } : {}),
-      }),
+    queryKey: ['bs', queryParams],
+    queryFn: () => api.get<any>('/ledger/balance-sheet', queryParams),
   });
 
   const isBalanced = Boolean(q.data?.balanced ?? q.data?.isBalanced);
@@ -992,7 +1015,7 @@ export function BalanceSheetPage() {
           {isOpen && accs.map((l: any) => (
             <tr key={`${key}-${l.accountId}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
               <td className="ps-10 py-2">
-                <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?accountId=${l.accountId}&to=${asOf}`}>
+                <Link className="hover:underline flex items-center gap-2" to={`/reports/account-statement?${buildFilterQueryString({ ...filters, to: asOf }, { accountId: l.accountId })}`}>
                   <span className="font-mono text-xs font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{l.code}</span>
                   <span className="text-slate-900 dark:text-slate-100 text-xs font-medium">{l.nameAr}</span>
                   {l.isContra && <Badge color="amber">مقابل</Badge>}
@@ -1100,32 +1123,33 @@ export function BalanceSheetPage() {
         }
       />
 
-      <div className="card mb-5 p-4 relative z-30 overflow-visible bg-white/95 dark:bg-[#0c1324]/95 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-wrap items-end gap-3.5">
-        <Field label="كما في تاريخ"><input className="input w-40 font-mono text-xs" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
-        <Field label="الفرع / المركز المالي">
-          <select className="input min-w-[14rem] sm:w-64 text-xs font-medium" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
-            <option value="ALL">الكل (قوائم موحدة - Consolidated {base})</option>
-            {(branchesQ.data ?? []).map((b: any) => (
-              <option key={b.id} value={b.id}>{b.nameAr} ({b.functionalCurrency || b.countryCode})</option>
-            ))}
-          </select>
-        </Field>
-        <label className="flex items-center gap-2 pb-2 text-xs font-bold cursor-pointer select-none">
-          <input type="checkbox" className="rounded text-indigo-600" checked={compare} onChange={(e) => setCompare(e.target.checked)} />
-          <ArrowLeftRight className="size-3.5 text-indigo-600" />
-          <span>مقارنة بتاريخ سابق</span>
-        </label>
-        {compare && (
-          <Field label="تاريخ المقارنة"><input className="input w-40 font-mono text-xs" type="date" value={compareAsOf} onChange={(e) => setCompareAsOf(e.target.value)} /></Field>
-        )}
-        {q.data && (
-          <div className="ms-auto flex items-center gap-2 pb-1">
-            {!isBalanced && (
-              <span className="text-sm text-rose-600 font-bold">الفرق: <span className="num font-mono">{money(q.data.difference ?? '0.00')}</span></span>
-            )}
-            <BalancedBadge ok={isBalanced} />
-          </div>
-        )}
+      <div className="mb-5">
+        <ReportFilterBar
+          filters={filters}
+          onChange={setFilters}
+          onReset={resetAll}
+          showPeriod
+          showDateRange
+          singleDateAsOf
+          showCompare
+          showCostCenter
+          showClient
+          showProject
+          showEmployee
+          showBranch
+          showDepartment
+          showLedger
+          extraRight={
+            q.data && (
+              <div className="flex items-center gap-2">
+                {!isBalanced && (
+                  <span className="text-xs text-rose-600 font-bold">الفرق: <span className="num font-mono">{money(q.data.difference ?? '0.00')}</span></span>
+                )}
+                <BalancedBadge ok={isBalanced} />
+              </div>
+            )
+          }
+        />
       </div>
 
       {/* Executive KPI Cards */}
@@ -1793,23 +1817,27 @@ export function DashboardPage() {
 // ============================================================================
 export function ExecutiveIntelligencePage() {
   const base = useBaseCurrency();
-  const [periodId, setPeriodId] = useState('');
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+    defaultLedger: 'FINANCIAL',
+  });
+  const periodId = filters.periodId;
   const [activeTab, setActiveTab] = useState<'kpis' | 'feasibility' | 'margin-gap' | 'unutilized' | 'clients'>('kpis');
 
-  // Queries (Unconditional loading with period filtering)
+  // Queries (Unconditional loading with multi-dimensional filtering)
   const empProf = useQuery({
-    queryKey: ['/profitability/employees', periodId],
-    queryFn: () => api.get<any>('/profitability/employees', periodId ? { periodId } : {}),
+    queryKey: ['/profitability/employees', queryParams],
+    queryFn: () => api.get<any>('/profitability/employees', queryParams),
   });
 
   const projectProf = useQuery({
-    queryKey: ['/profitability/projects', periodId],
-    queryFn: () => api.get<any[]>('/profitability/projects', periodId ? { periodId } : {}),
+    queryKey: ['/profitability/projects', queryParams],
+    queryFn: () => api.get<any[]>('/profitability/projects', queryParams),
   });
 
   const clientProf = useQuery({
-    queryKey: ['/profitability/clients', periodId],
-    queryFn: () => api.get<any[]>('/profitability/clients', periodId ? { periodId } : {}),
+    queryKey: ['/profitability/clients', queryParams],
+    queryFn: () => api.get<any[]>('/profitability/clients', queryParams),
   });
 
   const servicePrices = useQuery({
@@ -1998,19 +2026,28 @@ export function ExecutiveIntelligencePage() {
         }
       />
 
-      {/* Period Selection & Tab Control */}
-      <div className="card p-4 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Field label="الفترة المالية المحاسبية">
-            <PeriodSelect value={periodId} onChange={setPeriodId} className="w-60 h-9 text-xs" />
-          </Field>
-          {periodId && (
-            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 pt-5">
+      {/* Multi-Dimensional Period & Filter Bar + Tab Control */}
+      <div className="space-y-3">
+        <ReportFilterBar
+          filters={filters}
+          onChange={setFilters}
+          onReset={resetAll}
+          showPeriod
+          showDateRange
+          showCostCenter
+          showClient
+          showProject
+          showEmployee
+          showDepartment
+          extraRight={
+            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
               <span>العملة المعتمدة:</span>
               <strong className="font-mono text-slate-900 dark:text-slate-100">{base}</strong>
             </div>
-          )}
-        </div>
+          }
+        />
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
 
         {/* Tab Buttons */}
         <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
@@ -2054,6 +2091,7 @@ export function ExecutiveIntelligencePage() {
           >
             <Building2 className="size-3.5" /> مساهمة وربحية العملاء
           </button>
+        </div>
         </div>
       </div>
 

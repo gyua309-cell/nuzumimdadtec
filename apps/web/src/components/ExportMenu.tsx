@@ -16,7 +16,7 @@ import {
   Settings2,
   Share2,
 } from 'lucide-react';
-import { ExportColumnDef, ExportEngine, RoyalKpiItem } from '../engine/export-engine';
+import { ExportColumnDef, ExportEngine, ExportReportOptions, RoyalKpiItem } from '../engine/export-engine';
 import { PageOrientation, PaperSize, PrintEngine } from '../engine/print-engine';
 import { Modal, Spinner, useToast } from './ui';
 
@@ -27,6 +27,7 @@ export interface ExportMenuProps {
   data: Array<Record<string, any>>;
   summaryKpis?: RoyalKpiItem[];
   summaryRows?: Array<Record<string, any>>;
+  additionalSheets?: ExportReportOptions['additionalSheets'];
   filename?: string;
   periodLabel?: string;
   branchName?: string;
@@ -57,6 +58,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   data,
   summaryKpis,
   summaryRows,
+  additionalSheets,
   filename,
   periodLabel,
   branchName,
@@ -199,6 +201,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         data: safeRows,
         summaryKpis,
         summaryRows,
+        additionalSheets,
         periodLabel,
         branchName,
         currency,

@@ -5,6 +5,7 @@ import {
   BarChart3, Briefcase, Building2, ChevronDown, ChevronRight, Download,
   History, PieChart, Play, Printer, Settings, Users,
 } from 'lucide-react';
+import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { api, Page } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
@@ -284,7 +285,10 @@ export function ProfitabilityPage() {
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (searchParams.get('tab') as any) || 'projects';
-  const [periodId, setPeriodId] = useState('');
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+  });
+  const periodId = filters.periodId;
   const [activeTab, setActiveTab] = useState<'projects' | 'employees' | 'clients' | 'retroactive' | 'overhead'>(initialTab);
 
   useEffect(() => {
@@ -302,26 +306,26 @@ export function ProfitabilityPage() {
       return next;
     });
   };
-  const [projectSearch, setProjectSearch] = useState('');
-  const [empSearch, setEmpSearch] = useState('');
+  const projectSearch = filters.search;
+  const empSearch = filters.search;
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
   const [showRetroModal, setShowRetroModal] = useState(false);
 
-  // Queries (Unconditional loading with period filtering)
+  // Queries (Multi-dimensional filtering)
   const projectProf = useQuery({
-    queryKey: ['/profitability/projects', periodId],
-    queryFn: () => api.get<any[]>('/profitability/projects', periodId ? { periodId } : {}),
+    queryKey: ['/profitability/projects', queryParams],
+    queryFn: () => api.get<any[]>('/profitability/projects', queryParams),
   });
 
   const empProf = useQuery({
-    queryKey: ['/profitability/employees', periodId],
-    queryFn: () => api.get<any>('/profitability/employees', periodId ? { periodId } : {}),
+    queryKey: ['/profitability/employees', queryParams],
+    queryFn: () => api.get<any>('/profitability/employees', queryParams),
   });
 
   const clientProf = useQuery({
-    queryKey: ['/profitability/clients', periodId],
-    queryFn: () => api.get<any[]>('/profitability/clients', periodId ? { periodId } : {}),
+    queryKey: ['/profitability/clients', queryParams],
+    queryFn: () => api.get<any[]>('/profitability/clients', queryParams),
   });
 
   const retroAdjustments = useQuery({
@@ -524,7 +528,20 @@ export function ProfitabilityPage() {
       <div className="card p-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <Field label="الفترة المالية">
-            <PeriodSelect value={periodId} onChange={setPeriodId} className="w-52 h-9 text-xs" />
+            <ReportFilterBar
+            filters={filters}
+            onChange={setFilters}
+            onReset={resetAll}
+            showPeriod
+            showDateRange
+            showCostCenter
+            showClient
+            showProject
+            showEmployee
+            showDepartment
+            showSearch
+            searchPlaceholder="ابحث باسم المشروع أو الكادر أو العميل..."
+          />
           </Field>
 
           {/* Navigation Tabs */}
@@ -587,7 +604,7 @@ export function ProfitabilityPage() {
                   className="input text-xs w-64 py-1.5"
                   placeholder="بحث باسم المشروع أو الكود..."
                   value={projectSearch}
-                  onChange={(e) => setProjectSearch(e.target.value)}
+                  onChange={(e) => setFilters({ search: e.target.value })}
                 />
                 <span className="text-xs text-slate-500 font-mono">
                   إجمالي المشاريع: <strong>{filteredProjects.length}</strong>
@@ -733,7 +750,7 @@ export function ProfitabilityPage() {
                   className="input text-xs w-64 py-1.5"
                   placeholder="بحث باسم الموظف أو الكود..."
                   value={empSearch}
-                  onChange={(e) => setEmpSearch(e.target.value)}
+                  onChange={(e) => setFilters({ search: e.target.value })}
                 />
                 <span className="text-xs text-slate-500 font-mono">
                   متوسط هامش الموظفين: <strong>{empProf.data.summary.averageMarginPct ?? '—'}%</strong>
@@ -862,7 +879,9 @@ export function ProfitabilityPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(Array.isArray(clientProf.data) ? clientProf.data : (clientProf.data as any)?.data || []).map((c: any) => {
+                  {(Array.isArray(clientProf.data) ? clientProf.data : (clientProf.data as any)?.data || [])
+                .filter((c: any) => !filters.search || c.clientName?.toLowerCase().includes(filters.search.toLowerCase()) || c.clientCode?.toLowerCase().includes(filters.search.toLowerCase()))
+                .map((c: any) => {
                     const margin = c.grossMarginPct != null ? Number(c.grossMarginPct) : null;
                     return (
                       <tr key={c.clientId} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">

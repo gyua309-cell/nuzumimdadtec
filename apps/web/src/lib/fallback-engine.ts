@@ -8,7 +8,14 @@ import {
   computeDynamicEquityChangesStatement,
   computeDynamicIncomeStatement,
   computeDynamicTrialBalance,
+  createLineDimResolver,
+  type DimensionFilterParams,
 } from './coa-statements-engine';
+import {
+  computeDynamicCostCentersReport,
+  computeDynamicMultiLevelReportsOverview,
+  type CostCenterReportParams,
+} from './reports-analytics-engine';
 
 export { defaultFiscalPeriodsList };
 
@@ -659,6 +666,7 @@ export function computeEmployeeCostBreakdown(
 export function normalizeJournalEntry(raw: any, accounts: any[]): any {
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const byCode = new Map(accounts.map((a) => [a.code, a]));
+  const resolveDims = createLineDimResolver();
   const normLines = (Array.isArray(raw.lines) ? raw.lines : []).map((l: any, idx: number) => {
     const acc = (l.accountId && byId.get(l.accountId)) || (l.accountCode && byCode.get(l.accountCode)) || null;
     const cur = l.currencyCode || acc?.currency || getBaseCurrencyCode();
@@ -667,6 +675,7 @@ export function normalizeJournalEntry(raw: any, accounts: any[]): any {
     const cTx = Number(l.creditTx ?? l.credit ?? 0);
     const dBase = l.debitBase != null ? Number(l.debitBase) : Math.round(dTx * fx * 100) / 100;
     const cBase = l.creditBase != null ? Number(l.creditBase) : Math.round(cTx * fx * 100) / 100;
+    const inferred = (l.projectId || l.employeeId || l.departmentId) ? resolveDims(l) : null;
     return {
       ...l,
       id: l.id || `jl-${idx + 1}`,
@@ -680,6 +689,10 @@ export function normalizeJournalEntry(raw: any, accounts: any[]): any {
       creditTx: cTx.toFixed(2),
       debitBase: dBase.toFixed(2),
       creditBase: cBase.toFixed(2),
+      costCenterId: l.costCenterId ?? inferred?.costCenterId ?? null,
+      clientId: l.clientId ?? inferred?.clientId ?? null,
+      branchId: l.branchId ?? inferred?.branchId ?? null,
+      departmentId: l.departmentId ?? inferred?.departmentId ?? null,
     };
   });
 
@@ -716,7 +729,19 @@ export function createAutoPostedJournalEntry(opts: {
   postingEvent: string;
   reference?: string;
   description: string;
-  lines: Array<{ accountCode: string; debit: number; credit: number; description?: string; employeeId?: string; projectId?: string; currencyCode?: string }>;
+  lines: Array<{
+    accountCode: string;
+    debit: number;
+    credit: number;
+    description?: string;
+    employeeId?: string;
+    projectId?: string;
+    clientId?: string;
+    costCenterId?: string;
+    branchId?: string;
+    departmentId?: string;
+    currencyCode?: string;
+  }>;
 }): any {
   const accounts = getNormalizedAccounts();
   const byCode = new Map(accounts.map((a) => [a.code, a]));
@@ -725,6 +750,7 @@ export function createAutoPostedJournalEntry(opts: {
   const entryDate = (opts.entryDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const p = resolvePeriodByIdOrDate(opts.fiscalPeriodId, entryDate);
   const year = (p?.startDate || entryDate).slice(0, 4);
+  const resolveDims = createLineDimResolver();
 
   const builtLines = opts.lines
     .filter((l) => l.debit > 0 || l.credit > 0)
@@ -736,6 +762,7 @@ export function createAutoPostedJournalEntry(opts: {
       const cTx = Math.round(l.credit * 100) / 100;
       const dBase = Math.round(dTx * fx * 100) / 100;
       const cBase = Math.round(cTx * fx * 100) / 100;
+      const inferred = (l.projectId || l.employeeId || l.departmentId) ? resolveDims(l) : null;
       return {
         id: uid('jl'),
         lineNo: idx + 1,
@@ -750,6 +777,10 @@ export function createAutoPostedJournalEntry(opts: {
         creditBase: cBase.toFixed(2),
         employeeId: l.employeeId || null,
         projectId: l.projectId || null,
+        clientId: l.clientId ?? inferred?.clientId ?? null,
+        costCenterId: l.costCenterId ?? inferred?.costCenterId ?? null,
+        branchId: l.branchId ?? inferred?.branchId ?? null,
+        departmentId: l.departmentId ?? inferred?.departmentId ?? null,
         description: l.description || opts.description,
       };
     });
@@ -846,7 +877,7 @@ export function createReversalJournalEntry(origId: string, reason: string, rever
   return revEntry;
 }
 
-export function computeTrialBalance(params: { from?: string; to?: string; ledger?: string; branchId?: string; includeZero?: boolean } = {}): any {
+export function computeTrialBalance(params: { from?: string; to?: string; ledger?: string; includeZero?: boolean } & DimensionFilterParams = {}): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
@@ -854,7 +885,7 @@ export function computeTrialBalance(params: { from?: string; to?: string; ledger
   return computeDynamicTrialBalance(accounts, jes, params);
 }
 
-export function computeIncomeStatement(params: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string } = {}): any {
+export function computeIncomeStatement(params: { from?: string; to?: string; compareFrom?: string; compareTo?: string } & DimensionFilterParams = {}): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
@@ -862,7 +893,7 @@ export function computeIncomeStatement(params: { from?: string; to?: string; com
   return computeDynamicIncomeStatement(accounts, jes, params);
 }
 
-export function computeBalanceSheet(params: { asOf?: string; compareAsOf?: string; branchId?: string } = {}): any {
+export function computeBalanceSheet(params: { asOf?: string; compareAsOf?: string } & DimensionFilterParams = {}): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
@@ -870,7 +901,7 @@ export function computeBalanceSheet(params: { asOf?: string; compareAsOf?: strin
   return computeDynamicBalanceSheet(accounts, jes, params);
 }
 
-export function computeCashFlowStatement(params: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string } = {}): any {
+export function computeCashFlowStatement(params: { from?: string; to?: string; compareFrom?: string; compareTo?: string } & DimensionFilterParams = {}): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
@@ -878,7 +909,7 @@ export function computeCashFlowStatement(params: { from?: string; to?: string; c
   return computeDynamicCashFlowStatement(accounts, jes, params);
 }
 
-export function computeEquityChangesStatement(params: { from?: string; to?: string; compareFrom?: string; compareTo?: string; branchId?: string } = {}): any {
+export function computeEquityChangesStatement(params: { from?: string; to?: string; compareFrom?: string; compareTo?: string } & DimensionFilterParams = {}): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
@@ -886,12 +917,28 @@ export function computeEquityChangesStatement(params: { from?: string; to?: stri
   return computeDynamicEquityChangesStatement(accounts, jes, params);
 }
 
-export function computeAccountStatement(params: { accountId?: string; from?: string; to?: string; branchId?: string }): any {
+export function computeAccountStatement(params: { accountId?: string; from?: string; to?: string } & DimensionFilterParams): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', [])
     .map((j) => normalizeJournalEntry(j, accounts))
     .filter((j) => j.status === 'POSTED');
   return computeDynamicAccountStatement(accounts, jes, params);
+}
+
+export function computeCostCentersReport(params: CostCenterReportParams = {}): any {
+  const accounts = getNormalizedAccounts();
+  const jes = getEntityList<any>('journal_entries', [])
+    .map((j) => normalizeJournalEntry(j, accounts))
+    .filter((j) => j.status === 'POSTED');
+  return computeDynamicCostCentersReport(accounts, jes, params);
+}
+
+export function computeMultiLevelReportsOverview(params: CostCenterReportParams = {}): any {
+  const accounts = getNormalizedAccounts();
+  const jes = getEntityList<any>('journal_entries', [])
+    .map((j) => normalizeJournalEntry(j, accounts))
+    .filter((j) => j.status === 'POSTED');
+  return computeDynamicMultiLevelReportsOverview(accounts, jes, params);
 }
 
 // ---------------------------------------------------------------------------

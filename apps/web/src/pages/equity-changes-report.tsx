@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -6,40 +5,27 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
-import { date, money, today, yearStart } from '../lib/format';
+import { date, money } from '../lib/format';
 import { EQUITY_SECTION_LABELS, JOURNAL_TYPE } from '../lib/labels';
 import { ExecutiveBarChart, ExecutiveChartCard } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
+import { ReportFilterBar, buildFilterQueryString, useReportFilters } from '../components/ReportFilterBar';
 import { ExportEngine } from '../engine/export-engine';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
-import { Badge, EmptyState, ErrorState, Field, Loading, PageHeader, Stat } from '../components/ui';
-import { useBranchesList } from './reports';
-
-function shiftYear(iso: string, years: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCFullYear(d.getUTCFullYear() + years);
-  return d.toISOString().slice(0, 10);
-}
+import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat } from '../components/ui';
 
 export function EquityChangesReportPage() {
   const base = useBaseCurrency();
-  const [from, setFrom] = useState(yearStart());
-  const [to, setTo] = useState(today());
-  const [branchId, setBranchId] = useState('ALL');
-  const [compare, setCompare] = useState(false);
-  const [compareFrom, setCompareFrom] = useState(shiftYear(yearStart(), -1));
-  const [compareTo, setCompareTo] = useState(shiftYear(today(), -1));
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+    defaultLedger: 'FINANCIAL',
+  });
+  const from = filters.from;
+  const to = filters.to;
 
-  const branchesQ = useBranchesList();
   const q = useQuery({
-    queryKey: ['eq', from, to, branchId, compare ? compareFrom : '', compare ? compareTo : ''],
-    queryFn: () =>
-      api.get<any>('/ledger/equity-changes', {
-        from,
-        to,
-        ...(branchId !== 'ALL' ? { branchId } : {}),
-        ...(compare ? { compareFrom, compareTo } : {}),
-      }),
+    queryKey: ['eq', queryParams],
+    queryFn: () => api.get<any>('/ledger/equity-changes', queryParams),
   });
 
   const data = q.data;
@@ -172,30 +158,21 @@ export function EquityChangesReportPage() {
         }
       />
 
-      {/* Period & Comparison Controls */}
-      <div className="card p-4 flex flex-wrap items-end gap-3.5 bg-white/95 dark:bg-[#0c1324]/95">
-        <Field label="من تاريخ"><input type="date" className="input w-36 font-mono text-xs" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-        <Field label="إلى تاريخ"><input type="date" className="input w-36 font-mono text-xs" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
-        <Field label="الفرع / المركز المالي">
-          <select className="input min-w-[13rem] text-xs font-medium" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
-            <option value="ALL">الكل (قوائم موحدة - {base})</option>
-            {(branchesQ.data ?? []).map((b: any) => (
-              <option key={b.id} value={b.id}>{b.nameAr}</option>
-            ))}
-          </select>
-        </Field>
-        <label className="flex items-center gap-2 pb-2 text-xs font-bold cursor-pointer select-none">
-          <input type="checkbox" className="rounded text-indigo-600" checked={compare} onChange={(e) => setCompare(e.target.checked)} />
-          <ArrowLeftRight className="size-3.5 text-indigo-600" />
-          <span>مقارنة بفترة سابقة</span>
-        </label>
-        {compare && (
-          <>
-            <Field label="مقارنة من"><input type="date" className="input w-36 font-mono text-xs" value={compareFrom} onChange={(e) => setCompareFrom(e.target.value)} /></Field>
-            <Field label="مقارنة إلى"><input type="date" className="input w-36 font-mono text-xs" value={compareTo} onChange={(e) => setCompareTo(e.target.value)} /></Field>
-          </>
-        )}
-      </div>
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onReset={resetAll}
+        showPeriod
+        showDateRange
+        showCompare
+        showCostCenter
+        showClient
+        showProject
+        showEmployee
+        showBranch
+        showDepartment
+        showLedger
+      />
 
       {q.isLoading ? (
         <Loading />
@@ -282,7 +259,7 @@ export function EquityChangesReportPage() {
                     {components.map((c) => (
                       <th key={c.accountId} className="num">
                         <Link
-                          to={`/reports/account-statement?accountId=${c.accountId}&from=${from}&to=${to}`}
+                          to={`/reports/account-statement?${buildFilterQueryString(filters, { accountId: c.accountId })}`}
                           className="hover:underline text-indigo-700 dark:text-indigo-300 block"
                         >
                           <div>{c.nameAr}</div>
@@ -348,7 +325,7 @@ export function EquityChangesReportPage() {
                         <td><JournalLinkBadge entryId={m.entryId} entryNo={m.entryNo} compact /></td>
                         <td><Badge color="blue">{JOURNAL_TYPE[m.journalType] || m.journalType}</Badge></td>
                         <td>
-                          <Link to={`/reports/account-statement?accountId=${m.accountId}&from=${from}&to=${to}`} className="font-bold text-indigo-700 dark:text-indigo-300 hover:underline">
+                          <Link to={`/reports/account-statement?${buildFilterQueryString(filters, { accountId: m.accountId })}`} className="font-bold text-indigo-700 dark:text-indigo-300 hover:underline">
                             <span className="font-mono me-1">{m.code}</span> {m.nameAr}
                           </Link>
                         </td>

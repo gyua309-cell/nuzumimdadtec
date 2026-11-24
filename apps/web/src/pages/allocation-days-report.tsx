@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowRight, Calendar, CheckCircle2, Clock, ExternalLink,
-  FileText, Search, Sparkles, Zap,
+  ArrowRight, CheckCircle2, Clock, ExternalLink,
+  FileText, Sparkles, Zap,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { money, today } from '../lib/format';
+import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { ExportMenu } from '../components/ExportMenu';
 import { usePeriods } from '../components/forms';
 import { Badge, EmptyState, ErrorState, Loading, Modal, PageHeader, Spinner, Stat, useToast } from '../components/ui';
@@ -17,17 +18,21 @@ export function EmployeeAllocationDaysReportPage() {
   const periodsQuery = usePeriods();
   const periods = periodsQuery.data || [];
 
-  // Active / selected fiscal period
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+  });
+  const selectedPeriodId = filters.periodId;
+  const searchTerm = filters.search;
+
   const activePeriodId = useMemo(() => {
     if (selectedPeriodId) return selectedPeriodId;
+    if (filters.from || filters.to) return '';
     const t = today();
     const cur = periods.find((p) => p.startDate <= t && p.endDate >= t) || periods.find((p) => p.status === 'OPEN') || periods[0];
     return cur?.id || '';
-  }, [selectedPeriodId, periods]);
+  }, [selectedPeriodId, filters.from, filters.to, periods]);
 
   // Filter state
-  const [searchTerm, setSearchTerm] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState<'ALL' | 'INVOICED' | 'UNINVOICED'>('ALL');
   const [basisFilter, setBasisFilter] = useState<'ALL' | 'DAYS' | 'PERCENTAGE'>('ALL');
   const [invoicingRow, setInvoicingRow] = useState<any | null>(null);
@@ -38,7 +43,7 @@ export function EmployeeAllocationDaysReportPage() {
     onSuccess: (res: any) => {
       toast.success(`تم إنشاء مسودة فاتورة المبيعات بنجاح برقم ${res.invoiceNo || ''}`);
       setInvoicingRow(null);
-      qc.invalidateQueries({ queryKey: ['/assignments/employee-days-report', activePeriodId] });
+      qc.invalidateQueries({ queryKey: ['/assignments/employee-days-report'] });
       qc.invalidateQueries({ queryKey: ['/invoices'] });
     },
     onError: (e: any) => toast.error(e),
@@ -46,7 +51,7 @@ export function EmployeeAllocationDaysReportPage() {
 
   // Fetch report data from backend
   const reportQuery = useQuery({
-    queryKey: ['/assignments/employee-days-report', activePeriodId],
+    queryKey: ['/assignments/employee-days-report', activePeriodId, queryParams],
     queryFn: () =>
       api.get<{
         period: { id: string; name: string; start: string; end: string };
@@ -88,8 +93,11 @@ export function EmployeeAllocationDaysReportPage() {
           invoiceId: string | null;
           invoiceNo: string | null;
         }>;
-      }>(`/assignments/employee-days-report?periodId=${activePeriodId}`),
-    enabled: Boolean(activePeriodId),
+      }>('/assignments/employee-days-report', {
+        ...queryParams,
+        ...(activePeriodId ? { periodId: activePeriodId } : {}),
+      }),
+    enabled: Boolean(activePeriodId || queryParams.from || queryParams.to),
   });
 
   const data = reportQuery.data;
@@ -170,42 +178,38 @@ export function EmployeeAllocationDaysReportPage() {
         }
       />
 
-      {/* Control Bar: Fiscal Period Selector & Filters */}
-      <div className="card p-4 space-y-4 print:hidden">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Calendar className="size-4 text-brand-600" />
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">الفترة المالية:</span>
-              <select
-                className="input text-xs py-1.5 px-3 min-w-[200px]"
-                value={activePeriodId}
-                onChange={(e) => setSelectedPeriodId(e.target.value)}
-              >
-                {periods.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.startDate} إلى {p.endDate})
-                  </option>
-                ))}
-              </select>
-            </div>
-
+      {/* Multi-Dimensional Filter Bar */}
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onReset={resetAll}
+        showPeriod
+        showDateRange
+        showCostCenter
+        showClient
+        showProject
+        showEmployee
+        showDepartment
+        showSearch
+        searchPlaceholder="بحث بالموظف، الكود، المشروع، العميل..."
+        extraRight={
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg text-xs dark:bg-slate-800">
-              <span className="px-2 text-slate-500 font-medium">حالة الفوترة:</span>
+              <span className="px-2 text-slate-500 font-medium">الفوترة:</span>
               <button
-                className={`px-2.5 py-1 rounded transition ${invoiceFilter === 'ALL' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:text-slate-900'}`}
+                className={`px-2 py-1 rounded transition ${invoiceFilter === 'ALL' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:text-slate-900'}`}
                 onClick={() => setInvoiceFilter('ALL')}
               >
                 الكل
               </button>
               <button
-                className={`px-2.5 py-1 rounded transition ${invoiceFilter === 'INVOICED' ? 'bg-white shadow text-emerald-700 font-bold dark:bg-slate-700 dark:text-emerald-400' : 'text-slate-600 hover:text-slate-900'}`}
+                className={`px-2 py-1 rounded transition ${invoiceFilter === 'INVOICED' ? 'bg-white shadow text-emerald-700 font-bold dark:bg-slate-700 dark:text-emerald-400' : 'text-slate-600 hover:text-slate-900'}`}
                 onClick={() => setInvoiceFilter('INVOICED')}
               >
-                مفوتر فقط
+                مفوتر
               </button>
               <button
-                className={`px-2.5 py-1 rounded transition ${invoiceFilter === 'UNINVOICED' ? 'bg-white shadow text-amber-700 font-bold dark:bg-slate-700 dark:text-amber-400' : 'text-slate-600 hover:text-slate-900'}`}
+                className={`px-2 py-1 rounded transition ${invoiceFilter === 'UNINVOICED' ? 'bg-white shadow text-amber-700 font-bold dark:bg-slate-700 dark:text-amber-400' : 'text-slate-600 hover:text-slate-900'}`}
                 onClick={() => setInvoiceFilter('UNINVOICED')}
               >
                 بانتظار الفوترة
@@ -213,41 +217,29 @@ export function EmployeeAllocationDaysReportPage() {
             </div>
 
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg text-xs dark:bg-slate-800">
-              <span className="px-2 text-slate-500 font-medium">أساس التوزيع:</span>
+              <span className="px-2 text-slate-500 font-medium">التوزيع:</span>
               <button
-                className={`px-2.5 py-1 rounded transition ${basisFilter === 'ALL' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600'}`}
+                className={`px-2 py-1 rounded transition ${basisFilter === 'ALL' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600'}`}
                 onClick={() => setBasisFilter('ALL')}
               >
                 الكل
               </button>
               <button
-                className={`px-2.5 py-1 rounded transition ${basisFilter === 'DAYS' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600'}`}
+                className={`px-2 py-1 rounded transition ${basisFilter === 'DAYS' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600'}`}
                 onClick={() => setBasisFilter('DAYS')}
               >
-                أيام عمل (DAYS)
+                أيام
               </button>
               <button
-                className={`px-2.5 py-1 rounded transition ${basisFilter === 'PERCENTAGE' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600'}`}
+                className={`px-2 py-1 rounded transition ${basisFilter === 'PERCENTAGE' ? 'bg-white shadow text-brand-700 font-bold dark:bg-slate-700 dark:text-white' : 'text-slate-600'}`}
                 onClick={() => setBasisFilter('PERCENTAGE')}
               >
-                نسب مئوية (%)
+                نسب %
               </button>
             </div>
           </div>
-
-          {/* Search Box */}
-          <div className="relative w-72">
-            <Search className="absolute right-3 top-2.5 size-4 text-slate-400" />
-            <input
-              type="text"
-              className="input pr-9 text-xs w-full"
-              placeholder="بحث بالموظف، الكود، المشروع، العميل..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* KPI Stats Cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-6">

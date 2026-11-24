@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Calendar, CheckCircle2, Landmark,
+  BarChart3, CheckCircle2, Landmark,
   PieChart, Printer, Receipt, ShieldCheck, Sparkles, TrendingDown,
   TrendingUp,
 } from 'lucide-react';
+import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { api } from '../lib/api';
 import { money, today } from '../lib/format';
 import { usePeriods } from '../components/forms';
@@ -20,27 +21,26 @@ export function VatReportPage() {
   const [settling, setSettling] = useState(false);
   const periodsQuery = usePeriods();
   const periods = periodsQuery.data || [];
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
+  const { filters, setFilters, resetAll } = useReportFilters({ syncUrl: true });
+  const selectedPeriodId = filters.periodId;
   const currentIsoDate = new Date().toISOString().slice(0, 10);
   const defaultPeriod =
     periods.find((p: any) => !p.isAdjustmentPeriod && p.status === 'OPEN' && String(p.startDate || '').slice(0, 10) <= currentIsoDate && String(p.endDate || '').slice(0, 10) >= currentIsoDate) ||
     periods.find((p: any) => !p.isAdjustmentPeriod && String(p.startDate || '').slice(0, 10) <= currentIsoDate && String(p.endDate || '').slice(0, 10) >= currentIsoDate) ||
     periods.find((p: any) => p.status === 'OPEN') ||
     periods[0];
-  const activePeriodId = selectedPeriodId || defaultPeriod?.id || '';
+  const activePeriodId = selectedPeriodId || (!filters.from && !filters.to ? defaultPeriod?.id || '' : '');
 
   // Fetch sales invoices
   const salesQuery = useQuery({
     queryKey: ['/invoices', 'vat-report', activePeriodId],
-    queryFn: () => api.get<any>('/invoices', { fiscalPeriodId: activePeriodId, pageSize: 100 }),
-    enabled: Boolean(activePeriodId),
+    queryFn: () => api.get<any>('/invoices', { ...(activePeriodId ? { fiscalPeriodId: activePeriodId } : {}), pageSize: 200 }),
   });
 
   // Fetch purchase bills
   const purchasesQuery = useQuery({
     queryKey: ['/purchase-invoices', 'vat-report', activePeriodId],
-    queryFn: () => api.get<any>('/purchase-invoices', { fiscalPeriodId: activePeriodId, pageSize: 100 }),
-    enabled: Boolean(activePeriodId),
+    queryFn: () => api.get<any>('/purchase-invoices', { ...(activePeriodId ? { fiscalPeriodId: activePeriodId } : {}), pageSize: 200 }),
   });
 
   // Fetch VAT settlements history
@@ -75,8 +75,19 @@ export function VatReportPage() {
 
   const rawSales = Array.isArray(salesQuery.data) ? salesQuery.data : (salesQuery.data?.data || []);
   const rawPurchases = Array.isArray(purchasesQuery.data) ? purchasesQuery.data : (purchasesQuery.data?.data || []);
-  const sales = rawSales.filter((inv: any) => inv.status === 'POSTED');
-  const purchases = rawPurchases.filter((bill: any) => bill.status === 'POSTED');
+  const matchVatDim = (doc: any) => {
+    const d = String(doc.issueDate || '').slice(0, 10);
+    if (!activePeriodId) {
+      if (filters.from && d && d < filters.from) return false;
+      if (filters.to && d && d > filters.to) return false;
+    }
+    if (filters.clientId && doc.clientId !== filters.clientId) return false;
+    if (filters.projectId && doc.projectId !== filters.projectId) return false;
+    if (filters.costCenterId && doc.costCenterId !== filters.costCenterId) return false;
+    return true;
+  };
+  const sales = rawSales.filter((inv: any) => inv.status === 'POSTED' && matchVatDim(inv));
+  const purchases = rawPurchases.filter((bill: any) => bill.status === 'POSTED' && matchVatDim(bill));
 
   // Calculations (posted documents only; credit/debit notes reduce the respective VAT ledger)
   const getDocSign = (doc: any) => (doc.invoiceType === 'CREDIT_NOTE' || doc.invoiceType === 'DEBIT_NOTE' ? -1 : 1);
@@ -177,29 +188,23 @@ export function VatReportPage() {
         }
       />
 
-      {/* Period Selector & ZATCA Badge */}
-      <div className="card p-4 flex flex-wrap items-center justify-between gap-4 print:hidden">
-        <div className="flex items-center gap-3">
-          <Calendar className="size-4 text-brand-600" />
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">الفترة الضريبية / المالية:</span>
-          <select
-            className="input text-xs py-1.5 px-3 min-w-[220px]"
-            value={activePeriodId}
-            onChange={(e) => setSelectedPeriodId(e.target.value)}
-          >
-            {periods.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.startDate} إلى {p.endDate})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3.5 py-1.5 border border-emerald-200 text-xs text-emerald-800 font-semibold dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300">
-          <ShieldCheck className="size-4 text-emerald-600" />
-          <span>مطابق لمتطلبات الفوترة الإلكترونية وهيئة الزكاة والضريبة والجمارك (المرحلة الثانية)</span>
-        </div>
-      </div>
+      {/* Multi-Dimensional ZATCA Filter Bar */}
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onReset={resetAll}
+        showPeriod
+        showDateRange
+        showCostCenter
+        showClient
+        showProject
+        extraRight={
+          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-1.5 border border-emerald-200 text-xs text-emerald-800 font-semibold dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300">
+            <ShieldCheck className="size-4 text-emerald-600" />
+            <span>مطابق لمتطلبات هيئة الزكاة ZATCA (المرحلة الثانية)</span>
+          </div>
+        }
+      />
 
       {/* Top 4 KPI Metrics */}
       <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">

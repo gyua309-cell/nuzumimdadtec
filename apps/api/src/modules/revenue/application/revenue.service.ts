@@ -37,6 +37,17 @@ export const RetroactiveAdjustmentCreate = z.object({
   notes: z.string().trim().max(2000).nullable().optional(),
 });
 
+export interface ProfitabilityFilter {
+  periodId?: string;
+  from?: string;
+  to?: string;
+  clientId?: string;
+  projectId?: string;
+  employeeId?: string;
+  costCenterId?: string;
+  departmentId?: string;
+}
+
 /** Revenue Engine: computes and posts revenue lines from assignments + service prices. */
 @Injectable()
 export class RevenueService {
@@ -46,6 +57,47 @@ export class RevenueService {
     private readonly assignments: AssignmentsService,
     private readonly pricing: PricingService,
   ) {}
+
+  private async resolveProfitabilityWindow(companyId: string, filterOrPeriodId?: string | ProfitabilityFilter): Promise<{
+    filter: ProfitabilityFilter;
+    periodId: string;
+    period: { id: string; start: string; end: string; name?: string };
+  }> {
+    const f: ProfitabilityFilter = typeof filterOrPeriodId === 'string'
+      ? { periodId: filterOrPeriodId }
+      : (filterOrPeriodId ?? {});
+
+    if (f.periodId) {
+      const p = await this.cost.periodRange(companyId, f.periodId);
+      return {
+        filter: f,
+        periodId: p.id,
+        period: {
+          id: p.id,
+          name: p.name,
+          start: f.from || p.start,
+          end: f.to || p.end,
+        },
+      };
+    }
+
+    const fallbackPeriod = await this.db.one<{ id: string; start: string; end: string; name: string }>(
+      `SELECT id, start_date::text AS start, end_date::text AS end, name
+         FROM core.fiscal_periods
+        WHERE company_id = $1 AND NOT is_adjustment_period
+        ORDER BY (CASE WHEN CURRENT_DATE BETWEEN start_date AND end_date THEN 0 WHEN status = 'OPEN' THEN 1 ELSE 2 END), start_date DESC
+        LIMIT 1`,
+      [companyId],
+    );
+
+    const start = f.from || fallbackPeriod?.start || `${new Date().getUTCFullYear()}-01-01`;
+    const end = f.to || fallbackPeriod?.end || new Date().toISOString().slice(0, 10);
+    return {
+      filter: f,
+      periodId: fallbackPeriod?.id || '',
+      period: { id: fallbackPeriod?.id || '', start, end, name: fallbackPeriod?.name },
+    };
+  }
 
   async list(companyId: string, q: ListQuery & Record<string, unknown>): Promise<Page<any>> {
     const where = ['r.company_id = $1'];
@@ -419,19 +471,39 @@ export class RevenueService {
    * Level 1: Employee Profitability (Section 20)
    * Includes revenue generated, total cost, overhead, unutilized time %, and unutilized cost.
    */
-  async getEmployeeProfitability(companyId: string, periodId: string) {
-    const period = await this.cost.periodRange(companyId, periodId);
+  async getEmployeeProfitability(companyId: string, filterOrPeriodId?: string | ProfitabilityFilter) {
+    const { filter, periodId, period } = await this.resolveProfitabilityWindow(companyId, filterOrPeriodId);
     const overheadPolicy = await this.getOverheadPolicy(companyId);
     const overheadRate = D(overheadPolicy.rate || 15);
 
-    // 1. All employees active in this period
+    const empConds = [
+      'e.company_id = $1',
+      'e.hire_date <= $3::date',
+      '(e.termination_date IS NULL OR e.termination_date >= $2::date)',
+    ];
+    const empParams: unknown[] = [companyId, period.start, period.end];
+    if (filter.employeeId) {
+      empParams.push(filter.employeeId);
+      empConds.push(`e.id = $${empParams.length}`);
+    }
+    if (filter.departmentId) {
+      empParams.push(filter.departmentId);
+      empConds.push(`cur_ja.department_id = $${empParams.length}`);
+    }
+
+    // 1. All employees active in this window
     const emps = await this.db.query<{
-      id: string; code: string; full_name_ar: string; department_name: string | null; position_title: string | null;
+      id: string; code: string; full_name_ar: string;
+      department_id: string | null; department_name: string | null; position_title: string | null;
+      cost_center_id: string | null; cost_center_name: string | null;
     }>(
-      `SELECT e.id, e.code, e.full_name_ar, d.name_ar AS department_name, pos.title_ar AS position_title
+      `SELECT e.id, e.code, e.full_name_ar,
+              cur_ja.department_id, d.name_ar AS department_name, pos.title_ar AS position_title,
+              COALESCE(cur_ja.cost_center_id, d.default_cost_center_id) AS cost_center_id,
+              cc.name_ar AS cost_center_name
        FROM hr.employees e
        LEFT JOIN LATERAL (
-         SELECT ja.department_id, ja.position_id
+         SELECT ja.department_id, ja.position_id, ja.cost_center_id
          FROM hr.employee_job_assignments ja
          WHERE ja.company_id = e.company_id AND ja.employee_id = e.id
            AND ja.effective_from <= $3::date AND (ja.effective_to IS NULL OR ja.effective_to >= $2::date)
@@ -439,29 +511,54 @@ export class RevenueService {
        ) cur_ja ON true
        LEFT JOIN core.departments d ON d.id = cur_ja.department_id
        LEFT JOIN hr.positions pos ON pos.id = cur_ja.position_id
-       WHERE e.company_id = $1
-         AND e.hire_date <= $3::date
-         AND (e.termination_date IS NULL OR e.termination_date >= $2::date)
+       LEFT JOIN core.cost_centers cc ON cc.id = COALESCE(cur_ja.cost_center_id, d.default_cost_center_id)
+       WHERE ${empConds.join(' AND ')}
        ORDER BY e.code ASC`,
-      [companyId, period.start, period.end],
+      empParams,
     );
 
-    // 2. Revenue lines grouped by employee and project
+    // 2. Revenue lines grouped by employee and project (by periodId OR date window via fiscal_periods)
+    const revParams: unknown[] = [companyId, period.start, period.end];
+    const revConds = [
+      `rl.company_id = $1`,
+      `rl.status = 'POSTED'`,
+      `fp.start_date <= $3::date AND fp.end_date >= $2::date`,
+    ];
+    if (filter.periodId) {
+      revParams.push(filter.periodId);
+      revConds.push(`rl.fiscal_period_id = $${revParams.length}`);
+    }
+    if (filter.clientId) {
+      revParams.push(filter.clientId);
+      revConds.push(`p.client_id = $${revParams.length}`);
+    }
+    if (filter.projectId) {
+      revParams.push(filter.projectId);
+      revConds.push(`rl.project_id = $${revParams.length}`);
+    }
+
     const revLines = await this.db.query<{
       employeeId: string; projectId: string; projectCode: string; projectName: string;
-      revBase: string;
+      clientId: string; clientName: string; costCenterId: string | null; revBase: string;
     }>(
       `SELECT rl.employee_id AS "employeeId", rl.project_id AS "projectId",
               p.code AS "projectCode", p.name_ar AS "projectName",
+              p.client_id AS "clientId", c.name_ar AS "clientName",
+              p.cost_center_id AS "costCenterId",
               COALESCE(SUM(rl.gross_revenue_base), 0)::text AS "revBase"
        FROM rev.revenue_lines rl
+       JOIN core.fiscal_periods fp ON fp.id = rl.fiscal_period_id
        JOIN prj.projects p ON p.id = rl.project_id
-       WHERE rl.company_id = $1 AND rl.fiscal_period_id = $2 AND rl.status = 'POSTED'
-       GROUP BY rl.employee_id, rl.project_id, p.code, p.name_ar`,
-      [companyId, periodId],
+       JOIN prj.clients c ON c.id = p.client_id
+       WHERE ${revConds.join(' AND ')}
+       GROUP BY rl.employee_id, rl.project_id, p.code, p.name_ar, p.client_id, c.name_ar, p.cost_center_id`,
+      revParams,
     );
 
-    const empRevMap = new Map<string, { total: import('decimal.js').Decimal; byProject: Map<string, { projectCode: string; projectName: string; rev: import('decimal.js').Decimal }> }>();
+    const empRevMap = new Map<string, {
+      total: import('decimal.js').Decimal;
+      byProject: Map<string, { projectCode: string; projectName: string; clientId: string; clientName: string; costCenterId: string | null; rev: import('decimal.js').Decimal }>;
+    }>();
     for (const r of revLines) {
       if (!empRevMap.has(r.employeeId)) {
         empRevMap.set(r.employeeId, { total: D(0), byProject: new Map() });
@@ -470,11 +567,24 @@ export class RevenueService {
       const revVal = D(r.revBase);
       entry.total = entry.total.plus(revVal);
       if (!entry.byProject.has(r.projectId)) {
-        entry.byProject.set(r.projectId, { projectCode: r.projectCode, projectName: r.projectName, rev: D(0) });
+        entry.byProject.set(r.projectId, {
+          projectCode: r.projectCode, projectName: r.projectName, clientId: r.clientId, clientName: r.clientName, costCenterId: r.costCenterId, rev: D(0),
+        });
       }
       const pEntry = entry.byProject.get(r.projectId)!;
       pEntry.rev = pEntry.rev.plus(revVal);
     }
+
+    // Lookup project metadata for assignments enrichment
+    const allPrjRows = await this.db.query<{
+      id: string; client_id: string; client_name: string; cost_center_id: string | null;
+    }>(
+      `SELECT p.id, p.client_id, c.name_ar AS client_name, p.cost_center_id
+       FROM prj.projects p JOIN prj.clients c ON c.id = p.client_id
+       WHERE p.company_id = $1`,
+      [companyId],
+    );
+    const prjMetaMap = new Map(allPrjRows.map((p) => [p.id, p]));
 
     const rows = [];
     let grandRevenue = D(0);
@@ -497,26 +607,70 @@ export class RevenueService {
       let unutilizedCost = directCost;
       let projectAssignments: any[] = [];
 
-      try {
-        const u: any = await this.assignments.employeeUtilization(companyId, emp.id, periodId);
-        allocatedPct = Number(u.summary?.allocatedPct ?? 0).toFixed(2);
-        unutilizedPct = Number(u.summary?.unutilizedPct ?? 100).toFixed(2);
-        overAllocatedPct = Number(u.summary?.overAllocatedPct ?? 0).toFixed(2);
-        if (u.cost && (u.cost as any).unutilizedCostBase) {
-          unutilizedCost = D((u.cost as any).unutilizedCostBase);
-        } else {
-          unutilizedCost = directCost.times(D(unutilizedPct).div(100));
+      if (periodId) {
+        try {
+          const u: any = await this.assignments.employeeUtilization(companyId, emp.id, periodId);
+          allocatedPct = Number(u.summary?.allocatedPct ?? 0).toFixed(2);
+          unutilizedPct = Number(u.summary?.unutilizedPct ?? 100).toFixed(2);
+          overAllocatedPct = Number(u.summary?.overAllocatedPct ?? 0).toFixed(2);
+          if (u.cost && (u.cost as any).unutilizedCostBase) {
+            unutilizedCost = D((u.cost as any).unutilizedCostBase);
+          } else {
+            unutilizedCost = directCost.times(D(unutilizedPct).div(100));
+          }
+          if (u.cost && (u.cost as any).byProject) {
+            projectAssignments = (u.cost as any).byProject;
+          }
+        } catch {
+          // default
         }
-
-        if (u.cost && (u.cost as any).byProject) {
-          projectAssignments = (u.cost as any).byProject;
-        }
-      } catch {
-        // default
       }
 
       const revInfo = empRevMap.get(emp.id);
-      const revenue = revInfo ? revInfo.total : D(0);
+
+      // Project breakdown
+      const projectsList = [];
+      const projectIds = new Set<string>();
+      for (const pa of projectAssignments) projectIds.add(pa.projectId);
+      if (revInfo) {
+        for (const pid of revInfo.byProject.keys()) projectIds.add(pid);
+      }
+
+      let filteredRev = D(0);
+      for (const pid of projectIds) {
+        const asgnPart = projectAssignments.find((x: any) => x.projectId === pid);
+        const revPart = revInfo?.byProject.get(pid);
+        const pMeta = prjMetaMap.get(pid);
+        const cid = revPart?.clientId || pMeta?.client_id || null;
+        const ccId = revPart?.costCenterId || pMeta?.cost_center_id || emp.cost_center_id;
+
+        if (filter.projectId && pid !== filter.projectId) continue;
+        if (filter.clientId && cid !== filter.clientId) continue;
+        if (filter.costCenterId && ccId !== filter.costCenterId && emp.cost_center_id !== filter.costCenterId) continue;
+
+        const pRev = revPart ? revPart.rev : D(0);
+        const pCost = asgnPart ? D(asgnPart.amountBase) : D(0);
+        const pProfit = pRev.minus(pCost);
+        filteredRev = filteredRev.plus(pRev);
+        projectsList.push({
+          projectId: pid,
+          projectCode: asgnPart?.projectCode || revPart?.projectCode || '',
+          projectName: asgnPart?.projectNameAr || revPart?.projectName || '',
+          clientId: cid,
+          clientName: revPart?.clientName || pMeta?.client_name || '',
+          costCenterId: ccId || null,
+          effectiveAllocationPct: asgnPart?.effectivePct ? Number(asgnPart.effectivePct).toFixed(2) : '0.00',
+          costBase: pCost.toFixed(2),
+          revenueBase: pRev.toFixed(2),
+          profitBase: pProfit.toFixed(2),
+        });
+      }
+
+      if (filter.clientId && !projectsList.length) continue;
+      if (filter.projectId && !projectsList.length) continue;
+      if (filter.costCenterId && emp.cost_center_id !== filter.costCenterId && !projectsList.length) continue;
+
+      const revenue = (filter.projectId || filter.clientId) ? filteredRev : (revInfo ? revInfo.total : D(0));
 
       // Overhead
       let overhead = D(0);
@@ -530,31 +684,6 @@ export class RevenueService {
       const profit = revenue.minus(totalCost);
       const marginPct = revenue.gt(0) ? profit.div(revenue).times(100) : null;
 
-      // Project breakdown
-      const projectsList = [];
-      const projectIds = new Set<string>();
-      for (const pa of projectAssignments) projectIds.add(pa.projectId);
-      if (revInfo) {
-        for (const pid of revInfo.byProject.keys()) projectIds.add(pid);
-      }
-
-      for (const pid of projectIds) {
-        const asgnPart = projectAssignments.find((x: any) => x.projectId === pid);
-        const revPart = revInfo?.byProject.get(pid);
-        const pRev = revPart ? revPart.rev : D(0);
-        const pCost = asgnPart ? D(asgnPart.amountBase) : D(0);
-        const pProfit = pRev.minus(pCost);
-        projectsList.push({
-          projectId: pid,
-          projectCode: asgnPart?.projectCode || revPart?.projectCode || '',
-          projectName: asgnPart?.projectNameAr || revPart?.projectName || '',
-          effectiveAllocationPct: asgnPart?.effectivePct ? Number(asgnPart.effectivePct).toFixed(2) : '0.00',
-          costBase: pCost.toFixed(2),
-          revenueBase: pRev.toFixed(2),
-          profitBase: pProfit.toFixed(2),
-        });
-      }
-
       grandRevenue = grandRevenue.plus(revenue);
       grandCost = grandCost.plus(totalCost);
       grandUnutilizedCost = grandUnutilizedCost.plus(unutilizedCost);
@@ -564,8 +693,11 @@ export class RevenueService {
         employeeId: emp.id,
         employeeCode: emp.code,
         employeeName: emp.full_name_ar,
+        departmentId: emp.department_id,
         departmentName: emp.department_name,
         positionTitle: emp.position_title,
+        costCenterId: emp.cost_center_id,
+        costCenterName: emp.cost_center_name,
         revenueBase: revenue.toFixed(2),
         directCostBase: directCost.toFixed(2),
         overheadBase: overhead.toFixed(2),
@@ -584,7 +716,9 @@ export class RevenueService {
     const grandMarginPct = grandRevenue.gt(0) ? grandProfit.div(grandRevenue).times(100) : null;
 
     return {
-      periodId,
+      periodId: periodId || null,
+      from: period.start,
+      to: period.end,
       summary: {
         employeeCount: rows.length,
         totalRevenueBase: grandRevenue.toFixed(2),
@@ -601,78 +735,131 @@ export class RevenueService {
    * Level 2: Project Profitability (Section 21)
    * With team members breakdown and project-specific variable costs.
    */
-  async getProjectProfitability(companyId: string, periodId: string) {
-    const period = await this.cost.periodRange(companyId, periodId);
+  async getProjectProfitability(companyId: string, filterOrPeriodId?: string | ProfitabilityFilter) {
+    const { filter, periodId, period } = await this.resolveProfitabilityWindow(companyId, filterOrPeriodId);
     const overheadPolicy = await this.getOverheadPolicy(companyId);
     const overheadRate = D(overheadPolicy.rate || 15);
 
     // 1. Posted revenue by project (including normal and retroactive)
+    const revParams: unknown[] = [companyId, period.start, period.end];
+    const revWhere = [
+      `rl.company_id = $1`,
+      `rl.status = 'POSTED'`,
+      `fp.start_date <= $3::date AND fp.end_date >= $2::date`,
+    ];
+    if (filter.periodId) {
+      revParams.push(filter.periodId);
+      revWhere.push(`rl.fiscal_period_id = $${revParams.length}`);
+    }
+    if (filter.employeeId) {
+      revParams.push(filter.employeeId);
+      revWhere.push(`rl.employee_id = $${revParams.length}`);
+    }
     const revRows = await this.db.query<{ projectId: string; rev: string }>(
-      `SELECT project_id AS "projectId", COALESCE(SUM(gross_revenue_base), 0)::text AS rev
-       FROM rev.revenue_lines
-       WHERE company_id = $1 AND fiscal_period_id = $2 AND status = 'POSTED'
-       GROUP BY project_id`,
-      [companyId, periodId],
+      `SELECT rl.project_id AS "projectId", COALESCE(SUM(rl.gross_revenue_base), 0)::text AS rev
+       FROM rev.revenue_lines rl
+       JOIN core.fiscal_periods fp ON fp.id = rl.fiscal_period_id
+       WHERE ${revWhere.join(' AND ')}
+       GROUP BY rl.project_id`,
+      revParams,
     );
     const revMap = new Map(revRows.map(r => [r.projectId, D(r.rev)]));
 
-    // 2. Project-linked variables (Section 14 & 15: bonuses, overtime, additional pay for a project)
+    // 2. Project-linked variables
+    const varParams: unknown[] = [companyId, period.start, period.end];
+    const varWhere = [
+      `mv.company_id = $1`,
+      `mv.project_id IS NOT NULL`,
+      `mv.status IN ('APPROVED','POSTED')`,
+      `fp.start_date <= $3::date AND fp.end_date >= $2::date`,
+    ];
+    if (filter.periodId) {
+      varParams.push(filter.periodId);
+      varWhere.push(`mv.fiscal_period_id = $${varParams.length}`);
+    }
     const varRows = await this.db.query<{ projectId: string; totalVar: string }>(
-      `SELECT project_id AS "projectId", COALESCE(SUM(computed_amount), 0)::text AS "totalVar"
-       FROM pay.monthly_variables
-       WHERE company_id = $1 AND fiscal_period_id = $2 AND project_id IS NOT NULL AND status IN ('APPROVED','POSTED')
-       GROUP BY project_id`,
-      [companyId, periodId],
+      `SELECT mv.project_id AS "projectId", COALESCE(SUM(mv.computed_amount), 0)::text AS "totalVar"
+       FROM pay.monthly_variables mv
+       JOIN core.fiscal_periods fp ON fp.id = mv.fiscal_period_id
+       WHERE ${varWhere.join(' AND ')}
+       GROUP BY mv.project_id`,
+      varParams,
     );
     const varMap = new Map(varRows.map(r => [r.projectId, D(r.totalVar)]));
 
     // 3. Direct costs from employee assignments for this period
+    const empParams: unknown[] = [companyId, period.start, period.end];
+    let empExtra = '';
+    if (filter.employeeId) {
+      empParams.push(filter.employeeId);
+      empExtra = ` AND e.id = $${empParams.length}`;
+    }
     const emps = await this.db.query<{ id: string; code: string; full_name_ar: string }>(
       `SELECT DISTINCT e.id, e.code, e.full_name_ar
        FROM prj.assignments a
        JOIN hr.employees e ON e.id = a.employee_id
-       WHERE a.company_id = $1 AND a.effective_from <= $3::date AND (a.effective_to IS NULL OR a.effective_to >= $2::date)`,
-      [companyId, period.start, period.end],
+       WHERE a.company_id = $1 AND a.effective_from <= $3::date AND (a.effective_to IS NULL OR a.effective_to >= $2::date)${empExtra}`,
+      empParams,
     );
 
     const projectCostMap = new Map<string, import('decimal.js').Decimal>();
     const projectTeamMap = new Map<string, Array<{ employeeId: string; employeeCode: string; employeeName: string; costBase: string; effectivePct: string }>>();
 
-    for (const emp of emps) {
-      try {
-        const u = await this.assignments.employeeUtilization(companyId, emp.id, periodId);
-        if (u.cost && (u.cost as any).byProject) {
-          for (const bp of (u.cost as any).byProject) {
-            const costVal = D(bp.amountBase);
-            projectCostMap.set(bp.projectId, (projectCostMap.get(bp.projectId) ?? D(0)).plus(costVal));
+    if (periodId) {
+      for (const emp of emps) {
+        try {
+          const u = await this.assignments.employeeUtilization(companyId, emp.id, periodId);
+          if (u.cost && (u.cost as any).byProject) {
+            for (const bp of (u.cost as any).byProject) {
+              const costVal = D(bp.amountBase);
+              projectCostMap.set(bp.projectId, (projectCostMap.get(bp.projectId) ?? D(0)).plus(costVal));
 
-            if (!projectTeamMap.has(bp.projectId)) projectTeamMap.set(bp.projectId, []);
-            projectTeamMap.get(bp.projectId)!.push({
-              employeeId: emp.id,
-              employeeCode: emp.code,
-              employeeName: emp.full_name_ar,
-              costBase: costVal.toFixed(2),
-              effectivePct: Number(bp.effectivePct || 0).toFixed(2),
-            });
+              if (!projectTeamMap.has(bp.projectId)) projectTeamMap.set(bp.projectId, []);
+              projectTeamMap.get(bp.projectId)!.push({
+                employeeId: emp.id,
+                employeeCode: emp.code,
+                employeeName: emp.full_name_ar,
+                costBase: costVal.toFixed(2),
+                effectivePct: Number(bp.effectivePct || 0).toFixed(2),
+              });
+            }
           }
+        } catch {
+          // employee without full cost setup is skipped
         }
-      } catch {
-        // employee without full cost setup is skipped
       }
     }
 
     const allProjectIds = Array.from(new Set([...revMap.keys(), ...projectCostMap.keys(), ...varMap.keys()]));
     if (allProjectIds.length === 0) return [];
 
-    // 4. Projects list with details and client info
+    // 4. Projects list with details, client & cost center info
+    const prjConds = ['p.company_id = $1', 'p.id = ANY($2::uuid[])'];
+    const prjParams: unknown[] = [companyId, allProjectIds];
+    if (filter.clientId) {
+      prjParams.push(filter.clientId);
+      prjConds.push(`p.client_id = $${prjParams.length}`);
+    }
+    if (filter.projectId) {
+      prjParams.push(filter.projectId);
+      prjConds.push(`p.id = $${prjParams.length}`);
+    }
+    if (filter.costCenterId) {
+      prjParams.push(filter.costCenterId);
+      prjConds.push(`p.cost_center_id = $${prjParams.length}`);
+    }
+
     const projects = await this.db.query<{
-      id: string; code: string; name_ar: string; client_id: string; client_code: string; client_name: string; required_margin_pct: string | null;
+      id: string; code: string; name_ar: string; client_id: string; client_code: string; client_name: string;
+      cost_center_id: string | null; cost_center_name: string | null; required_margin_pct: string | null;
     }>(
-      `SELECT p.id, p.code, p.name_ar, p.client_id, c.code AS client_code, c.name_ar AS client_name, p.required_margin_pct::text
+      `SELECT p.id, p.code, p.name_ar, p.client_id, c.code AS client_code, c.name_ar AS client_name,
+              p.cost_center_id, cc.name_ar AS cost_center_name, p.required_margin_pct::text
        FROM prj.projects p
        JOIN prj.clients c ON c.id = p.client_id
-       WHERE p.company_id = $1 AND p.id = ANY($2::uuid[])`,
-      [companyId, allProjectIds],
+       LEFT JOIN core.cost_centers cc ON cc.id = p.cost_center_id
+       WHERE ${prjConds.join(' AND ')}`,
+      prjParams,
     );
 
     return projects.map((p) => {
@@ -684,8 +871,8 @@ export class RevenueService {
       let overhead = D(0);
       if (overheadPolicy.method === 'PERCENTAGE') {
         overhead = directCost.times(overheadRate.div(100));
-      } else if (overheadPolicy.method === 'FIXED_PER_PROJECT' && allProjectIds.length > 0) {
-        overhead = overheadRate.div(allProjectIds.length);
+      } else if (overheadPolicy.method === 'FIXED_PER_PROJECT' && projects.length > 0) {
+        overhead = overheadRate.div(projects.length);
       }
 
       const totalCost = directCost.plus(overhead);
@@ -704,6 +891,8 @@ export class RevenueService {
         clientId: p.client_id,
         clientCode: p.client_code,
         clientName: p.client_name,
+        costCenterId: p.cost_center_id,
+        costCenterName: p.cost_center_name,
         requiredMarginPct: targetPct ? targetPct.toFixed(2) : null,
         revenueBase: revenue.toFixed(2),
         employeeCostBase: employeeCost.toFixed(2),
@@ -724,16 +913,16 @@ export class RevenueService {
   /**
    * Alias for backward compatibility
    */
-  async getProfitability(companyId: string, periodId: string) {
-    return this.getProjectProfitability(companyId, periodId);
+  async getProfitability(companyId: string, filterOrPeriodId?: string | ProfitabilityFilter) {
+    return this.getProjectProfitability(companyId, filterOrPeriodId);
   }
 
   /**
    * Level 3: Client Profitability (Section 22)
    * Aggregates project metrics per client.
    */
-  async getClientProfitability(companyId: string, periodId: string) {
-    const projects = await this.getProjectProfitability(companyId, periodId);
+  async getClientProfitability(companyId: string, filterOrPeriodId?: string | ProfitabilityFilter) {
+    const projects = await this.getProjectProfitability(companyId, filterOrPeriodId);
     const clientMap = new Map<string, {
       clientId: string; clientCode: string; clientName: string;
       revenue: import('decimal.js').Decimal;

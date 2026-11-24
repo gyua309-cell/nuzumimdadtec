@@ -400,16 +400,24 @@ function buildInvoiceJournal(inv: any, isCredit = false): any {
 
   if (total <= 0) return null;
 
+  const projects = getEntityList<any>('projects', []);
+  const prj = inv.projectId ? projects.find((p) => p.id === inv.projectId || p.code === inv.projectId) : null;
+  const ccId = inv.costCenterId || prj?.costCenterId || undefined;
+  const brId = inv.branchId || prj?.branchId || undefined;
+  const cliId = inv.clientId || prj?.clientId || undefined;
+  const singleEmpId = Array.isArray(inv.lines) && inv.lines.length === 1 ? inv.lines[0]?.employeeId || undefined : undefined;
+  const dim = { projectId: inv.projectId || undefined, clientId: cliId, costCenterId: ccId, branchId: brId, employeeId: singleEmpId };
+
   const lines = isCredit
     ? [
-        { accountCode: '40101', debit: sub, credit: 0, projectId: inv.projectId, currencyCode: cur, description: `مردود / إشعار دائن إيرادات — ${inv.invoiceNo}` },
-        ...(vat > 0 ? [{ accountCode: '20201', debit: vat, credit: 0, projectId: inv.projectId, currencyCode: cur, description: `عكس ضريبة مخرجات 15% — ${inv.invoiceNo}` }] : []),
-        { accountCode: '10301', debit: 0, credit: total, projectId: inv.projectId, currencyCode: cur, description: `تخفيض ذمم العميل (${inv.clientName}) — ${inv.invoiceNo}` },
+        { accountCode: '40101', debit: sub, credit: 0, ...dim, currencyCode: cur, description: `مردود / إشعار دائن إيرادات — ${inv.invoiceNo}` },
+        ...(vat > 0 ? [{ accountCode: '20201', debit: vat, credit: 0, ...dim, currencyCode: cur, description: `عكس ضريبة مخرجات 15% — ${inv.invoiceNo}` }] : []),
+        { accountCode: '10301', debit: 0, credit: total, ...dim, currencyCode: cur, description: `تخفيض ذمم العميل (${inv.clientName}) — ${inv.invoiceNo}` },
       ]
     : [
-        { accountCode: '10301', debit: total, credit: 0, projectId: inv.projectId, currencyCode: cur, description: `استحقاق ذمم عميل (${inv.clientName}) — ${inv.invoiceNo}` },
-        { accountCode: '40101', debit: 0, credit: sub, projectId: inv.projectId, currencyCode: cur, description: `إيراد خدمات ومشاريع — ${inv.invoiceNo}` },
-        ...(vat > 0 ? [{ accountCode: '20201', debit: 0, credit: vat, projectId: inv.projectId, currencyCode: cur, description: `ضريبة القيمة المضافة ZATCA — ${inv.invoiceNo}` }] : []),
+        { accountCode: '10301', debit: total, credit: 0, ...dim, currencyCode: cur, description: `استحقاق ذمم عميل (${inv.clientName}) — ${inv.invoiceNo}` },
+        { accountCode: '40101', debit: 0, credit: sub, ...dim, currencyCode: cur, description: `إيراد خدمات ومشاريع — ${inv.invoiceNo}` },
+        ...(vat > 0 ? [{ accountCode: '20201', debit: 0, credit: vat, ...dim, currencyCode: cur, description: `ضريبة القيمة المضافة ZATCA — ${inv.invoiceNo}` }] : []),
       ];
 
   return createAutoPostedJournalEntry({
@@ -454,11 +462,13 @@ export function createSalesInvoice(body: any): any {
     invoiceNo: body.invoiceNo || `INV-${issueDate.slice(0, 4)}-${String(invCount).padStart(4, '0')}`,
     invoiceType: body.invoiceType || 'TAX_INVOICE',
     invoiceSubType: body.invoiceSubType || 'STANDARD',
-    clientId: body.clientId,
+    clientId: body.clientId || prj?.clientId || null,
     clientName: cli?.nameAr || body.clientName || 'العميل',
     clientVatNumber: cli?.taxNumber || cli?.vatNumber || '310123456700003',
     projectId: body.projectId || null,
     projectName: prj?.nameAr || body.projectName || '',
+    costCenterId: body.costCenterId || prj?.costCenterId || null,
+    branchId: body.branchId || prj?.branchId || null,
     fiscalPeriodId: resolvedPeriod?.id || body.fiscalPeriodId || 'fp-2026-11',
     issueDate,
     dueDate: body.dueDate || issueDate,
@@ -594,6 +604,14 @@ export function recordSalesInvoicePayment(invId: string, body: any): any {
   assertPeriodOpen(paymentDate, `تحصيل دفعة الفاتورة ${inv.invoiceNo}`);
 
   const bankGlCode = resolveBankGlCode(body?.bankAccountId, '10201');
+  const projects = getEntityList<any>('projects', []);
+  const prj = inv.projectId ? projects.find((p) => p.id === inv.projectId || p.code === inv.projectId) : null;
+  const payDim = {
+    projectId: inv.projectId || undefined,
+    clientId: inv.clientId || prj?.clientId || undefined,
+    costCenterId: inv.costCenterId || prj?.costCenterId || undefined,
+    branchId: inv.branchId || prj?.branchId || undefined,
+  };
   const je = createAutoPostedJournalEntry({
     entryDate: paymentDate,
     fiscalPeriodId: resolvePeriodByIdOrDate(undefined, paymentDate)?.id || inv.fiscalPeriodId,
@@ -604,8 +622,8 @@ export function recordSalesInvoicePayment(invId: string, body: any): any {
     reference: body?.reference || `RCPT-${inv.invoiceNo}`,
     description: `سند قبض وتحصيل دفعة من العميل (${inv.clientName}) — فاتورة ${inv.invoiceNo}`,
     lines: [
-      { accountCode: bankGlCode, debit: amount, credit: 0, currencyCode: inv.currencyCode || 'SAR', projectId: inv.projectId, description: `إيداع بنكي / نقدي عن ${inv.invoiceNo}` },
-      { accountCode: '10301', debit: 0, credit: amount, currencyCode: inv.currencyCode || 'SAR', projectId: inv.projectId, description: `سداد ذمم العميل ${inv.clientName}` },
+      { accountCode: bankGlCode, debit: amount, credit: 0, currencyCode: inv.currencyCode || 'SAR', ...payDim, description: `إيداع بنكي / نقدي عن ${inv.invoiceNo}` },
+      { accountCode: '10301', debit: 0, credit: amount, currencyCode: inv.currencyCode || 'SAR', ...payDim, description: `سداد ذمم العميل ${inv.clientName}` },
     ],
   });
 
@@ -888,6 +906,10 @@ export function createPurchaseInvoiceItem(body: any): any {
     vendorInvoiceNo: body.vendorInvoiceNo || null,
     projectId: body.projectId || null,
     projectName: p?.nameAr || null,
+    costCenterId: body.costCenterId || p?.costCenterId || null,
+    branchId: body.branchId || p?.branchId || null,
+    departmentId: body.departmentId || null,
+    clientId: body.clientId || p?.clientId || null,
     fiscalPeriodId: period?.id || body.fiscalPeriodId || 'fp-2026-11',
     issueDate,
     dueDate: body.dueDate || issueDate,
@@ -932,6 +954,15 @@ export function postPurchaseInvoiceItem(invId: string): any {
   const total = Number(inv.totalAmount || 0);
   const vat = Number(inv.vatAmount || 0);
   const cur = inv.currencyCode || 'SAR';
+  const projects = getEntityList<any>('projects', []);
+  const prj = inv.projectId ? projects.find((x) => x.id === inv.projectId || x.code === inv.projectId) : null;
+  const invDim = {
+    projectId: inv.projectId || undefined,
+    costCenterId: inv.costCenterId || prj?.costCenterId || undefined,
+    branchId: inv.branchId || prj?.branchId || undefined,
+    departmentId: inv.departmentId || undefined,
+    clientId: inv.clientId || prj?.clientId || undefined,
+  };
   const jeLines: Array<any> = [];
 
   for (const l of Array.isArray(inv.lines) ? inv.lines : []) {
@@ -942,7 +973,9 @@ export function postPurchaseInvoiceItem(invId: string): any {
       accountCode: acc.code,
       debit: sub,
       credit: 0,
-      projectId: inv.projectId,
+      ...invDim,
+      costCenterId: l.costCenterId || invDim.costCenterId,
+      employeeId: l.employeeId || undefined,
       currencyCode: cur,
       description: `${l.description || 'مصروف مشتريات'} — ${inv.invoiceNo}`,
     });
@@ -953,7 +986,7 @@ export function postPurchaseInvoiceItem(invId: string): any {
       accountCode: '1250',
       debit: vat,
       credit: 0,
-      projectId: inv.projectId,
+      ...invDim,
       currencyCode: cur,
       description: `ضريبة القيمة المضافة للمدخلات — ${inv.invoiceNo}`,
     });
@@ -963,7 +996,7 @@ export function postPurchaseInvoiceItem(invId: string): any {
     accountCode: '20101',
     debit: 0,
     credit: total,
-    projectId: inv.projectId,
+    ...invDim,
     currencyCode: cur,
     description: `استحقاق المورد (${inv.vendorName}) — ${inv.invoiceNo}`,
   });
@@ -1015,6 +1048,14 @@ export function payPurchaseInvoiceItem(invId: string, body: any): any {
   assertPeriodOpen(paymentDate, `سداد فاتورة المشتريات ${inv.invoiceNo}`);
 
   const bankGlCode = resolveBankGlCode(body?.bankAccountId, '10201');
+  const projects = getEntityList<any>('projects', []);
+  const prj = inv.projectId ? projects.find((x) => x.id === inv.projectId || x.code === inv.projectId) : null;
+  const pDim = {
+    projectId: inv.projectId || undefined,
+    costCenterId: inv.costCenterId || prj?.costCenterId || undefined,
+    branchId: inv.branchId || prj?.branchId || undefined,
+    clientId: inv.clientId || prj?.clientId || undefined,
+  };
   const je = createAutoPostedJournalEntry({
     entryDate: paymentDate,
     fiscalPeriodId: resolvePeriodByIdOrDate(undefined, paymentDate)?.id || inv.fiscalPeriodId,
@@ -1025,8 +1066,8 @@ export function payPurchaseInvoiceItem(invId: string, body: any): any {
     reference: body?.reference || `PAY-${inv.invoiceNo}`,
     description: `سند صرف وسداد للمورد (${inv.vendorName}) — فاتورة ${inv.invoiceNo}`,
     lines: [
-      { accountCode: '20101', debit: amount, credit: 0, projectId: inv.projectId, currencyCode: inv.currencyCode || 'SAR', description: `تسوية التزام المورد ${inv.vendorName}` },
-      { accountCode: bankGlCode, debit: 0, credit: amount, projectId: inv.projectId, currencyCode: inv.currencyCode || 'SAR', description: `تحويل بنكي / صرف نقدي عن ${inv.invoiceNo}` },
+      { accountCode: '20101', debit: amount, credit: 0, ...pDim, currencyCode: inv.currencyCode || 'SAR', description: `تسوية التزام المورد ${inv.vendorName}` },
+      { accountCode: bankGlCode, debit: 0, credit: amount, ...pDim, currencyCode: inv.currencyCode || 'SAR', description: `تحويل بنكي / صرف نقدي عن ${inv.invoiceNo}` },
     ],
   });
 
@@ -1101,17 +1142,27 @@ export function createDebitNoteAndPost(body: any): any {
   const cnt = getEntityList<any>('debit_notes', []).length + 1;
   const noteNo = `DBN-${issueDate.slice(0, 4)}-${String(cnt).padStart(4, '0')}`;
 
+  const projects = getEntityList<any>('projects', []);
+  const prj = orig.projectId ? projects.find((x) => x.id === orig.projectId || x.code === orig.projectId) : null;
+  const dDim = {
+    projectId: orig.projectId || undefined,
+    costCenterId: orig.costCenterId || prj?.costCenterId || undefined,
+    branchId: orig.branchId || prj?.branchId || undefined,
+    departmentId: orig.departmentId || undefined,
+    clientId: orig.clientId || prj?.clientId || undefined,
+  };
+
   const jeLines: any[] = [
-    { accountCode: '20101', debit: total, credit: 0, projectId: orig.projectId, currencyCode: cur, description: `تخفيض استحقاق المورد ${orig.vendorName} — ${noteNo}` },
+    { accountCode: '20101', debit: total, credit: 0, ...dDim, currencyCode: cur, description: `تخفيض استحقاق المورد ${orig.vendorName} — ${noteNo}` },
   ];
   for (const l of Array.isArray(orig.lines) ? orig.lines : []) {
     const sub = Number(l.subtotal || 0);
     if (sub <= 0) continue;
     const acc = resolveAccountByIdOrCode(l.expenseAccountId, l.expenseAccountCode || '50401');
-    jeLines.push({ accountCode: acc.code, debit: 0, credit: sub, projectId: orig.projectId, currencyCode: cur, description: `مردود مشتريات ${noteNo}` });
+    jeLines.push({ accountCode: acc.code, debit: 0, credit: sub, ...dDim, costCenterId: l.costCenterId || dDim.costCenterId, currencyCode: cur, description: `مردود مشتريات ${noteNo}` });
   }
   if (vat > 0) {
-    jeLines.push({ accountCode: '1250', debit: 0, credit: vat, projectId: orig.projectId, currencyCode: cur, description: `عكس ضريبة مدخلات ${noteNo}` });
+    jeLines.push({ accountCode: '1250', debit: 0, credit: vat, ...dDim, currencyCode: cur, description: `عكس ضريبة مدخلات ${noteNo}` });
   }
 
   const je = createAutoPostedJournalEntry({
@@ -1136,6 +1187,8 @@ export function createDebitNoteAndPost(body: any): any {
     vendorName: orig.vendorName,
     projectId: orig.projectId,
     projectName: orig.projectName,
+    costCenterId: dDim.costCenterId || null,
+    branchId: dDim.branchId || null,
     fiscalPeriodId: period?.id || orig.fiscalPeriodId,
     issueDate,
     currencyCode: cur,
@@ -2156,9 +2209,24 @@ export function closeCustodyItem(custId: string, body: any): any {
   return updated;
 }
 
-export function computeCustodiesReport(params: { employeeId?: string; fromDate?: string; toDate?: string } = {}): any {
+export function computeCustodiesReport(params: { employeeId?: string; costCenterId?: string; projectId?: string; fromDate?: string; toDate?: string } = {}): any {
+  const projects = getEntityList<any>('projects', []);
+  const prjById = new Map(projects.map((p: any) => [p.id, p]));
   let custodies = getEntityList<any>('custodies', []).map(computeCustodyMetrics);
   if (params.employeeId) custodies = custodies.filter((c) => c.employee_id === params.employeeId);
+  if (params.fromDate) custodies = custodies.filter((c) => String(c.disbursed_at || c.created_at || '').slice(0, 10) >= params.fromDate!);
+  if (params.toDate) custodies = custodies.filter((c) => String(c.disbursed_at || c.created_at || '').slice(0, 10) <= params.toDate!);
+  if (params.projectId || params.costCenterId) {
+    custodies = custodies.filter((c) => {
+      const lines = Array.isArray(c.lines) ? c.lines : [];
+      if (params.projectId && lines.some((l: any) => l.project_id === params.projectId)) return true;
+      if (params.costCenterId) {
+        if (c.cost_center_id === params.costCenterId) return true;
+        return lines.some((l: any) => l.cost_center_id === params.costCenterId || (l.project_id && prjById.get(l.project_id)?.costCenterId === params.costCenterId));
+      }
+      return false;
+    });
+  }
 
   let totalDisbursedSar = 0;
   let totalConvertedToEgp = 0;
@@ -2243,14 +2311,29 @@ export function computeCustodiesReport(params: { employeeId?: string; fromDate?:
 // 6. Live VAT Return, Cash Flow & Zakat Calculations
 // ============================================================================
 
-export function computeVatReturnSummary(periodId?: string | null): any {
-  const period = periodId ? resolvePeriodByIdOrDate(periodId, null) : null;
-  const sales = getEntityList<any>('invoices', []).filter(
-    (i) => i.status === 'POSTED' && (!period || i.fiscalPeriodId === period.id),
-  );
-  const purchases = getEntityList<any>('purchase_invoices', []).filter(
-    (p) => p.status === 'POSTED' && (!period || p.fiscalPeriodId === period.id),
-  );
+export function computeVatReturnSummary(
+  periodIdOrOpts?: string | null | { periodId?: string | null; from?: string | null; to?: string | null; costCenterId?: string | null; projectId?: string | null; clientId?: string | null },
+  extraOpts?: { from?: string | null; to?: string | null; costCenterId?: string | null; projectId?: string | null; clientId?: string | null },
+): any {
+  const opts = typeof periodIdOrOpts === 'object' && periodIdOrOpts !== null
+    ? periodIdOrOpts
+    : { periodId: periodIdOrOpts, ...(extraOpts || {}) };
+  const period = opts.periodId ? resolvePeriodByIdOrDate(opts.periodId, null) : null;
+  const projects = getEntityList<any>('projects', []);
+  const prjMap = new Map(projects.map((p: any) => [p.id, p]));
+  const matchesInvDim = (inv: any) => {
+    const prj = inv.projectId ? prjMap.get(inv.projectId) : null;
+    const d = String(inv.issueDate || '').slice(0, 10);
+    if (opts.from && d && d < opts.from) return false;
+    if (opts.to && d && d > opts.to) return false;
+    if (!opts.from && !opts.to && period && inv.fiscalPeriodId !== period.id) return false;
+    if (opts.clientId && (inv.clientId || prj?.clientId) !== opts.clientId) return false;
+    if (opts.projectId && inv.projectId !== opts.projectId) return false;
+    if (opts.costCenterId && (inv.costCenterId || prj?.costCenterId) !== opts.costCenterId) return false;
+    return true;
+  };
+  const sales = getEntityList<any>('invoices', []).filter((i) => i.status === 'POSTED' && matchesInvDim(i));
+  const purchases = getEntityList<any>('purchase_invoices', []).filter((p) => p.status === 'POSTED' && matchesInvDim(p));
 
   let stdSales = 0;
   let outVat = 0;

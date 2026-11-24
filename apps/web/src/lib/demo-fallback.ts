@@ -29,14 +29,19 @@ import {
   computeCashFlowStatement,
   computeEquityChangesStatement,
   computeAccountStatement,
+  computeCostCentersReport,
+  computeMultiLevelReportsOverview,
   evaluatePeriodClosingChecks,
   isAssignmentActiveInPeriod,
   matchesEmployee,
   matchesProject,
 } from './fallback-engine';
 import {
+  DEFAULT_LOCAL_COST_CENTERS,
   createLocalAccount,
   deleteLocalAccount,
+  expandLocalCostCenterIds,
+  getLocalCostCenters,
   getReclassifications,
   getStatementLines,
   moveLocalAccount,
@@ -123,6 +128,10 @@ function filterInvoicesByQuery(items: any[], path: string, opts?: { isZatca?: bo
   const fromDate = params.get('from');
   const toDate = params.get('to');
   const fiscalPeriodId = params.get('fiscalPeriodId') || params.get('periodId');
+  const clientIdFilter = params.get('clientId');
+  const projectIdFilter = params.get('projectId');
+  const costCenterFilter = params.get('costCenterId');
+  const employeeIdFilter = params.get('employeeId');
 
   let result = items;
   if (opts?.isZatca) {
@@ -150,6 +159,27 @@ function filterInvoicesByQuery(items: any[], path: string, opts?: { isZatca?: bo
   }
   if (toDate) {
     result = result.filter((i: any) => String(i.issueDate || '').slice(0, 10) <= toDate);
+  }
+  if (clientIdFilter) {
+    result = result.filter((i: any) => i.clientId === clientIdFilter || i.client_id === clientIdFilter);
+  }
+  if (projectIdFilter) {
+    result = result.filter((i: any) => i.projectId === projectIdFilter);
+  }
+  if (costCenterFilter) {
+    const ccSet = expandLocalCostCenterIds(costCenterFilter);
+    const prjs = getEntityList<any>('projects', []);
+    const pMap = new Map(prjs.map((p: any) => [p.id, p]));
+    result = result.filter((i: any) => {
+      const effCc = i.costCenterId || (i.projectId && pMap.get(i.projectId)?.costCenterId) || null;
+      return effCc && ccSet?.has(effCc);
+    });
+  }
+  if (employeeIdFilter) {
+    result = result.filter((i: any) =>
+      i.employeeId === employeeIdFilter ||
+      (Array.isArray(i.lines) && i.lines.some((l: any) => l.employeeId === employeeIdFilter)),
+    );
   }
   if (searchFilter) {
     result = result.filter((i: any) =>
@@ -213,10 +243,7 @@ export const defaultPositions = [
 
 export const defaultCostProfiles = defaultCostProfilesList;
 
-export const defaultCostCenters = [
-  { id: 'cc-del', code: 'CC-DEL', nameAr: 'مركز تكلفة التسليم والمشاريع', nameEn: 'Delivery Cost Center', isActive: true },
-  { id: 'cc-rnd', code: 'CC-RND', nameAr: 'مركز تكلفة البحوث والتطوير R&D', nameEn: 'R&D Cost Center', isActive: true },
-];
+export const defaultCostCenters = DEFAULT_LOCAL_COST_CENTERS;
 
 export const defaultClients = [
   {
@@ -1862,6 +1889,10 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       if (targetKey === 'cost_profiles') getEntityList('cost_profiles', defaultCostProfilesList);
       if (targetKey === 'variable_types') getEntityList('variable_types', defaultVariableTypesList);
       if (targetKey === 'asset_categories') getEntityList('asset_categories', defaultAssetCategoriesList);
+      if (targetKey === 'cost_centers') getEntityList('cost_centers', defaultCostCenters);
+      if (targetKey === 'branches') getEntityList('branches', defaultBranches);
+      if (targetKey === 'departments') getEntityList('departments', defaultDepartments);
+      if (targetKey === 'clients') getEntityList('clients', defaultClients);
       if (method === 'DELETE') {
         const id = path.split('?')[0].split('/').filter(Boolean).pop();
         if (id) {
@@ -2026,10 +2057,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         if (targetKey === 'projects') {
           const clients = getEntityList('clients', defaultClients);
           const employees = getEntityList('employees', []);
+          const ccs = getEntityList('cost_centers', defaultCostCenters);
+          const branches = getEntityList('branches', defaultBranches);
           const cli = clients.find((c) => c.id === body.clientId);
           const mgr = employees.find((e) => e.id === body.managerId);
+          const cc = ccs.find((c: any) => c.id === body.costCenterId);
+          const br = branches.find((b: any) => b.id === body.branchId);
           body.clientName = cli?.nameAr || body.clientName || 'العميل';
           body.managerName = mgr?.fullNameAr || body.managerName || '';
+          body.costCenterId = body.costCenterId || null;
+          body.costCenterName = cc?.nameAr || body.costCenterName || '';
+          body.branchId = body.branchId || null;
+          body.branchName = br?.nameAr || body.branchName || '';
           body.status = body.status || 'ACTIVE';
           body.currencyCode = body.currencyCode || 'SAR';
           if (!body.code) {
@@ -2292,11 +2331,35 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   // 3. Dynamic 3-Level Profitability Engine (Executive Intelligence & Business Process)
-  function computeDynamicProfitability(periodFilterId?: string | null) {
+  function computeDynamicProfitability(
+    filterArg?:
+      | string
+      | null
+      | {
+          periodId?: string | null;
+          from?: string | null;
+          to?: string | null;
+          clientId?: string | null;
+          projectId?: string | null;
+          employeeId?: string | null;
+          costCenterId?: string | null;
+          departmentId?: string | null;
+        },
+  ) {
+    const pf =
+      typeof filterArg === 'string' || !filterArg
+        ? { periodId: filterArg || undefined }
+        : filterArg;
+    const periodFilterId = pf.periodId || undefined;
     const emps = getEntityList('employees', []);
     const prjs = getEntityList('projects', []);
     const clients = getEntityList('clients', defaultClients);
-    const targetPeriod = periodFilterId ? resolvePeriodByIdOrDate(periodFilterId, null) : undefined;
+    const allCostCenters = getLocalCostCenters();
+    const targetPeriod = periodFilterId
+      ? resolvePeriodByIdOrDate(periodFilterId, null)
+      : pf.from || pf.to
+        ? { id: 'custom', startDate: pf.from || '2000-01-01', endDate: pf.to || '2099-12-31' }
+        : undefined;
     const assignments = getEntityList('assignments', []).filter((a: any) => isAssignmentActiveInPeriod(a, targetPeriod));
     const depts = getEntityList('departments', defaultDepartments);
     const deptMap = new Map(depts.map((d: any) => [d.id, d.nameAr]));
@@ -2558,6 +2621,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const reqMargin = Number(p.requiredMarginPct || 25);
       const pDelta = Number((pMargin - reqMargin).toFixed(1));
 
+      const cc = p.costCenterId ? allCostCenters.find((c: any) => c.id === p.costCenterId) : null;
       projectList.push({
         id: p.id,
         projectId: p.id,
@@ -2567,6 +2631,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         projectName: p.nameAr,
         clientName: p.clientName || 'العميل',
         clientId: p.clientId,
+        costCenterId: p.costCenterId || null,
+        costCenterName: cc?.nameAr || '',
         status: p.status || 'ACTIVE',
         currencyCode: p.currencyCode || 'SAR',
         revenueBase: pRev,
@@ -2621,24 +2687,118 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       });
     }
 
-    return { empSummary, empList, projectList, clientList };
+    // Apply optional multi-dimensional filters cleanly across all 3 levels
+    const ccFilterSet = expandLocalCostCenterIds(pf.costCenterId);
+    const hasDimFilter = Boolean(pf.clientId || pf.projectId || pf.employeeId || pf.costCenterId || pf.departmentId);
+    let outProjects = projectList;
+    let outClients = clientList;
+    let outEmps = empList;
+    let outSummary = empSummary;
+
+    if (hasDimFilter) {
+      const prjByIdMap = new Map(prjs.map((p: any) => [p.id, p]));
+      const empByIdMap = new Map(emps.map((e: any) => [e.id, e]));
+
+      outProjects = projectList.filter((p) => {
+        if (pf.projectId && p.id !== pf.projectId && p.code !== pf.projectId) return false;
+        if (pf.clientId && p.clientId !== pf.clientId) return false;
+        if (ccFilterSet && (!p.costCenterId || !ccFilterSet.has(p.costCenterId))) return false;
+        if (pf.employeeId && !p.teamMembers.some((m: any) => m.employeeId === pf.employeeId)) return false;
+        if (pf.departmentId && !p.teamMembers.some((m: any) => empByIdMap.get(m.employeeId)?.departmentId === pf.departmentId)) return false;
+        return true;
+      });
+
+      const allowedPrjIds = new Set(outProjects.map((p) => p.id));
+      outClients = clientList
+        .map((c) => {
+          if (pf.clientId && c.id !== pf.clientId) return null;
+          const cp = outProjects.filter((p) => p.clientId === c.id || p.clientName === c.nameAr);
+          if ((pf.projectId || pf.costCenterId || pf.employeeId || pf.departmentId) && cp.length === 0) return null;
+          const cRev = cp.reduce((acc, p) => acc + p.revenueBase, 0);
+          const cDirect = cp.reduce((acc, p) => acc + p.directCostBase, 0);
+          const cOverhead = cp.reduce((acc, p) => acc + p.overheadBase, 0);
+          const cTotal = cp.reduce((acc, p) => acc + p.totalCostBase, 0);
+          const cProfit = cRev - cTotal;
+          const cMargin = cRev > 0 ? Number(((cProfit / cRev) * 100).toFixed(1)) : 0;
+          const uniqueTeam = new Set(cp.flatMap((p) => p.teamMembers.map((m: any) => m.employeeId))).size;
+          return {
+            ...c,
+            revenueBase: cRev,
+            directCostBase: cDirect,
+            overheadBase: cOverhead,
+            totalCostBase: cTotal,
+            grossProfitBase: cProfit,
+            grossMarginPct: cMargin,
+            projectCount: cp.length,
+            projectsCount: cp.length,
+            teamCount: uniqueTeam,
+            projects: cp,
+          };
+        })
+        .filter(Boolean);
+
+      outEmps = empList.filter((e) => {
+        const rawEmp = empByIdMap.get(e.employeeId || e.id);
+        if (pf.employeeId && e.employeeId !== pf.employeeId && e.id !== pf.employeeId) return false;
+        if (pf.departmentId && (e.departmentId || rawEmp?.departmentId) !== pf.departmentId) return false;
+        const empAsgs = assignments.filter((a: any) => matchesEmployee(a, rawEmp || { id: e.employeeId || e.id }));
+        if (pf.projectId && !empAsgs.some((a: any) => a.projectId === pf.projectId || a.projectCode === pf.projectId)) return false;
+        if (pf.clientId && !empAsgs.some((a: any) => prjByIdMap.get(a.projectId)?.clientId === pf.clientId || allowedPrjIds.has(a.projectId))) return false;
+        if (ccFilterSet) {
+          const directCc = rawEmp?.costCenterId || rawEmp?.placement?.costCenterId || null;
+          const matchesAsgCc = empAsgs.some((a: any) => {
+            const pCc = a.costCenterId || prjByIdMap.get(a.projectId)?.costCenterId || null;
+            return pCc && ccFilterSet.has(pCc);
+          });
+          if (!matchesAsgCc && (!directCc || !ccFilterSet.has(directCc))) return false;
+        }
+        return true;
+      });
+
+      const fRev = outEmps.reduce((s, e) => s + Number(e.revenueBase || 0), 0);
+      const fCost = outEmps.reduce((s, e) => s + Number(e.totalCostBase || 0), 0);
+      const fUnutil = outEmps.reduce((s, e) => s + Number(e.unutilizedCostBase || 0), 0);
+      const fProfit = outEmps.reduce((s, e) => s + Number(e.grossProfitBase || 0), 0);
+      outSummary = {
+        ...empSummary,
+        employeeCount: outEmps.length,
+        totalRevenueBase: fRev.toFixed(2),
+        totalCostBase: fCost.toFixed(2),
+        totalUnutilizedCostBase: fUnutil.toFixed(2),
+        totalProfitBase: fProfit.toFixed(2),
+        averageMarginPct: fRev > 0 ? ((fProfit / fRev) * 100).toFixed(1) : '0.0',
+      };
+    }
+
+    return { empSummary: outSummary, empList: outEmps, projectList: outProjects, clientList: outClients };
   }
 
+  const readProfQuery = (p: string) => {
+    const qp = new URLSearchParams(p.includes('?') ? p.split('?')[1] : '');
+    return {
+      periodId: qp.get('periodId'),
+      from: qp.get('from'),
+      to: qp.get('to'),
+      clientId: qp.get('clientId'),
+      projectId: qp.get('projectId'),
+      employeeId: qp.get('employeeId'),
+      costCenterId: qp.get('costCenterId'),
+      departmentId: qp.get('departmentId'),
+    };
+  };
+
   if (path.includes('/profitability/projects')) {
-    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
-    const { projectList } = computeDynamicProfitability(q.get('periodId'));
+    const { projectList } = computeDynamicProfitability(readProfQuery(path));
     return makeList(projectList);
   }
 
   if (path.includes('/profitability/clients')) {
-    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
-    const { clientList } = computeDynamicProfitability(q.get('periodId'));
+    const { clientList } = computeDynamicProfitability(readProfQuery(path));
     return makeList(clientList);
   }
 
   if (path.includes('/profitability/employees') || path.includes('/reports/employee-profitability')) {
-    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
-    const { empSummary, empList } = computeDynamicProfitability(q.get('periodId'));
+    const { empSummary, empList } = computeDynamicProfitability(readProfQuery(path));
     return {
       summary: empSummary,
       employees: empList,
@@ -2653,11 +2813,25 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const qStr = path.includes('?') ? path.split('?')[1] : '';
     const qParams = new URLSearchParams(qStr);
     const periodId = qParams.get('periodId');
-    const period = resolvePeriodByIdOrDate(periodId, null);
+    const qFrom = qParams.get('from');
+    const qTo = qParams.get('to');
+    const fClientId = qParams.get('clientId');
+    const fProjectId = qParams.get('projectId');
+    const fEmployeeId = qParams.get('employeeId');
+    const fCostCenterId = qParams.get('costCenterId');
+    const fDepartmentId = qParams.get('departmentId');
+    const ccFilterSet = expandLocalCostCenterIds(fCostCenterId);
+    const period = periodId
+      ? resolvePeriodByIdOrDate(periodId, null)
+      : (qFrom || qTo)
+        ? { id: 'custom', name: `من ${qFrom || '...'} إلى ${qTo || '...'}`, startDate: qFrom || '2000-01-01', endDate: qTo || '2099-12-31' }
+        : resolvePeriodByIdOrDate(null, null);
 
     const emps = getEntityList('employees', []);
     const prjs = getEntityList('projects', []);
     const clients = getEntityList('clients', defaultClients);
+    const allCostCenters = getLocalCostCenters();
+    const ccNameMap = new Map(allCostCenters.map((c: any) => [c.id, c.nameAr]));
     const assignments = getEntityList('assignments', []).filter((a: any) => isAssignmentActiveInPeriod(a, period));
     const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
     const invoices = getEntityList('invoices', []).filter((i: any) => i.status !== 'CANCELLED' && i.invoiceType !== 'CREDIT_NOTE');
@@ -2674,6 +2848,10 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const rows: any[] = [];
 
     for (const emp of emps) {
+      if (fEmployeeId && emp.id !== fEmployeeId && emp.code !== fEmployeeId) continue;
+      const empDeptId = emp.departmentId || emp.placement?.departmentId || null;
+      if (fDepartmentId && empDeptId !== fDepartmentId) continue;
+
       const bd = computeEmployeeCostBreakdown(emp, period, overheadPolicy);
       const empMonthlyCost = bd.distributableCostBase;
       const empOverhead = overheadPolicy.method === 'PERCENTAGE'
@@ -2681,7 +2859,6 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         : overheadPolicy.method === 'FIXED_PER_EMPLOYEE'
           ? Math.round(Number(overheadPolicy.rate || 0) * 100) / 100
           : 0;
-      overheadCostAll += empOverhead;
       const positionTitle = emp.positionTitle || emp.role || 'مهندس برمجيات';
 
       const myAsgs = assignments.filter((a: any) => matchesEmployee(a, emp));
@@ -2702,7 +2879,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
         const unutilizedPct = Math.max(0, Number((100 - empAssignedPctTotal).toFixed(1)));
         const empBenchCost = Math.round(empMonthlyCost * (unutilizedPct / 100) * 100) / 100;
-        benchCostAll += empBenchCost;
+        let empBenchAdded = false;
+        let empOhAdded = false;
 
         for (const a of myAsgs) {
           const prj = prjs.find((p: any) => matchesProject(a, p)) || {
@@ -2715,6 +2893,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             id: 'cli-001',
             nameAr: 'شركة الإمداد لتقنية المعلومات',
           };
+          const effCcId = a.costCenterId || prj.costCenterId || emp.costCenterId || emp.placement?.costCenterId || null;
+          if (fClientId && cli.id !== fClientId) continue;
+          if (fProjectId && prj.id !== fProjectId && prj.code !== fProjectId) continue;
+          if (ccFilterSet && (!effCcId || !ccFilterSet.has(effCcId))) continue;
+
+          if (!empBenchAdded) { benchCostAll += empBenchCost; empBenchAdded = true; }
+          if (!empOhAdded) { overheadCostAll += empOverhead; empOhAdded = true; }
 
           const econ = computeAssignmentEconomics({
             assignment: a,
@@ -2732,6 +2917,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             (i: any) =>
               (matchesProject(i, prj) || i.projectId === a.projectId) &&
               (!periodId || i.fiscalPeriodId === periodId) &&
+              (!qFrom || String(i.issueDate || '').slice(0, 10) >= qFrom) &&
+              (!qTo || String(i.issueDate || '').slice(0, 10) <= qTo) &&
               ((i.lines || []).length === 0 || (i.lines || []).some((l: any) => matchesEmployee(l, emp) || l.description?.includes(emp.fullNameAr || emp.nameAr || ''))),
           );
 
@@ -2754,6 +2941,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             projectName: prj.nameAr,
             clientId: cli.id,
             clientName: cli.nameAr,
+            costCenterId: effCcId,
+            costCenterName: (effCcId && ccNameMap.get(effCcId)) || '',
             allocationBasis: econ.allocationBasis,
             workingDaysInMonth: econ.workingDays,
             allocatedDays: econ.allocatedDays,
@@ -2773,7 +2962,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           });
         }
       } else {
+        const effCcId = emp.costCenterId || emp.placement?.costCenterId || null;
+        if (fClientId || fProjectId) continue;
+        if (ccFilterSet && (!effCcId || !ccFilterSet.has(effCcId))) continue;
         benchCostAll += empMonthlyCost;
+        overheadCostAll += empOverhead;
         pendingInvoiceCount++;
 
         rows.push({
@@ -2787,6 +2980,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           projectName: 'غير مسند لمشروع (على قوة الشركة - Bench)',
           clientId: '',
           clientName: 'تشغيل وتطوير داخلي',
+          costCenterId: effCcId,
+          costCenterName: (effCcId && ccNameMap.get(effCcId)) || '',
           allocationBasis: 'DAYS',
           workingDaysInMonth: 22,
           allocatedDays: 0,
@@ -2842,7 +3037,16 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/assignments/utilization')) {
     const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
-    const { empList } = computeDynamicProfitability(q.get('periodId'));
+    const { empList } = computeDynamicProfitability({
+      periodId: q.get('periodId'),
+      from: q.get('from'),
+      to: q.get('to'),
+      clientId: q.get('clientId'),
+      projectId: q.get('projectId'),
+      employeeId: q.get('employeeId'),
+      costCenterId: q.get('costCenterId'),
+      departmentId: q.get('departmentId'),
+    } as any);
     return makeList(empList);
   }
 
@@ -3202,7 +3406,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(getEntityList('departments', defaultDepartments));
   }
 
-  if (path.includes('/cost-centers')) {
+  if (path.includes('/cost-centers') && !path.includes('/reports/')) {
     return makeList(getEntityList('cost_centers', defaultCostCenters));
   }
 
@@ -3337,66 +3541,90 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   // 11. Live Financial Reports & Statements from Posted Journal Entries
+  const parseLedgerDims = (p: URLSearchParams) => {
+    const pId = p.get('periodId') || undefined;
+    const pObj = pId ? resolvePeriodByIdOrDate(pId, null) : null;
+    return {
+      periodId: pId,
+      resolvedFrom: p.get('from') || p.get('fromDate') || (pObj ? String(pObj.startDate).slice(0, 10) : undefined),
+      resolvedTo: p.get('to') || p.get('toDate') || (pObj ? String(pObj.endDate).slice(0, 10) : undefined),
+      resolvedAsOf: p.get('asOf') || p.get('to') || (pObj ? String(pObj.endDate).slice(0, 10) : undefined),
+      branchId: p.get('branchId') || undefined,
+      costCenterId: p.get('costCenterId') || undefined,
+      departmentId: p.get('departmentId') || undefined,
+      projectId: p.get('projectId') || undefined,
+      clientId: p.get('clientId') || undefined,
+      employeeId: p.get('employeeId') || undefined,
+      ledger: p.get('ledger') || undefined,
+    };
+  };
+
   if (path.includes('/ledger/trial')) {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const d = parseLedgerDims(p);
     return computeTrialBalance({
-      from: p.get('from') || undefined,
-      to: p.get('to') || undefined,
-      ledger: p.get('ledger') || 'FINANCIAL',
-      branchId: p.get('branchId') || undefined,
+      ...d,
+      from: d.resolvedFrom,
+      to: d.resolvedTo,
+      ledger: d.ledger || 'FINANCIAL',
       includeZero: p.get('includeZero') === 'true',
     });
   }
 
   if (path.includes('/ledger/income')) {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const d = parseLedgerDims(p);
     return computeIncomeStatement({
-      from: p.get('from') || undefined,
-      to: p.get('to') || undefined,
+      ...d,
+      from: d.resolvedFrom,
+      to: d.resolvedTo,
       compareFrom: p.get('compareFrom') || undefined,
       compareTo: p.get('compareTo') || undefined,
-      branchId: p.get('branchId') || undefined,
     });
   }
 
   if (path.includes('/ledger/balance')) {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const d = parseLedgerDims(p);
     return computeBalanceSheet({
-      asOf: p.get('asOf') || undefined,
+      ...d,
+      asOf: d.resolvedAsOf,
       compareAsOf: p.get('compareAsOf') || undefined,
-      branchId: p.get('branchId') || undefined,
     });
   }
 
   if (path.includes('/ledger/cash-flow')) {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const d = parseLedgerDims(p);
     return computeCashFlowStatement({
-      from: p.get('from') || undefined,
-      to: p.get('to') || undefined,
+      ...d,
+      from: d.resolvedFrom,
+      to: d.resolvedTo,
       compareFrom: p.get('compareFrom') || undefined,
       compareTo: p.get('compareTo') || undefined,
-      branchId: p.get('branchId') || undefined,
     });
   }
 
   if (path.includes('/ledger/equity-changes')) {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const d = parseLedgerDims(p);
     return computeEquityChangesStatement({
-      from: p.get('from') || undefined,
-      to: p.get('to') || undefined,
+      ...d,
+      from: d.resolvedFrom,
+      to: d.resolvedTo,
       compareFrom: p.get('compareFrom') || undefined,
       compareTo: p.get('compareTo') || undefined,
-      branchId: p.get('branchId') || undefined,
     });
   }
 
   if (path.includes('/ledger/account-statement')) {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const d = parseLedgerDims(p);
     return computeAccountStatement({
+      ...d,
       accountId: p.get('accountId') || undefined,
-      from: p.get('from') || undefined,
-      to: p.get('to') || undefined,
-      branchId: p.get('branchId') || undefined,
+      from: d.resolvedFrom,
+      to: d.resolvedTo,
     });
   }
 
@@ -3724,10 +3952,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/custodies/report') || (path.includes('/custodies') && path.includes('/report'))) {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const pId = p.get('periodId');
+    const pObj = pId ? resolvePeriodByIdOrDate(pId, null) : null;
     return computeCustodiesReport({
       employeeId: p.get('employeeId') || undefined,
-      fromDate: p.get('fromDate') || undefined,
-      toDate: p.get('toDate') || undefined,
+      costCenterId: p.get('costCenterId') || undefined,
+      projectId: p.get('projectId') || undefined,
+      fromDate: p.get('fromDate') || p.get('from') || (pObj ? String(pObj.startDate).slice(0, 10) : undefined),
+      toDate: p.get('toDate') || p.get('to') || (pObj ? String(pObj.endDate).slice(0, 10) : undefined),
     });
   }
 
@@ -3879,9 +4111,56 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   // 20. Reports & Financial Intelligence
+  if (path.includes('/reports/cost-centers')) {
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeCostCentersReport({
+      periodId: q.get('periodId') || undefined,
+      from: q.get('from') || undefined,
+      to: q.get('to') || undefined,
+      compareFrom: q.get('compareFrom') || undefined,
+      compareTo: q.get('compareTo') || undefined,
+      ledger: q.get('ledger') || 'FINANCIAL',
+      costCenterId: q.get('costCenterId') || undefined,
+      ccType: q.get('ccType') || undefined,
+      branchId: q.get('branchId') || undefined,
+      departmentId: q.get('departmentId') || undefined,
+      projectId: q.get('projectId') || undefined,
+      clientId: q.get('clientId') || undefined,
+      employeeId: q.get('employeeId') || undefined,
+    });
+  }
+
+  if (path.includes('/reports/multi-level')) {
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return computeMultiLevelReportsOverview({
+      periodId: q.get('periodId') || undefined,
+      from: q.get('from') || undefined,
+      to: q.get('to') || undefined,
+      compareFrom: q.get('compareFrom') || undefined,
+      compareTo: q.get('compareTo') || undefined,
+      ledger: q.get('ledger') || 'FINANCIAL',
+      costCenterId: q.get('costCenterId') || undefined,
+      ccType: q.get('ccType') || undefined,
+      branchId: q.get('branchId') || undefined,
+      departmentId: q.get('departmentId') || undefined,
+      projectId: q.get('projectId') || undefined,
+      clientId: q.get('clientId') || undefined,
+      employeeId: q.get('employeeId') || undefined,
+    });
+  }
+
   if (path.includes('/reports/profitability/overview')) {
     const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
-    const prof = computeDynamicProfitability(q.get('periodId'));
+    const prof = computeDynamicProfitability({
+      periodId: q.get('periodId'),
+      from: q.get('from'),
+      to: q.get('to'),
+      clientId: q.get('clientId'),
+      projectId: q.get('projectId'),
+      employeeId: q.get('employeeId'),
+      costCenterId: q.get('costCenterId'),
+      departmentId: q.get('departmentId'),
+    } as any);
     return {
       summary: prof.empSummary,
       employees: prof.empList,
@@ -3891,8 +4170,22 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/reports/executive-intelligence')) {
-    const prof = computeDynamicProfitability();
-    const is = computeIncomeStatement();
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const pId = q.get('periodId') || undefined;
+    const pObj = pId ? resolvePeriodByIdOrDate(pId, null) : null;
+    const fFrom = q.get('from') || (pObj ? String(pObj.startDate).slice(0, 10) : undefined);
+    const fTo = q.get('to') || (pObj ? String(pObj.endDate).slice(0, 10) : undefined);
+    const dims = {
+      branchId: q.get('branchId') || undefined,
+      costCenterId: q.get('costCenterId') || undefined,
+      departmentId: q.get('departmentId') || undefined,
+      projectId: q.get('projectId') || undefined,
+      clientId: q.get('clientId') || undefined,
+      employeeId: q.get('employeeId') || undefined,
+      ledger: q.get('ledger') || undefined,
+    };
+    const prof = computeDynamicProfitability({ periodId: pId, from: fFrom, to: fTo, ...dims } as any);
+    const is = computeIncomeStatement({ from: fFrom, to: fTo, ...dims });
     const avgUtil = prof.empList.length > 0
       ? prof.empList.reduce((s: number, e: any) => s + Number(e.allocatedPct || 0), 0) / prof.empList.length
       : 0;
@@ -3931,7 +4224,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
   if (path.includes('/reports/vat-return') || path.includes('/vat-report')) {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
-    return computeVatReturnSummary(p.get('fiscalPeriodId') || p.get('periodId'));
+    return computeVatReturnSummary({
+      periodId: p.get('fiscalPeriodId') || p.get('periodId'),
+      from: p.get('from'),
+      to: p.get('to'),
+      costCenterId: p.get('costCenterId'),
+      projectId: p.get('projectId'),
+      clientId: p.get('clientId'),
+    });
   }
 
   // 21. Zakat Declarations & Settings

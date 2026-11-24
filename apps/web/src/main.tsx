@@ -45,6 +45,8 @@ const ExecutiveIntelligencePage = lazyNamed(loadReports, 'ExecutiveIntelligenceP
 const IncomeStatementPage = lazyNamed(loadReports, 'IncomeStatementPage');
 const SnapshotsPage = lazyNamed(loadReports, 'SnapshotsPage');
 const TrialBalancePage = lazyNamed(loadReports, 'TrialBalancePage');
+const CostCentersReportPage = lazyNamed(() => import('./pages/cost-centers-report'), 'CostCentersReportPage');
+const ReportsHubPage = lazyNamed(() => import('./pages/reports-hub'), 'ReportsHubPage');
 
 const DashboardPage = lazyNamed(() => import('./pages/dashboard'), 'DashboardPage');
 const AutomationHubPage = lazyNamed(() => import('./pages/automation-hub'), 'AutomationHubPage');
@@ -208,6 +210,8 @@ function Root() {
           <Route path="acc/journals/:id/edit" element={<JournalFormPage />} />
           <Route path="closing" element={<ClosingPage />} />
           <Route path="closing/snapshots" element={<SnapshotsPage />} />
+          <Route path="reports/hub" element={<ReportsHubPage />} />
+          <Route path="reports/cost-centers" element={<CostCentersReportPage />} />
           <Route path="reports/executive-intelligence" element={<ExecutiveIntelligencePage />} />
           <Route path="reports/trial-balance" element={<TrialBalancePage />} />
           <Route path="reports/vat-return" element={<VatReportPage />} />

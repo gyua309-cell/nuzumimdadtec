@@ -3,36 +3,38 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Award, BarChart3, Calculator,
-  RefreshCw, Search, TrendingUp, Users, Briefcase, Building2
+  RefreshCw, TrendingUp, Users, Briefcase, Building2
 } from 'lucide-react';
 import { ExportMenu } from '../components/ExportMenu';
+import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { api } from '../lib/api';
 import { money } from '../lib/format';
-import { PeriodSelect } from '../components/forms';
 import { Badge, Loading, PageHeader } from '../components/ui';
 
 export function EmployeeProfitabilityReportPage() {
-  const [periodId, setPeriodId] = useState('');
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+  });
+  const search = filters.search;
   const [activeTab, setActiveTab] = useState<'employees' | 'projects' | 'clients'>('employees');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'TOP_PERFORMER' | 'PROFITABLE' | 'LOSS_MAKER'>('ALL');
-  const [search, setSearch] = useState('');
 
   // 1. Employees Profitability Query (Level 1)
   const empQ = useQuery({
-    queryKey: ['/profitability/employees', periodId],
-    queryFn: () => api.get<any>('/profitability/employees', periodId ? { periodId } : {}).then((r: any) => r?.data || r || {}),
+    queryKey: ['/profitability/employees', queryParams],
+    queryFn: () => api.get<any>('/profitability/employees', queryParams).then((r: any) => r?.data || r || {}),
   });
 
   // 2. Projects Profitability Query (Level 2)
   const prjQ = useQuery({
-    queryKey: ['/profitability/projects', periodId],
-    queryFn: () => api.get<any[]>('/profitability/projects', periodId ? { periodId } : {}).then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
+    queryKey: ['/profitability/projects', queryParams],
+    queryFn: () => api.get<any[]>('/profitability/projects', queryParams).then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
   });
 
   // 3. Clients Profitability Query (Level 3)
   const cliQ = useQuery({
-    queryKey: ['/profitability/clients', periodId],
-    queryFn: () => api.get<any[]>('/profitability/clients', periodId ? { periodId } : {}).then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
+    queryKey: ['/profitability/clients', queryParams],
+    queryFn: () => api.get<any[]>('/profitability/clients', queryParams).then((r: any) => Array.isArray(r) ? r : (r?.data || [])),
   });
 
   const isLoading = empQ.isLoading || prjQ.isLoading || cliQ.isLoading;
@@ -183,17 +185,6 @@ export function EmployeeProfitabilityReportPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <PeriodSelect value={periodId} onChange={setPeriodId} className="w-48 h-8 text-xs" />
-          <div className="relative w-64">
-            <Search className="absolute start-3 top-2.5 size-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="بحث بالرمز أو الاسم..."
-              className="input ps-8.5 h-8 text-xs w-full"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
           {activeTab === 'employees' && (
             <select
               className="input h-8 text-xs w-44"
@@ -208,6 +199,21 @@ export function EmployeeProfitabilityReportPage() {
           )}
         </div>
       </div>
+
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onReset={resetAll}
+        showPeriod
+        showDateRange
+        showCostCenter
+        showClient
+        showProject
+        showEmployee
+        showDepartment
+        showSearch
+        searchPlaceholder="بحث بالرمز أو الاسم أو العميل..."
+      />
 
       {isLoading ? (
         <Loading />

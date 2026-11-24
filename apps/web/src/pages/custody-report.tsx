@@ -1,35 +1,34 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeftRight, FileCheck,
   PieChart, RefreshCw, TrendingUp, Users, Wallet
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { money, today } from '../lib/format';
+import { money } from '../lib/format';
 import { ExportMenu } from '../components/ExportMenu';
+import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { Badge, ErrorState, Loading, PageHeader } from '../components/ui';
 
 export function CustodyReportPage() {
-  const [employeeFilter, setEmployeeFilter] = useState('');
-  const [fromDate, setFromDate] = useState('2026-01-01');
-  const [toDate, setToDate] = useState(today());
+  const { filters, setFilters, resetAll, queryParams } = useReportFilters({
+    syncUrl: true,
+  });
+  const fromDate = filters.from;
+  const toDate = filters.to;
 
   // Query: Custody Report
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['custody-report-page', employeeFilter, fromDate, toDate],
+    queryKey: ['custody-report-page', queryParams],
     queryFn: () => {
       const p: Record<string, string> = {};
-      if (employeeFilter) p.employeeId = employeeFilter;
+      if (queryParams.periodId) p.periodId = queryParams.periodId;
+      if (queryParams.employeeId) p.employeeId = queryParams.employeeId;
+      if (queryParams.costCenterId) p.costCenterId = queryParams.costCenterId;
+      if (queryParams.projectId) p.projectId = queryParams.projectId;
       if (fromDate) p.fromDate = fromDate;
       if (toDate) p.toDate = toDate;
       return api.get<any>('/custodies/report', p);
     },
-  });
-
-  // Query: Employees for filter
-  const { data: employees = [] } = useQuery({
-    queryKey: ['employees-picker'],
-    queryFn: () => api.get<any[]>('/employees', { pageSize: '100' }).then((r: any) => r.data || []),
   });
 
   const kpis = data?.kpis;
@@ -64,41 +63,16 @@ export function CustodyReportPage() {
         }
       />
 
-      {/* Filter Bar */}
-      <div className="card p-4 bg-white border border-slate-200 shadow-sm rounded-xl flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-700">تصفية حسب أمين العهدة:</span>
-          <select
-            className="input text-xs py-1.5 w-60"
-            value={employeeFilter}
-            onChange={(e) => setEmployeeFilter(e.target.value)}
-          >
-            <option value="">— كافة أمناء العهد والفروع —</option>
-            {employees.map((emp: any) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.code} — {emp.full_name_ar || emp.fullNameAr}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-700">الفترة من:</span>
-          <input
-            type="date"
-            className="input text-xs py-1.5 font-mono"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-          />
-          <span className="text-xs font-bold text-slate-700">إلى:</span>
-          <input
-            type="date"
-            className="input text-xs py-1.5 font-mono"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-          />
-        </div>
-      </div>
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onReset={resetAll}
+        showPeriod
+        showDateRange
+        showEmployee
+        showCostCenter
+        showProject
+      />
 
       {isLoading ? (
         <div className="p-12 text-center"><Loading /></div>
