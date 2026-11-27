@@ -37,6 +37,19 @@ export interface Page<T> {
 let accessToken: string | null = null;
 let companyId: string | null = localStorage.getItem('idham.company'); // UI preference (selected company)
 let onUnauthenticated: (() => void) | null = null;
+let onMutated: ((info: { method: string; path: string }) => void) | null = null;
+
+const READ_ONLY_POST_SUFFIXES = ['/calculate', '/simulate', '/decode-qr'];
+
+function maybeNotifyMutation(method: string, path: string): void {
+  if (!onMutated) return;
+  const upper = method.toUpperCase();
+  if (upper === 'GET' || upper === 'HEAD' || upper === 'OPTIONS') return;
+  const cleanPath = path.split('?')[0];
+  if (cleanPath.startsWith('/auth/')) return;
+  if (READ_ONLY_POST_SUFFIXES.some((s) => cleanPath.endsWith(s))) return;
+  onMutated({ method: upper, path: cleanPath });
+}
 
 export const session = {
   setToken(t: string | null) {
@@ -51,6 +64,9 @@ export const session = {
   company: () => companyId,
   onUnauthenticated(fn: () => void) {
     onUnauthenticated = fn;
+  },
+  onMutated(fn: (info: { method: string; path: string }) => void) {
+    onMutated = fn;
   },
 };
 
@@ -147,9 +163,17 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
   const fullPath = `${path}${qs(opts.query)}`;
   const base = getApiBaseUrl();
   const demoAllowed = isDemoFallbackEnabled();
+  const tryFallback = (): T | undefined => {
+    const fallback = getDemoFallback(fullPath, method, body);
+    if (fallback !== undefined) {
+      maybeNotifyMutation(method, fullPath);
+      return fallback as T;
+    }
+    return undefined;
+  };
   if (demoAllowed && (offlineBaseUntil.get(base) || 0) > Date.now()) {
-    const cachedFallback = getDemoFallback(fullPath, method, body);
-    if (cachedFallback !== undefined) return cachedFallback as T;
+    const cachedFallback = tryFallback();
+    if (cachedFallback !== undefined) return cachedFallback;
   }
   const headers: Record<string, string> = { Accept: 'application/json', ...(opts.headers ?? {}) };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -170,8 +194,8 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
   } catch (err: any) {
     if (demoAllowed) {
       offlineBaseUntil.set(base, Date.now() + OFFLINE_COOLDOWN_MS);
-      const fallback = getDemoFallback(fullPath, method, body);
-      if (fallback !== undefined) return fallback as T;
+      const fallback = tryFallback();
+      if (fallback !== undefined) return fallback;
     }
     throw err;
   } finally {
@@ -184,14 +208,17 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
     if (isStaticHost || res.status === 405 || res.status === 502 || res.status === 503 || res.status === 504 || res.status === 530) {
       offlineBaseUntil.set(base, Date.now() + OFFLINE_COOLDOWN_MS);
     }
-    const fallback = getDemoFallback(fullPath, method, body);
-    if (fallback !== undefined) return fallback as T;
+    const fallback = tryFallback();
+    if (fallback !== undefined) return fallback;
   }
   if (res.status === 401 && opts.retry !== false && !path.startsWith('/auth/login')) {
     if (await refreshToken()) return request<T>(method, path, body, { ...opts, retry: false });
     onUnauthenticated?.();
   }
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) {
+    maybeNotifyMutation(method, fullPath);
+    return undefined as T;
+  }
   if (opts.raw && res.ok) return (await res.blob()) as T;
   const text = await res.text();
   const data = text ? safeJson(text) : undefined;
@@ -206,6 +233,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
       requestId: p.requestId,
     });
   }
+  maybeNotifyMutation(method, fullPath);
   return data as T;
 }
 

@@ -211,6 +211,8 @@ export function EmployeesPage() {
     onSuccess: (e) => {
       toast.success('تم تعيين الموظف بنجاح');
       qc.invalidateQueries({ queryKey: ['/employees'] });
+      qc.invalidateQueries({ queryKey: ['employees'] });
+      qc.invalidateQueries({ queryKey: ['/assignments/employee-days-report'] });
       qc.invalidateQueries({ queryKey: ['ref'] });
       setCreating(false);
       setForm({
@@ -559,6 +561,14 @@ export function EmployeesPage() {
                                   .then(() => {
                                     toast.success('تم حذف الموظف بنجاح');
                                     qc.invalidateQueries({ queryKey: ['/employees'] });
+                                    qc.invalidateQueries({ queryKey: ['employees'] });
+                                    qc.invalidateQueries({ queryKey: ['/assignments/employee-days-report'] });
+                                    qc.invalidateQueries({ queryKey: ['/invoices'] });
+                                    qc.invalidateQueries({ queryKey: ['/payroll-runs'] });
+                                    qc.invalidateQueries({ queryKey: ['journals'] });
+                                    qc.invalidateQueries({ queryKey: ['is'] });
+                                    qc.invalidateQueries({ queryKey: ['tb'] });
+                                    qc.invalidateQueries({ queryKey: ['bs'] });
                                   })
                                   .catch((err) => toast.error(err));
                               }
@@ -752,6 +762,14 @@ export function EmployeeDetailPage() {
         .then(() => {
           toast.success('تم حذف الموظف بنجاح');
           qc.invalidateQueries({ queryKey: ['/employees'] });
+          qc.invalidateQueries({ queryKey: ['employees'] });
+          qc.invalidateQueries({ queryKey: ['/assignments/employee-days-report'] });
+          qc.invalidateQueries({ queryKey: ['/invoices'] });
+          qc.invalidateQueries({ queryKey: ['/payroll-runs'] });
+          qc.invalidateQueries({ queryKey: ['journals'] });
+          qc.invalidateQueries({ queryKey: ['is'] });
+          qc.invalidateQueries({ queryKey: ['tb'] });
+          qc.invalidateQueries({ queryKey: ['bs'] });
           nav('/hr/employees');
         })
         .catch((err) => toast.error(err));

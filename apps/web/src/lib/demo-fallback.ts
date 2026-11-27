@@ -1,5 +1,5 @@
 import { getStoredCompany, saveStoredCompany } from './storage-company';
-import { getEntityList, saveEntityItem, deleteEntityItem, uid } from './local-store';
+import { getEntityList, saveEntityItem, deleteEntityItem, replaceEntityList, uid } from './local-store';
 import {
   sha256Hex,
   recordAudit,
@@ -117,6 +117,303 @@ import {
   updateZatcaSettingsV2,
   validateInvoiceLocal,
 } from './zatca-local-engine';
+
+function round2Val(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+const jeLineDr = (l: any): number => round2Val(Number(l?.debitBase ?? l?.debit ?? 0));
+const jeLineCr = (l: any): number => round2Val(Number(l?.creditBase ?? l?.credit ?? 0));
+
+function withUpdatedJeLineAmounts(l: any, nextDrBase: number, nextCrBase: number): any {
+  const fx = Number(l?.exchangeRate || 1) || 1;
+  const drBase = round2Val(Math.max(0, nextDrBase));
+  const crBase = round2Val(Math.max(0, nextCrBase));
+  return {
+    ...l,
+    debitBase: drBase.toFixed(2),
+    creditBase: crBase.toFixed(2),
+    debitTx: round2Val(drBase / fx).toFixed(2),
+    creditTx: round2Val(crBase / fx).toFixed(2),
+    ...(l.debit !== undefined ? { debit: drBase } : {}),
+    ...(l.credit !== undefined ? { credit: crBase } : {}),
+  };
+}
+
+function finalizeBalancedJe(je: any, nextLines: any[]): any | null {
+  const cleaned = nextLines
+    .filter((l) => jeLineDr(l) > 0 || jeLineCr(l) > 0)
+    .map((l, idx) => ({ ...l, lineNo: idx + 1 }));
+  if (cleaned.length < 2) return null;
+  const totDr = round2Val(cleaned.reduce((s, l) => s + jeLineDr(l), 0));
+  const totCr = round2Val(cleaned.reduce((s, l) => s + jeLineCr(l), 0));
+  if (Math.abs(totDr - totCr) >= 0.01) return null;
+  return {
+    ...je,
+    lines: cleaned,
+    totalDebitBase: totDr.toFixed(2),
+    totalCreditBase: totCr.toFixed(2),
+  };
+}
+
+/**
+ * Strict employee ownership check for destructive cascade cleanup:
+ * prioritizes ID/code equality without substring fallback when IDs differ.
+ */
+function belongsToEmployeeStrict(record: any, emp: any): boolean {
+  if (!record || !emp) return false;
+  const rId = String(record.employeeId ?? record.employee_id ?? '').trim();
+  const rCode = String(record.employeeCode ?? record.employee_code ?? '').trim();
+  const rName = String(record.employeeName ?? record.employeeNameAr ?? record.employee_name ?? '').trim().toLowerCase();
+
+  const eId = String(emp.id ?? '').trim();
+  const eCode = String(emp.code ?? '').trim();
+  const eName = String(emp.fullNameAr ?? emp.full_name_ar ?? emp.nameAr ?? emp.name ?? '').trim().toLowerCase();
+
+  if (rId) return rId === eId || (Boolean(eCode) && rId === eCode);
+  if (rCode) return (Boolean(eCode) && rCode === eCode) || rCode === eId;
+  if (rName && eName) return rName === eName;
+  return false;
+}
+
+function collectEntityJournalIds(rec: any, out: Set<string>): void {
+  if (!rec) return;
+  for (const k of ['journalEntryId', 'paymentJournalEntryId', 'reversalJournalEntryId', 'settlementJournalEntryId']) {
+    if (rec[k]) out.add(String(rec[k]));
+  }
+  if (Array.isArray(rec.payments)) {
+    for (const p of rec.payments) if (p?.journalEntryId) out.add(String(p.journalEntryId));
+  }
+  if (Array.isArray(rec.settlements)) {
+    for (const s of rec.settlements) if (s?.journalEntryId) out.add(String(s.journalEntryId));
+  }
+}
+
+/**
+ * Removes all operational & auto-posted financial records strictly owned by a deleted employee
+ * while preserving multi-employee runs/invoices balanced for remaining employees.
+ */
+function cascadeDeleteEmployee(delEmp: any): void {
+  const removedJeIds = new Set<string>();
+  const modifiedJes = new Map<string, any>();
+
+  // 1. Simple employee-scoped entities (no standalone posted GL headers)
+  for (const key of ['assignments', 'service_prices', 'monthly_variables', 'revenue_lines']) {
+    const list = getEntityList<any>(key, []);
+    const next = list.filter((row) => !belongsToEmployeeStrict(row, delEmp));
+    if (next.length !== list.length) replaceEntityList(key, next);
+  }
+
+  // 2. Loans & custodies (collect linked JEs before removal)
+  for (const key of ['loans', 'custodies']) {
+    const list = getEntityList<any>(key, []);
+    const next = list.filter((row) => {
+      if (!belongsToEmployeeStrict(row, delEmp)) return true;
+      collectEntityJournalIds(row, removedJeIds);
+      return false;
+    });
+    if (next.length !== list.length) replaceEntityList(key, next);
+  }
+
+  const allJes = getEntityList<any>('journal_entries', []);
+  const findJe = (jeId?: string) => (jeId ? modifiedJes.get(jeId) || allJes.find((j) => j.id === jeId) : undefined);
+
+  // 3. Payroll runs: drop single-employee runs, or shrink & rebalance multi-employee runs
+  const payRuns = getEntityList<any>('payroll_runs', []);
+  let payRunsChanged = false;
+  const nextPayRuns: any[] = [];
+  for (const run of payRuns) {
+    if (!Array.isArray(run.lines) || run.lines.length === 0) {
+      nextPayRuns.push(run);
+      continue;
+    }
+    const kept = run.lines.filter((l: any) => !belongsToEmployeeStrict(l, delEmp));
+    if (kept.length === run.lines.length) {
+      nextPayRuns.push(run);
+      continue;
+    }
+    payRunsChanged = true;
+    const removed = run.lines.filter((l: any) => belongsToEmployeeStrict(l, delEmp));
+    if (kept.length === 0) {
+      collectEntityJournalIds(run, removedJeIds);
+      continue;
+    }
+    const sumNum = (arr: any[], fn: (x: any) => number) => round2Val(arr.reduce((s, x) => s + fn(x), 0));
+    const remLoan = sumNum(removed, (l) => Number(l.loanDeductionsBase || 0));
+    const remDed = sumNum(removed, (l) => Number(l.deductionsBase || 0));
+    const remNet = sumNum(removed, (l) => Number(l.netPayableBase || 0));
+    const keptSal = sumNum(kept, (l) => Number(l.salaryBase || 0));
+    const keptVars = sumNum(kept, (l) => Number(l.bonusesBase || 0) + Number(l.overtimeBase || 0) + Number(l.allowancesBase || 0));
+    const keptLoan = sumNum(kept, (l) => Number(l.loanDeductionsBase || 0));
+    const keptNet = sumNum(kept, (l) => Number(l.netPayableBase || 0));
+    nextPayRuns.push({
+      ...run,
+      employeeCount: kept.length,
+      totalSalaryBase: keptSal.toFixed(2),
+      totalVariablesBase: keptVars.toFixed(2),
+      totalLoanDeductionsBase: keptLoan.toFixed(2),
+      netPayableBase: keptNet.toFixed(2),
+      lines: kept,
+    });
+
+    const accJe = findJe(run.journalEntryId);
+    if (accJe && Array.isArray(accJe.lines)) {
+      const nextLines = accJe.lines
+        .filter((l: any) => !belongsToEmployeeStrict(l, delEmp))
+        .map((l: any) => {
+          const code = String(l.accountCode || '');
+          const curCr = jeLineCr(l);
+          if (curCr > 0) {
+            if (code === '10401') return withUpdatedJeLineAmounts(l, 0, curCr - remLoan);
+            if (code === '20301') return withUpdatedJeLineAmounts(l, 0, curCr - remDed);
+            if (code === '20401') return withUpdatedJeLineAmounts(l, 0, curCr - remNet);
+          }
+          return l;
+        });
+      const updatedAccJe = finalizeBalancedJe(accJe, nextLines);
+      if (updatedAccJe) modifiedJes.set(accJe.id, updatedAccJe);
+    }
+    const payJe = findJe(run.paymentJournalEntryId);
+    if (payJe && Array.isArray(payJe.lines)) {
+      const nextPayLines = payJe.lines.map((l: any) => {
+        const curDr = jeLineDr(l);
+        const curCr = jeLineCr(l);
+        return withUpdatedJeLineAmounts(l, curDr > 0 ? curDr - remNet : 0, curCr > 0 ? curCr - remNet : 0);
+      });
+      const updatedPayJe = finalizeBalancedJe(payJe, nextPayLines);
+      if (updatedPayJe) modifiedJes.set(payJe.id, updatedPayJe);
+    }
+  }
+  if (payRunsChanged) replaceEntityList('payroll_runs', nextPayRuns);
+
+  // 4. Revenue runs
+  const revRuns = getEntityList<any>('revenue_runs', []);
+  let revRunsChanged = false;
+  const nextRevRuns: any[] = [];
+  for (const run of revRuns) {
+    if (!Array.isArray(run.lines) || run.lines.length === 0) {
+      nextRevRuns.push(run);
+      continue;
+    }
+    const kept = run.lines.filter((l: any) => !belongsToEmployeeStrict(l, delEmp));
+    if (kept.length === run.lines.length) {
+      nextRevRuns.push(run);
+      continue;
+    }
+    revRunsChanged = true;
+    if (kept.length === 0) {
+      collectEntityJournalIds(run, removedJeIds);
+      continue;
+    }
+    const nextTotal = round2Val(kept.reduce((s: number, l: any) => s + Number(l.grossRevenueBase || l.amount || 0), 0));
+    const uniqueEmps = new Set(kept.map((l: any) => l.employeeId || l.employeeCode).filter(Boolean)).size || kept.length;
+    nextRevRuns.push({ ...run, employeeCount: uniqueEmps, lineCount: kept.length, totalRevenueBase: nextTotal.toFixed(2), lines: kept });
+    const revJe = findJe(run.journalEntryId);
+    if (revJe && Array.isArray(revJe.lines) && nextTotal > 0) {
+      const nextJeLines = revJe.lines.map((l: any) =>
+        withUpdatedJeLineAmounts(l, jeLineDr(l) > 0 ? nextTotal : 0, jeLineCr(l) > 0 ? nextTotal : 0),
+      );
+      const updatedRevJe = finalizeBalancedJe(revJe, nextJeLines);
+      if (updatedRevJe) modifiedJes.set(revJe.id, updatedRevJe);
+    }
+  }
+  if (revRunsChanged) replaceEntityList('revenue_runs', nextRevRuns);
+
+  // 5. Invoices & ZATCA logs
+  const invoices = getEntityList<any>('invoices', []);
+  const removedInvoiceIds = new Set<string>();
+  const keptInvoicesPass1: any[] = [];
+  for (const inv of invoices) {
+    const lines = Array.isArray(inv.lines) ? inv.lines : [];
+    const matchedLineCount = lines.filter((l: any) => belongsToEmployeeStrict(l, delEmp)).length;
+    const keptLines = lines.filter((l: any) => !belongsToEmployeeStrict(l, delEmp));
+    const linkedInvJe = findJe(inv.journalEntryId);
+    const linkedJeOwnedByEmp = Boolean(
+      linkedInvJe &&
+      Array.isArray(linkedInvJe.lines) &&
+      linkedInvJe.lines.length > 0 &&
+      linkedInvJe.lines.every((l: any) => belongsToEmployeeStrict(l, delEmp)),
+    );
+    const whollyOwned =
+      belongsToEmployeeStrict(inv, delEmp) ||
+      (matchedLineCount > 0 && keptLines.length === 0) ||
+      (matchedLineCount === 0 && linkedJeOwnedByEmp);
+    if (whollyOwned) {
+      removedInvoiceIds.add(inv.id);
+      collectEntityJournalIds(inv, removedJeIds);
+    } else if (matchedLineCount > 0 && keptLines.length > 0) {
+      const subtotal = round2Val(keptLines.reduce((s: number, l: any) => s + Number(l.subtotal || 0), 0));
+      const vatAmount = round2Val(keptLines.reduce((s: number, l: any) => s + Number(l.vatAmount || 0), 0));
+      const totalAmount = round2Val(subtotal + vatAmount);
+      const fxRate = Number(inv.subtotal || 0) > 0 && Number(inv.subtotalBase || 0) > 0
+        ? Number(inv.subtotalBase) / Number(inv.subtotal)
+        : 1;
+      const subBase = round2Val(subtotal * fxRate);
+      const vatBase = round2Val(vatAmount * fxRate);
+      const totBase = round2Val(totalAmount * fxRate);
+      keptInvoicesPass1.push({
+        ...inv,
+        lines: keptLines,
+        subtotal: subtotal.toFixed(2),
+        taxableAmount: subtotal.toFixed(2),
+        vatAmount: vatAmount.toFixed(2),
+        totalAmount: totalAmount.toFixed(2),
+        subtotalBase: subBase.toFixed(2),
+        vatAmountBase: vatBase.toFixed(2),
+        totalAmountBase: totBase.toFixed(2),
+      });
+      if (linkedInvJe && Array.isArray(linkedInvJe.lines) && Number(inv.paidAmount || 0) === 0 && totalAmount > 0) {
+        const nextJeLines = linkedInvJe.lines.map((l: any) => {
+          const code = String(l.accountCode || '');
+          if (code === '10301' && jeLineDr(l) > 0) return withUpdatedJeLineAmounts(l, totBase, 0);
+          if (code === '40101' && jeLineCr(l) > 0) return withUpdatedJeLineAmounts(l, 0, subBase);
+          if (code === '20201' && jeLineCr(l) > 0) return withUpdatedJeLineAmounts(l, 0, vatBase);
+          return l;
+        });
+        const updatedInvJe = finalizeBalancedJe(linkedInvJe, nextJeLines);
+        if (updatedInvJe) modifiedJes.set(linkedInvJe.id, updatedInvJe);
+      }
+    } else {
+      keptInvoicesPass1.push(inv);
+    }
+  }
+  const finalInvoices = keptInvoicesPass1.filter((inv) => {
+    if (inv.invoiceType === 'CREDIT_NOTE' && inv.originalInvoiceId && removedInvoiceIds.has(inv.originalInvoiceId)) {
+      removedInvoiceIds.add(inv.id);
+      collectEntityJournalIds(inv, removedJeIds);
+      return false;
+    }
+    return true;
+  });
+  if (finalInvoices.length !== invoices.length || keptInvoicesPass1.some((inv, idx) => inv !== invoices[idx])) {
+    replaceEntityList('invoices', finalInvoices);
+  }
+  if (removedInvoiceIds.size > 0) {
+    for (const zKey of ['zatca_submissions', 'zatca_retry_queue']) {
+      const zList = getEntityList<any>(zKey, []);
+      const zNext = zList.filter((z) => !removedInvoiceIds.has(z.invoiceId));
+      if (zNext.length !== zList.length) replaceEntityList(zKey, zNext);
+    }
+  }
+
+  // 6. Journal entries: remove linked doc journals & non-manual entries whose lines belong exclusively to delEmp
+  let jesChanged = modifiedJes.size > 0;
+  const nextJes = allJes
+    .filter((je) => {
+      if (removedJeIds.has(je.id) || (je.reversalOfId && removedJeIds.has(je.reversalOfId)) || (je.originalEntryId && removedJeIds.has(je.originalEntryId))) {
+        jesChanged = true;
+        return false;
+      }
+      const isAutoJe = je.journalType !== 'MANUAL' && je.journalType !== 'GENERAL' && je.sourceModule !== 'MANUAL';
+      if (isAutoJe && Array.isArray(je.lines) && je.lines.length > 0 && je.lines.every((l: any) => belongsToEmployeeStrict(l, delEmp))) {
+        jesChanged = true;
+        return false;
+      }
+      return true;
+    })
+    .map((je) => modifiedJes.get(je.id) || je);
+  if (jesChanged) replaceEntityList('journal_entries', nextJes);
+}
 
 /** Filters sales/purchase invoice collections by status, ZATCA state, type, search, and fiscal period (ID or date window). */
 function filterInvoicesByQuery(items: any[], path: string, opts?: { isZatca?: boolean }): any[] {
@@ -333,12 +630,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         if (empIndex >= 0) {
           const delEmp = emps[empIndex];
           deleteEntityItem('employees', delEmp.id);
-          const allAsg = getEntityList('assignments', []);
-          const remainingAsg = allAsg.filter((a: any) => a.employeeId !== delEmp.id && a.employeeId !== delEmp.code);
-          if (remainingAsg.length !== allAsg.length) {
-            localStorage.setItem('idham_prod_assignments', JSON.stringify(remainingAsg));
-          }
-          recordAudit({ action: 'DELETE_EMPLOYEE', schemaName: 'hr', tableName: 'employees', entityId: delEmp.id, oldValues: { code: delEmp.code, fullNameAr: delEmp.fullNameAr }, reason: 'حذف ملف موظف' });
+          cascadeDeleteEmployee(delEmp);
+          recordAudit({ action: 'DELETE_EMPLOYEE', schemaName: 'hr', tableName: 'employees', entityId: delEmp.id, oldValues: { code: delEmp.code, fullNameAr: delEmp.fullNameAr }, reason: 'حذف ملف موظف وكافة ارتباطاته المالية والتشغيلية' });
         }
         return { success: true, message: 'تم حذف الموظف بنجاح' };
       }

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './index.css';
-import { ApiError } from './lib/api';
+import { ApiError, session } from './lib/api';
 import { AuthProvider, useAuth } from './lib/auth';
 import { AppShell } from './components/AppShell';
 import { ErrorBoundary, Loading, ToastProvider } from './components/ui';
@@ -135,6 +135,21 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+session.onMutated(() => {
+  void queryClient.invalidateQueries();
+});
+
+if (typeof window !== 'undefined') {
+  const invalidateAllQueries = () => {
+    void queryClient.invalidateQueries();
+  };
+  window.addEventListener('idham_entity_mutation', invalidateAllQueries);
+  window.addEventListener('idham_all_purged', invalidateAllQueries);
+  window.addEventListener('storage', (ev) => {
+    if (ev.key && ev.key.startsWith('idham_')) invalidateAllQueries();
+  });
+}
 
 function RouteLoader() {
   return (

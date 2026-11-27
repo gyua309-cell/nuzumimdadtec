@@ -100,7 +100,7 @@ export function DashboardPage() {
   const purInvs = useQuery({ queryKey: ['/purchase-invoices', 'dashboard-summary'], queryFn: () => api.get<any>('/purchase-invoices') });
   const assetsQ = useQuery({ queryKey: ['/assets', 'dashboard-summary'], queryFn: () => api.get<any>('/assets') });
   const zatcaStatusQ = useQuery({ queryKey: ['/zatca/status', 'dashboard-summary'], queryFn: () => api.get<any>('/zatca/status') });
-  const payRunsQ = useQuery({ queryKey: ['/payroll/runs', 'dashboard-summary'], queryFn: () => api.get<any>('/payroll/runs') });
+  const payRunsQ = useQuery({ queryKey: ['/payroll-runs', 'dashboard-summary'], queryFn: () => api.get<any>('/payroll-runs') });
   const custodiesListQ = useQuery({ queryKey: ['/custodies', 'dashboard-summary'], queryFn: () => api.get<any>('/custodies') });
 
   // Current Period

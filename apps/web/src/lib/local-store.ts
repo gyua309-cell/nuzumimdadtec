@@ -230,6 +230,21 @@ export function resetSystemToZero() {
 }
 
 /**
+ * Replaces an entire entity collection in storage and notifies subscribers/React Query.
+ */
+export function replaceEntityList<T = any>(entityKey: string, items: T[]): T[] {
+  const safeList = Array.isArray(items) ? items : [];
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(`${STORAGE_PREFIX}${entityKey}`, JSON.stringify(safeList));
+  }
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent(`idham_${entityKey}_updated`, { detail: safeList }));
+    window.dispatchEvent(new CustomEvent('idham_entity_mutation', { detail: { entityKey } }));
+  }
+  return safeList;
+}
+
+/**
  * Exports entire system state (Company profile + all entity records) to a JSON file
  */
 export function exportAllErpData(): void {
