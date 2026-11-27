@@ -35,6 +35,11 @@ export const PurchaseInvoiceCreate = z.object({
   lines: z.array(PurchaseInvoiceLineInput).min(1, 'يجب إضافة بند واحد على الأقل في فاتورة المشتريات'),
 });
 
+export const PurchaseInvoiceUpdate = PurchaseInvoiceCreate.partial().extend({
+  lines: z.array(PurchaseInvoiceLineInput).min(1).optional(),
+  reason: z.string().trim().max(1000).optional(),
+});
+
 export const DebitNoteCreate = z.object({
   originalInvoiceId: z.string().uuid(),
   returnReason: z.string().trim().min(3).max(1000),
@@ -461,18 +466,174 @@ export class PurchasesService {
     });
   }
 
+  async update(companyId: string, id: string, body: z.infer<typeof PurchaseInvoiceUpdate>) {
+    return this.db.tx(async () => {
+      const existing = await this.get(companyId, id);
+      if (existing.status === 'CANCELLED') {
+        throw new DomainError('INVOICE_CANCELLED', 'لا يمكن تعديل فاتورة مشتريات ملغاة');
+      }
+      if (existing.paymentStatus !== 'UNPAID') {
+        throw new DomainError(
+          'PURCHASE_HAS_PAYMENTS',
+          'لا يمكن تعديل فاتورة مشتريات مسددة كلياً أو جزئياً؛ قم بإلغاء سندات الصرف أو الشيكات المرتبطة أولاً',
+        );
+      }
+
+      const issueDate = body.issueDate ?? existing.issueDate;
+      const fiscalPeriodId = body.fiscalPeriodId ?? existing.fiscalPeriodId;
+      const currencyCode = body.currencyCode ?? existing.currencyCode;
+      const fxRate = D(body.exchangeRate ?? existing.exchangeRate ?? 1);
+      const vendorId = body.vendorId ?? existing.vendorId;
+      const projectId = body.projectId !== undefined ? body.projectId : (existing.projectId ?? null);
+
+      const srcLines = body.lines ?? existing.lines.map((l: any) => ({
+        itemType: l.itemType ?? 'EXPENSE',
+        description: l.description,
+        expenseAccountId: l.expenseAccountId,
+        projectId: l.projectId ?? null,
+        costCenterId: l.costCenterId ?? null,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        discountAmount: l.discountAmount ?? '0',
+        vatRate: l.vatRate ?? '15.00',
+      }));
+
+      let invoiceSubtotal = D(0);
+      let invoiceVat = D(0);
+      const computedLines = srcLines.map((l: any, idx: number) => {
+        const qty = D(l.quantity);
+        const price = D(l.unitPrice);
+        const discount = D(l.discountAmount || 0);
+        const vatRate = D(l.vatRate || 15);
+        const gross = qty.mul(price);
+        const lineSubtotal = gross.sub(discount);
+        const lineVat = lineSubtotal.mul(vatRate.div(100));
+        const lineTotal = lineSubtotal.add(lineVat);
+        invoiceSubtotal = invoiceSubtotal.add(lineSubtotal);
+        invoiceVat = invoiceVat.add(lineVat);
+        return {
+          ...l,
+          lineNo: idx + 1,
+          subtotal: lineSubtotal,
+          vatAmount: lineVat,
+          totalAmount: lineTotal,
+          subtotalBase: lineSubtotal.mul(fxRate),
+          vatAmountBase: lineVat.mul(fxRate),
+          totalAmountBase: lineTotal.mul(fxRate),
+        };
+      });
+      const invoiceTotal = invoiceSubtotal.add(invoiceVat);
+
+      const wasPosted = existing.status === 'POSTED';
+      if (wasPosted && existing.journalEntryId) {
+        await this.journal.reverse(
+          companyId,
+          existing.journalEntryId,
+          body.reason || `تعديل فاتورة المشتريات ${existing.invoiceNo} وإعادة توليد القيد`,
+          issueDate,
+          { allowSourceSync: true },
+        );
+      }
+
+      await this.db.query(
+        `UPDATE pur.purchase_invoices
+            SET vendor_invoice_no = $3, invoice_type = $4, vendor_id = $5, project_id = $6,
+                fiscal_period_id = $7, issue_date = $8, due_date = $9, currency_code = $10,
+                exchange_rate = $11, subtotal = $12, vat_amount = $13, total_amount = $14,
+                subtotal_base = $15, vat_amount_base = $16, total_amount_base = $17,
+                notes = $18, status = CASE WHEN $19 THEN 'DRAFT' ELSE status END,
+                journal_entry_id = CASE WHEN $19 THEN NULL ELSE journal_entry_id END,
+                updated_at = now(), updated_by = sys.current_user_id()
+          WHERE company_id = $1 AND id = $2`,
+        [
+          companyId, id,
+          body.vendorInvoiceNo !== undefined ? body.vendorInvoiceNo : (existing.vendorInvoiceNo ?? null),
+          body.invoiceType ?? existing.invoiceType,
+          vendorId, projectId, fiscalPeriodId, issueDate,
+          body.dueDate !== undefined ? body.dueDate : (existing.dueDate ?? null),
+          currencyCode, toDbAmount(fxRate),
+          toDbAmount(invoiceSubtotal), toDbAmount(invoiceVat), toDbAmount(invoiceTotal),
+          toDbAmount(invoiceSubtotal.mul(fxRate)), toDbAmount(invoiceVat.mul(fxRate)), toDbAmount(invoiceTotal.mul(fxRate)),
+          body.notes !== undefined ? body.notes : (existing.notes ?? null),
+          wasPosted,
+        ],
+      );
+
+      if (body.lines) {
+        await this.db.query(`DELETE FROM pur.purchase_invoice_lines WHERE company_id = $1 AND purchase_invoice_id = $2`, [companyId, id]);
+        for (const cl of computedLines) {
+          await this.db.query(
+            `INSERT INTO pur.purchase_invoice_lines (
+               company_id, purchase_invoice_id, line_no, item_type, description,
+               expense_account_id, project_id, cost_center_id, quantity, unit_price,
+               discount_amount, vat_rate, subtotal, vat_amount, total_amount,
+               subtotal_base, vat_amount_base, total_amount_base
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+            [
+              companyId, id, cl.lineNo, cl.itemType, cl.description,
+              cl.expenseAccountId, cl.projectId ?? projectId ?? null, cl.costCenterId ?? null,
+              toDbAmount(cl.quantity), toDbAmount(cl.unitPrice), toDbAmount(cl.discountAmount),
+              toDbAmount(cl.vatRate), toDbAmount(cl.subtotal), toDbAmount(cl.vatAmount),
+              toDbAmount(cl.totalAmount), toDbAmount(cl.subtotalBase), toDbAmount(cl.vatAmountBase),
+              toDbAmount(cl.totalAmountBase),
+            ],
+          );
+        }
+      }
+
+      if (wasPosted) {
+        await this.post(companyId, id);
+      }
+
+      const updated = await this.get(companyId, id);
+      await this.db.query(`SELECT audit.log_action('pur','purchase_invoices',$1,'UPDATE',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ subtotal: existing.subtotal, totalAmount: existing.totalAmount, vendorId: existing.vendorId }),
+        JSON.stringify({ subtotal: updated.subtotal, totalAmount: updated.totalAmount, vendorId: updated.vendorId }),
+        body.reason || `تعديل فاتورة المشتريات ${existing.invoiceNo}`,
+        existing.invoiceNo,
+      ]);
+      return updated;
+    });
+  }
+
+  async remove(companyId: string, id: string) {
+    return this.db.tx(async () => {
+      const inv = await this.get(companyId, id);
+      if (inv.status !== 'DRAFT') {
+        throw new DomainError(
+          'PURCHASE_NOT_DRAFT',
+          'لا يمكن الحذف النهائي لفاتورة مشتريات مرحّلة؛ استخدم الإلغاء النظامي لعكس القيد وتوثيق السبب في سجل التدقيق',
+        );
+      }
+      await this.db.query(`DELETE FROM pur.purchase_invoice_lines WHERE company_id = $1 AND purchase_invoice_id = $2`, [companyId, id]);
+      await this.db.query(`DELETE FROM pur.purchase_invoices WHERE company_id = $1 AND id = $2`, [companyId, id]);
+      await this.db.query(`SELECT audit.log_action('pur','purchase_invoices',$1,'DELETE',$2::jsonb,NULL,$3,$4)`, [
+        id,
+        JSON.stringify({ invoiceNo: inv.invoiceNo, totalAmount: inv.totalAmount }),
+        `حذف مسودة فاتورة المشتريات ${inv.invoiceNo}`,
+        inv.invoiceNo,
+      ]);
+      return { success: true, id };
+    });
+  }
+
   async cancel(companyId: string, id: string, reason: string) {
     return this.db.tx(async () => {
       const inv = await this.get(companyId, id);
       if (inv.status === 'CANCELLED') throw new DomainError('ALREADY_CANCELLED', 'الفاتورة ملغاة بالفعل');
+      if (inv.paymentStatus !== 'UNPAID') {
+        throw new DomainError('PURCHASE_HAS_PAYMENTS', 'لا يمكن إلغاء فاتورة مشتريات مسددة؛ يرجى إلغاء سندات الصرف أو ارتداد الشيكات أولاً');
+      }
 
       if (inv.journalEntryId) {
-        // Reverse journal entry
+        // Reverse journal entry atomically via source sync
         await this.journal.reverse(
           companyId,
           inv.journalEntryId,
           `إلغاء فاتورة المشتريات ${inv.invoiceNo}: ${reason}`,
           new Date().toISOString().slice(0, 10),
+          { allowSourceSync: true },
         );
       }
 
@@ -483,6 +644,14 @@ export class PurchasesService {
           WHERE company_id = $1 AND id = $3`,
         [companyId, reason, id],
       );
+
+      await this.db.query(`SELECT audit.log_action('pur','purchase_invoices',$1,'CANCEL',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ status: inv.status, totalAmount: inv.totalAmount }),
+        JSON.stringify({ status: 'CANCELLED', reason }),
+        reason,
+        inv.invoiceNo,
+      ]);
 
       return this.get(companyId, id);
     });

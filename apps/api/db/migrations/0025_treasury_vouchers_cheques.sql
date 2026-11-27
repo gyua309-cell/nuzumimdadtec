@@ -202,6 +202,11 @@ CREATE TABLE IF NOT EXISTS acc.bank_reconciliations (
 );
 CREATE INDEX IF NOT EXISTS ix_acc_bank_reconciliations_bank ON acc.bank_reconciliations(company_id, bank_account_id, statement_date DESC);
 
+ALTER TABLE acc.bank_transfers
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED','CANCELLED')),
+  ADD COLUMN IF NOT EXISTS reversal_journal_entry_id uuid NULL REFERENCES acc.journal_entries(id),
+  ADD COLUMN IF NOT EXISTS cancel_reason text NULL;
+
 -- 7. Triggers & Audit
 DO $$
 DECLARE t text;

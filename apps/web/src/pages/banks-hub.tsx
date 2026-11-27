@@ -2,17 +2,19 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftRight, Building,
-  Landmark, Layers, Plus, Printer, RefreshCw, Wallet
+  Landmark, Layers, Plus, Printer, RefreshCw, Save, Wallet
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { ExportMenu } from '../components/ExportMenu';
-import { ExportEngine } from '../engine/export-engine';
+import { ExportEngine, type RoyalDetailDocumentOptions } from '../engine/export-engine';
 import { useAuth, useBaseCurrency } from '../lib/auth';
 import { date, money, today } from '../lib/format';
-import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
+import { Badge, ConfirmDialog, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, ReasonDialog, Spinner, useToast } from '../components/ui';
+import { RowActionBar } from '../components/RowActionBar';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { clearFormDraft, handleErpFormKeyDown, loadFormDraft, saveFormDraft } from '../lib/form-draft';
 
 export interface BankAccount {
   id: string;
@@ -54,7 +56,92 @@ export function BanksHubPage() {
   // State
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [newBankModalOpen, setNewBankModalOpen] = useState(false);
+  const [editingBank, setEditingBank] = useState<BankAccount | null>(null);
+  const [deletingBank, setDeletingBank] = useState<BankAccount | null>(null);
+  const [cancellingTransfer, setCancellingTransfer] = useState<BankTransferRecord | null>(null);
   const [printTransfer, setPrintTransfer] = useState<BankTransferRecord | null>(null);
+
+  const deleteBankMut = useMutation({
+    mutationFn: (id: string) => api.del(`/treasury/accounts/${id}`),
+    onSuccess: () => {
+      toast.success('تم حذف الحساب البنكي / الخزينة بنجاح');
+      setDeletingBank(null);
+      qc.invalidateQueries({ queryKey: ['bank-accounts-hub'] });
+      qc.invalidateQueries({ queryKey: ['treasury-accounts'] });
+      qc.invalidateQueries({ queryKey: ['treasury-overview'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+    },
+    onError: (e) => toast.error(e),
+  });
+
+  const cancelTransferMut = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api.post(`/bank-transfers/${id}/cancel`, { reason }),
+    onSuccess: () => {
+      toast.success('تم إلغاء التحويل البنكي وعكس القيد المحاسبي آلياً');
+      setCancellingTransfer(null);
+      qc.invalidateQueries({ queryKey: ['recent-bank-transfers'] });
+      qc.invalidateQueries({ queryKey: ['bank-accounts-hub'] });
+      qc.invalidateQueries({ queryKey: ['journals'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+    },
+    onError: (e) => toast.error(e),
+  });
+
+  const buildBankDoc = (b: BankAccount): RoyalDetailDocumentOptions => ({
+    title: `بطاقة حساب ${b.kind === 'BANK' ? 'بنكي' : 'خزينة نقدية'}: ${b.name}`,
+    subtitle: `${b.bankName || 'الخزينة المركزية'} — ${b.code}`,
+    filename: `bank-account-${b.code}-${today()}`,
+    docNo: b.code,
+    docDate: today(),
+    currency: b.currencyCode,
+    statusLabel: b.isActive ? 'نشط' : 'معطل',
+    statusTone: b.isActive ? 'green' : 'amber',
+    kpis: [
+      { label: 'الرصيد الدفتري', value: `${money(b.balance)} ${b.currencyCode}`, tone: 'emerald' },
+      { label: 'حساب الأستاذ (GL)', value: b.glAccountCode || '1100', tone: 'navy' },
+      { label: 'العملة', value: b.currencyCode, tone: 'sky' },
+      { label: 'النوع', value: b.kind === 'BANK' ? 'حساب بنكي' : 'خزينة نقدية', tone: 'indigo' },
+    ],
+    metaFields: [
+      { label: 'كود الحساب', value: b.code },
+      { label: 'اسم الحساب', value: b.name },
+      { label: 'البنك / المؤسسة', value: b.bankName || 'الخزينة المركزية' },
+      { label: 'رقم الحساب', value: b.accountNumber || '—' },
+      { label: 'رقم الآيبان IBAN', value: b.iban || '—' },
+      { label: 'حساب الأستاذ المرتبط', value: `${b.glAccountCode || ''} — ${b.glAccountNameAr || ''}` },
+    ],
+    totalAmountForTafqeet: Math.max(0, Number(b.balance || 0)),
+    signatureLabels: ['مسؤول الخزينة والبنوك', 'المحاسب المالي', 'اعتماد المدير المالي'],
+  });
+
+  const buildTransferDoc = (transfer: BankTransferRecord): RoyalDetailDocumentOptions => ({
+    title: 'سند تحويل بنكي وصرافة عملات رسمي معتمد',
+    subtitle: 'مستند تحويل مصرفي بين الحسابات البنكية ومطابقة سعر الصرف',
+    filename: `bank-transfer-${transfer.reference}-${transfer.transferDate}`,
+    docNo: transfer.reference,
+    docDate: date(transfer.transferDate),
+    currency: transfer.sourceCurrency,
+    statusLabel: (transfer as any).status === 'CANCELLED' ? 'ملغى ومعكوس' : 'تحويل مرحّل ومعتمد',
+    statusTone: (transfer as any).status === 'CANCELLED' ? 'red' : 'green',
+    watermark: (transfer as any).status === 'CANCELLED' ? 'CANCELLED' : 'NONE',
+    kpis: [
+      { label: 'المبلغ المحول منه', value: `${money(transfer.sourceAmount)} ${transfer.sourceCurrency}`, tone: 'navy' },
+      { label: 'المبلغ المستلم', value: `${money(transfer.targetAmount)} ${transfer.targetCurrency}`, tone: 'emerald' },
+      { label: 'سعر الصرف المطبق', value: String(transfer.exchangeRate), tone: 'sky' },
+      { label: 'العمولة البنكية', value: transfer.bankFee > 0 ? `${money(transfer.bankFee)} ${transfer.sourceCurrency}` : '0.00', tone: 'amber' },
+    ],
+    metaFields: [
+      { label: 'رقم السند والمرجع', value: transfer.reference },
+      { label: 'تاريخ التحويل', value: date(transfer.transferDate) },
+      { label: 'رقم القيد المحاسبي', value: transfer.journalEntryNo || '—' },
+      { label: 'الحساب المحول منه', value: transfer.sourceBankName },
+      { label: 'الحساب المستلم', value: transfer.targetBankName },
+      { label: 'البيان والغرض', value: transfer.notes || '—' },
+    ],
+    totalAmountForTafqeet: Number(transfer.sourceAmount || 0),
+    signatureLabels: ['أمين الخزينة / المحاسب', 'المراجعة والتدقيق', 'اعتماد المدير المالي'],
+  });
 
   // Queries
   const { data: bankAccounts = [], isLoading, error, refetch } = useQuery({
@@ -263,7 +350,7 @@ export function BanksHubPage() {
                     <th className="py-3 px-4">حساب الأستاذ العام (GL)</th>
                     <th className="py-3 px-4 text-center font-bold">الرصيد الدفتري</th>
                     <th className="py-3 px-4 text-center">الحالة</th>
-                    <th className="py-3 px-4 text-center">كشف حساب</th>
+                    <th className="py-3 px-4 text-center">الإجراءات التشغيلية</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -299,12 +386,27 @@ export function BanksHubPage() {
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <Link
-                          to={`/reports/account-statement?accountId=${b.glAccountId}`}
-                          className="btn btn-ghost text-xs py-1 px-2 text-blue-600 hover:bg-blue-50 font-bold"
-                        >
-                          كشف تفصيلي
-                        </Link>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <Link
+                            to={`/reports/account-statement?accountId=${b.glAccountId}`}
+                            className="btn btn-ghost text-[11px] py-1 px-2 text-blue-600 hover:bg-blue-50 font-bold whitespace-nowrap"
+                          >
+                            كشف حساب
+                          </Link>
+                          <RowActionBar
+                            onPreview={() => ExportEngine.openDetailPreview(buildBankDoc(b))}
+                            onPrint={() => void ExportEngine.printDetail(buildBankDoc(b))}
+                            onPdf={() => void ExportEngine.exportDetailPdf(buildBankDoc(b))}
+                            onExcel={() => void ExportEngine.exportDetailExcel(buildBankDoc(b))}
+                            onEdit={() => {
+                              setEditingBank(b);
+                              setNewBankModalOpen(true);
+                            }}
+                            editTitle="تعديل بيانات الحساب البنكي"
+                            onDelete={() => setDeletingBank(b)}
+                            deleteTitle="حذف الحساب البنكي"
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -358,6 +460,7 @@ export function BanksHubPage() {
                       <th className="py-3 px-4 text-center font-bold">المبلغ المستلم</th>
                       <th className="py-3 px-4 text-center">العمولة البنكية</th>
                       <th className="py-3 px-4 text-center">قيد اليومية</th>
+                      <th className="py-3 px-4 text-center">الحالة</th>
                       <th className="py-3 px-4 text-center">إجراءات</th>
                     </tr>
                   </thead>
@@ -384,13 +487,22 @@ export function BanksHubPage() {
                           <JournalLinkBadge entryId={trf.journalEntryId} entryNo={trf.journalEntryNo} compact />
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <button
-                            onClick={() => setPrintTransfer(trf)}
-                            className="btn-ghost p-1.5 text-slate-600 hover:text-slate-900"
-                            title="طباعة إشعار التحويل الرسمي"
-                          >
-                            <Printer className="size-4" />
-                          </button>
+                          <Badge color={trf.status === 'CANCELLED' ? 'red' : 'green'}>
+                            {trf.status === 'CANCELLED' ? 'ملغى ومعكوس' : 'مرحّل'}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <RowActionBar
+                            className="justify-center"
+                            onView={() => setPrintTransfer(trf)}
+                            viewTitle="عرض سند التحويل"
+                            onPreview={() => ExportEngine.openDetailPreview(buildTransferDoc(trf))}
+                            onPrint={() => void ExportEngine.printDetail(buildTransferDoc(trf))}
+                            onPdf={() => void ExportEngine.exportDetailPdf(buildTransferDoc(trf))}
+                            onExcel={() => void ExportEngine.exportDetailExcel(buildTransferDoc(trf))}
+                            onDelete={trf.status !== 'CANCELLED' ? () => setCancellingTransfer(trf) : undefined}
+                            deleteTitle="إلغاء التحويل وعكس القيد المحاسبي"
+                          />
                         </td>
                       </tr>
                     ))}
@@ -416,18 +528,48 @@ export function BanksHubPage() {
         />
       )}
 
-      {/* ================= MODAL: Add New Bank Account ================= */}
+      {/* ================= MODAL: Add / Edit Bank Account ================= */}
       {newBankModalOpen && (
         <AddNewBankAccountModal
           glAccounts={glAccounts}
-          onClose={() => setNewBankModalOpen(false)}
-          onSuccess={() => {
+          editingAccount={editingBank}
+          onClose={() => {
             setNewBankModalOpen(false);
+            setEditingBank(null);
+          }}
+          onSuccess={() => {
+            const wasEdit = Boolean(editingBank);
+            setNewBankModalOpen(false);
+            setEditingBank(null);
             qc.invalidateQueries({ queryKey: ['bank-accounts-hub'] });
-            toast.success('تمت إضافة الحساب البنكي بنجاح');
+            qc.invalidateQueries({ queryKey: ['treasury-accounts'] });
+            toast.success(wasEdit ? 'تم تحديث بيانات الحساب البنكي بنجاح' : 'تمت إضافة الحساب البنكي بنجاح');
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(deletingBank)}
+        title={`حذف الحساب: ${deletingBank?.name || ''}`}
+        message="سيتم التحقق من خلو الحساب من السندات والشيكات والحركات المرحّلة قبل الحذف. هل تريد المتابعة؟"
+        danger
+        busy={deleteBankMut.isPending}
+        onClose={() => setDeletingBank(null)}
+        onConfirm={() => deletingBank && deleteBankMut.mutate(deletingBank.id)}
+      />
+
+      <ReasonDialog
+        open={Boolean(cancellingTransfer)}
+        title={`إلغاء التحويل البنكي ${cancellingTransfer?.reference || ''}`}
+        confirmText="إلغاء التحويل وعكس القيد المحاسبي"
+        danger
+        onClose={() => setCancellingTransfer(null)}
+        onConfirm={async (reason) => {
+          if (cancellingTransfer) {
+            await cancelTransferMut.mutateAsync({ id: cancellingTransfer.id, reason });
+          }
+        }}
+      />
 
       {/* ================= MODAL: Print Transfer Voucher ================= */}
       {printTransfer && (
@@ -450,14 +592,21 @@ function InterBankTransferModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [sourceId, setSourceId] = useState(bankAccounts[0]?.id || '');
-  const [targetId, setTargetId] = useState(bankAccounts[1]?.id || '');
-  const [transferDate, setTransferDate] = useState(today());
-  const [sourceAmount, setSourceAmount] = useState('50000');
-  const [rate, setRate] = useState('13.15');
-  const [bankFee, setBankFee] = useState('150');
-  const [reference, setReference] = useState(`TRF-${today().replace(/-/g, '')}-01`);
-  const [notes, setNotes] = useState('تحويل سيولة بنكية بين الحسابات لتغطية التزامات الفرع والتشغيل');
+  const draft = loadFormDraft<any>('bank-transfer-new');
+  const [sourceId, setSourceId] = useState(draft?.sourceId || bankAccounts[0]?.id || '');
+  const [targetId, setTargetId] = useState(draft?.targetId || bankAccounts[1]?.id || '');
+  const [transferDate, setTransferDate] = useState(draft?.transferDate || today());
+  const [sourceAmount, setSourceAmount] = useState(draft?.sourceAmount || '50000');
+  const [rate, setRate] = useState(draft?.rate || '13.15');
+  const [bankFee, setBankFee] = useState(draft?.bankFee || '150');
+  const [reference, setReference] = useState(draft?.reference || `TRF-${today().replace(/-/g, '')}-01`);
+  const [notes, setNotes] = useState(draft?.notes || 'تحويل سيولة بنكية بين الحسابات لتغطية التزامات الفرع والتشغيل');
+
+  const persistTransferDraft = (patch: Record<string, any>) => {
+    saveFormDraft('bank-transfer-new', {
+      sourceId, targetId, transferDate, sourceAmount, rate, bankFee, reference, notes, ...patch,
+    });
+  };
 
   const sourceAcc = bankAccounts.find((b) => b.id === sourceId) || bankAccounts[0];
   const targetAcc = bankAccounts.find((b) => b.id === targetId) || bankAccounts[1];
@@ -495,6 +644,7 @@ function InterBankTransferModal({
       });
     },
     onSuccess: () => {
+      clearFormDraft('bank-transfer-new');
       qc.invalidateQueries({ queryKey: ['journals'] });
       qc.invalidateQueries({ queryKey: ['accounts'] });
       onSuccess();
@@ -506,7 +656,8 @@ function InterBankTransferModal({
     <Modal
       open
       onClose={onClose}
-      size="lg"
+      size="xl"
+      dirty={Boolean(sourceAmount || notes)}
       saving={transferMut.isPending}
       onSaveShortcut={() => !transferMut.isPending && transferMut.mutate()}
       title="تحويل بين الحسابات البنكية وصرافة العملات (Inter-Bank FX Transfer)"
@@ -525,14 +676,25 @@ function InterBankTransferModal({
         </div>
       }
     >
-      <div className="space-y-4 text-xs">
+      <form
+        data-erp-form
+        onSubmit={(e) => {
+          e.preventDefault();
+          transferMut.mutate();
+        }}
+        onKeyDown={(e) => handleErpFormKeyDown(e, { onSave: () => !transferMut.isPending && transferMut.mutate() })}
+        className="space-y-4 text-xs"
+      >
         {/* Source & Target Accounts */}
         <FormSection title="أطراف التحويل البنكي" columns={2}>
           <Field label="من الحساب البنكي (المصدر)" required>
             <SearchableSelect
               clearable={false}
               value={sourceId}
-              onChange={setSourceId}
+              onChange={(val) => {
+                setSourceId(val);
+                persistTransferDraft({ sourceId: val });
+              }}
               options={bankAccounts.map((b) => ({ value: b.id, label: `${b.name} (${b.currencyCode})` }))}
             />
           </Field>
@@ -541,7 +703,10 @@ function InterBankTransferModal({
             <SearchableSelect
               clearable={false}
               value={targetId}
-              onChange={setTargetId}
+              onChange={(val) => {
+                setTargetId(val);
+                persistTransferDraft({ targetId: val });
+              }}
               options={bankAccounts.map((b) => ({ value: b.id, label: `${b.name} (${b.currencyCode})` }))}
             />
           </Field>
@@ -563,14 +728,17 @@ function InterBankTransferModal({
         )}
 
         {/* Transfer Amounts & Rate */}
-        <div className="grid grid-cols-3 gap-3">
-          <Field label={`المبلغ المحول (${sourceAcc?.currencyCode || ''}) *`}>
+        <FormSection title="تفاصيل المبالغ وأسعار الصرف والتوثيق" columns={3}>
+          <Field label={`المبلغ المحول (${sourceAcc?.currencyCode || ''})`} required>
             <input
               type="number"
               step="any"
               className="input w-full font-mono font-bold text-blue-900"
               value={sourceAmount}
-              onChange={(e) => setSourceAmount(e.target.value)}
+              onChange={(e) => {
+                setSourceAmount(e.target.value);
+                persistTransferDraft({ sourceAmount: e.target.value });
+              }}
               required
             />
           </Field>
@@ -581,7 +749,10 @@ function InterBankTransferModal({
               step="any"
               className="input w-full font-mono font-bold text-cyan-800"
               value={rate}
-              onChange={(e) => setRate(e.target.value)}
+              onChange={(e) => {
+                setRate(e.target.value);
+                persistTransferDraft({ rate: e.target.value });
+              }}
               disabled={!isCrossCurrency}
             />
           </Field>
@@ -595,16 +766,16 @@ function InterBankTransferModal({
               readOnly
             />
           </Field>
-        </div>
 
-        {/* Transfer Details */}
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="تاريخ التحويل *">
+          <Field label="تاريخ التحويل" required>
             <input
               type="date"
               className="input w-full font-mono"
               value={transferDate}
-              onChange={(e) => setTransferDate(e.target.value)}
+              onChange={(e) => {
+                setTransferDate(e.target.value);
+                persistTransferDraft({ transferDate: e.target.value });
+              }}
               required
             />
           </Field>
@@ -615,7 +786,10 @@ function InterBankTransferModal({
               step="any"
               className="input w-full font-mono"
               value={bankFee}
-              onChange={(e) => setBankFee(e.target.value)}
+              onChange={(e) => {
+                setBankFee(e.target.value);
+                persistTransferDraft({ bankFee: e.target.value });
+              }}
             />
           </Field>
 
@@ -624,18 +798,24 @@ function InterBankTransferModal({
               className="input w-full font-mono"
               placeholder="مثال: SWIFT-99120"
               value={reference}
-              onChange={(e) => setReference(e.target.value)}
+              onChange={(e) => {
+                setReference(e.target.value);
+                persistTransferDraft({ reference: e.target.value });
+              }}
             />
           </Field>
-        </div>
 
-        <Field label="البيان والغرض من التحويل">
-          <textarea
-            className="input w-full h-16 py-2"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </Field>
+          <Field label="البيان والغرض من التحويل" className="md:col-span-3">
+            <textarea
+              className="input w-full h-16 py-2"
+              value={notes}
+              onChange={(e) => {
+                setNotes(e.target.value);
+                persistTransferDraft({ notes: e.target.value });
+              }}
+            />
+          </Field>
+        </FormSection>
 
         {/* Accounting Journal Preview Strip */}
         <div className="p-3.5 bg-slate-900 text-white rounded-xl space-y-2 font-mono text-xs">
@@ -655,38 +835,65 @@ function InterBankTransferModal({
             <span className="font-bold">-{money(parseFloat(sourceAmount || '0'))} {sourceAcc?.currencyCode}</span>
           </div>
         </div>
-      </div>
+      </form>
     </Modal>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Sub-Modal: Add New Bank Account
+// Sub-Modal: Add / Edit Bank Account
 // -----------------------------------------------------------------------------
 function AddNewBankAccountModal({
-  glAccounts, onClose, onSuccess,
+  glAccounts,
+  editingAccount,
+  onClose,
+  onSuccess,
 }: {
   glAccounts: any[];
+  editingAccount?: BankAccount | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const base = useBaseCurrency();
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-  const [kind, setKind] = useState<'BANK' | 'CASH'>('BANK');
-  const [bankName, setBankName] = useState('');
-  const [accountNumber, setAccountNumber] = useState('');
-  const [iban, setIban] = useState('');
-  const [currencyCode, setCurrencyCode] = useState(base || 'SAR');
-  const [autoCreateGlAccount, setAutoCreateGlAccount] = useState(true);
-  const [glAccountId, setGlAccountId] = useState(glAccounts[0]?.id || '');
+  const toast = useToast();
+  const isEdit = Boolean(editingAccount?.id);
+  const draft = !isEdit ? loadFormDraft<any>('bank-account-new') : null;
+
+  const [code, setCode] = useState(editingAccount?.code ?? draft?.code ?? '');
+  const [name, setName] = useState(editingAccount?.name ?? draft?.name ?? '');
+  const [kind, setKind] = useState<'BANK' | 'CASH'>(editingAccount?.kind ?? draft?.kind ?? 'BANK');
+  const [bankName, setBankName] = useState(editingAccount?.bankName ?? draft?.bankName ?? '');
+  const [accountNumber, setAccountNumber] = useState(editingAccount?.accountNumber ?? draft?.accountNumber ?? '');
+  const [iban, setIban] = useState(editingAccount?.iban ?? draft?.iban ?? '');
+  const [currencyCode, setCurrencyCode] = useState(editingAccount?.currencyCode ?? draft?.currencyCode ?? base ?? 'SAR');
+  const [autoCreateGlAccount, setAutoCreateGlAccount] = useState(!isEdit);
+  const [glAccountId, setGlAccountId] = useState(editingAccount?.glAccountId ?? glAccounts[0]?.id ?? '');
   const [openingBalance, setOpeningBalance] = useState('0');
+  const [isActive, setIsActive] = useState(editingAccount ? editingAccount.isActive : true);
+
+  const persistDraft = (patch: Record<string, any>) => {
+    if (isEdit) return;
+    saveFormDraft('bank-account-new', {
+      code, name, kind, bankName, accountNumber, iban, currencyCode, ...patch,
+    });
+  };
 
   const createMut = useMutation({
     mutationFn: () => {
+      if (!name.trim()) throw new Error('يرجى إدخال اسم الحساب البنكي أو الخزينة');
+      if (isEdit && editingAccount) {
+        return api.patch(`/treasury/accounts/${editingAccount.id}`, {
+          code: code.trim() || editingAccount.code,
+          name: name.trim(),
+          bankName: kind === 'BANK' ? (bankName.trim() || null) : 'خزينة نقدية',
+          accountNumber: accountNumber.trim() || null,
+          iban: iban.trim() || null,
+          isActive,
+        });
+      }
       return api.post('/treasury/accounts', {
         code: code || `${kind === 'CASH' ? 'CSH' : 'BNK'}-${Date.now().toString().slice(-4)}`,
-        name,
+        name: name.trim(),
         kind,
         bankName: kind === 'BANK' ? bankName : 'خزينة نقدية',
         accountNumber: accountNumber || null,
@@ -698,35 +905,47 @@ function AddNewBankAccountModal({
         isActive: true,
       });
     },
-    onSuccess,
+    onSuccess: () => {
+      if (!isEdit) clearFormDraft('bank-account-new');
+      onSuccess();
+    },
+    onError: (e) => toast.error(e),
   });
 
   return (
     <Modal
       open
       onClose={onClose}
-      size="lg"
+      size="xl"
       dirty={Boolean(code || name || accountNumber || iban)}
       saving={createMut.isPending}
       onSaveShortcut={() => !createMut.isPending && createMut.mutate()}
-      title="إضافة حساب بنكي أو خزينة نقدية جديدة"
+      title={isEdit ? `تعديل بيانات الحساب: ${editingAccount?.name}` : 'إضافة حساب بنكي أو خزينة نقدية جديدة'}
       footer={
         <div className="flex items-center gap-2">
           <button type="button" className="btn-secondary text-xs" disabled={createMut.isPending} onClick={onClose}>إلغاء</button>
           <button
             type="button"
-            className="btn-primary text-xs"
+            className="btn-primary text-xs flex items-center gap-1.5"
             onClick={() => createMut.mutate()}
-            disabled={createMut.isPending}
+            disabled={createMut.isPending || !name.trim()}
           >
-            {createMut.isPending && <Spinner className="size-3.5" />}
-            حفظ الحساب البنكي
+            {createMut.isPending ? <Spinner className="size-3.5" /> : <Save className="size-3.5" />}
+            {isEdit ? 'حفظ التعديلات' : 'حفظ الحساب البنكي'}
           </button>
         </div>
       }
     >
-      <div className="space-y-4 text-xs">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <form
+        data-erp-form
+        onSubmit={(e) => {
+          e.preventDefault();
+          createMut.mutate();
+        }}
+        onKeyDown={(e) => handleErpFormKeyDown(e, { onSave: () => !createMut.isPending && createMut.mutate() })}
+        className="space-y-4 text-xs"
+      >
+        <FormSection title="الهوية المصرفية والعملة" columns={3}>
           <Field label="كود الحساب البنكي" required>
             <input
               dir="ltr"
@@ -734,94 +953,120 @@ function AddNewBankAccountModal({
               className="input w-full font-mono"
               placeholder="مثال: BNK-ALBILAD-01"
               value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              onChange={(e) => {
+                const v = e.target.value.toUpperCase();
+                setCode(v);
+                persistDraft({ code: v });
+              }}
               required
             />
           </Field>
 
-          <Field label="نوع الحساب *">
-            <select
-              className="input w-full font-bold"
+          <Field label="نوع الحساب" required>
+            <SearchableSelect
+              clearable={false}
+              disabled={isEdit}
               value={kind}
-              onChange={(e) => setKind(e.target.value as any)}
-            >
-              <option value="BANK">حساب بنكي (Bank Account)</option>
-              <option value="CASH">خزينة وصندوق نقدي (Cash Safe)</option>
-            </select>
-          </Field>
-        </div>
-
-        <Field label="اسم الحساب الكامل *">
-          <input
-            className="input w-full font-bold"
-            placeholder="مثال: حساب مصرف البلاد - فرع الرياض الرئيسي"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </Field>
-
-        {kind === 'BANK' && (
-          <Field label="اسم البنك / المؤسسة المصرفية *">
-            <input
-              className="input w-full"
-              placeholder="مثال: بنك الرياض / مصرف الإنماء / CIB"
-              value={bankName}
-              onChange={(e) => setBankName(e.target.value)}
+              onChange={(v) => {
+                const k = (v || 'BANK') as 'BANK' | 'CASH';
+                setKind(k);
+                persistDraft({ kind: k });
+              }}
+              options={[
+                { value: 'BANK', label: 'حساب بنكي (Bank Account)' },
+                { value: 'CASH', label: 'خزينة وصندوق نقدي (Cash Safe)' },
+              ]}
             />
           </Field>
-        )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field label="عملة الحساب *">
-            <select
-              className="input w-full font-mono font-bold"
+          <Field label="عملة الحساب" required>
+            <SearchableSelect
+              clearable={false}
+              disabled={isEdit}
               value={currencyCode}
-              onChange={(e) => setCurrencyCode(e.target.value)}
-            >
-              <option value="SAR">SAR — ريال سعودي</option>
-              <option value="EGP">EGP — جنيه مصري</option>
-              <option value="USD">USD — دولار أمريكي</option>
-            </select>
-          </Field>
-
-          <Field label="الرصيد الافتتاحي (يولد قيداً افتتاحياً)">
-            <input
-              type="number"
-              step="any"
-              min="0"
-              className="input w-full font-mono font-bold"
-              value={openingBalance}
-              onChange={(e) => setOpeningBalance(e.target.value)}
+              onChange={(v) => {
+                const c = v || 'SAR';
+                setCurrencyCode(c);
+                persistDraft({ currencyCode: c });
+              }}
+              options={[
+                { value: 'SAR', label: 'SAR — ريال سعودي' },
+                { value: 'EGP', label: 'EGP — جنيه مصري' },
+                { value: 'USD', label: 'USD — دولار أمريكي' },
+              ]}
             />
           </Field>
-        </div>
 
-        <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5 bg-slate-50/70 dark:bg-slate-900/50">
-          <label className="flex items-center gap-2 font-bold cursor-pointer">
-            <input type="checkbox" checked={autoCreateGlAccount} onChange={(e) => setAutoCreateGlAccount(e.target.checked)} />
-            إنشاء حساب أستاذ فرعي تلقائياً لهذا الحساب في شجرة الحسابات (تحت 1101)
-          </label>
-          {!autoCreateGlAccount && (
-            <Field label="حساب الأستاذ العام المرتبط (GL Account)" required>
-              <SearchableSelect
-                clearable={false}
-                value={glAccountId}
-                onChange={setGlAccountId}
-                options={glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
+          <Field label="اسم الحساب الكامل" required className="md:col-span-2">
+            <input
+              className="input w-full font-bold"
+              placeholder="مثال: حساب مصرف البلاد - فرع الرياض الرئيسي"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                persistDraft({ name: e.target.value });
+              }}
+              required
+            />
+          </Field>
+
+          {kind === 'BANK' && (
+            <Field label="اسم البنك / المؤسسة المصرفية" required>
+              <input
+                className="input w-full"
+                placeholder="مثال: بنك الرياض / مصرف الإنماء / CIB"
+                value={bankName}
+                onChange={(e) => {
+                  setBankName(e.target.value);
+                  persistDraft({ bankName: e.target.value });
+                }}
               />
             </Field>
           )}
-        </div>
+        </FormSection>
+
+        {!isEdit && (
+          <FormSection title="الرصيد الافتتاحي والربط المحاسبي" columns={2}>
+            <Field label="الرصيد الافتتاحي (يولد قيداً افتتاحياً)">
+              <input
+                type="number"
+                step="any"
+                min="0"
+                className="input w-full font-mono font-bold"
+                value={openingBalance}
+                onChange={(e) => setOpeningBalance(e.target.value)}
+              />
+            </Field>
+            <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5 bg-slate-50/70 dark:bg-slate-900/50">
+              <label className="flex items-center gap-2 font-bold cursor-pointer">
+                <input type="checkbox" checked={autoCreateGlAccount} onChange={(e) => setAutoCreateGlAccount(e.target.checked)} />
+                إنشاء حساب أستاذ فرعي تلقائياً لهذا الحساب في شجرة الحسابات (تحت 1101)
+              </label>
+              {!autoCreateGlAccount && (
+                <Field label="حساب الأستاذ العام المرتبط (GL Account)" required>
+                  <SearchableSelect
+                    clearable={false}
+                    value={glAccountId}
+                    onChange={setGlAccountId}
+                    options={glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
+                  />
+                </Field>
+              )}
+            </div>
+          </FormSection>
+        )}
 
         {kind === 'BANK' && (
-          <div className="grid grid-cols-2 gap-3">
+          <FormSection title="التفاصيل المصرفية الدولية والحالة" columns={isEdit ? 3 : 2}>
             <Field label="رقم الحساب البنكي">
               <input
                 className="input w-full font-mono"
                 placeholder="رقم الحساب الداخلي"
                 value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value)}
+                onChange={(e) => {
+                  setAccountNumber(e.target.value);
+                  persistDraft({ accountNumber: e.target.value });
+                }}
               />
             </Field>
 
@@ -830,12 +1075,30 @@ function AddNewBankAccountModal({
                 className="input w-full font-mono"
                 placeholder="SA..."
                 value={iban}
-                onChange={(e) => setIban(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  const v = e.target.value.toUpperCase();
+                  setIban(v);
+                  persistDraft({ iban: v });
+                }}
               />
             </Field>
-          </div>
+
+            {isEdit && (
+              <Field label="حالة الحساب">
+                <SearchableSelect
+                  clearable={false}
+                  value={isActive ? 'ACTIVE' : 'INACTIVE'}
+                  onChange={(v) => setIsActive(v !== 'INACTIVE')}
+                  options={[
+                    { value: 'ACTIVE', label: 'نشط ومفعل للاستخدام' },
+                    { value: 'INACTIVE', label: 'معطل ومجمد مؤقتاً' },
+                  ]}
+                />
+              </Field>
+            )}
+          </FormSection>
         )}
-      </div>
+      </form>
     </Modal>
   );
 }
@@ -850,47 +1113,59 @@ function PrintTransferVoucherModal({
   onClose: () => void;
 }) {
   const { company } = useAuth();
+  const buildDoc = (): RoyalDetailDocumentOptions => ({
+    title: 'سند تحويل بنكي وصرافة عملات رسمي معتمد',
+    subtitle: 'مستند تحويل مصرفي بين الحسابات البنكية ومطابقة سعر الصرف',
+    filename: `bank-transfer-${transfer.reference}-${transfer.transferDate}`,
+    docNo: transfer.reference,
+    docDate: date(transfer.transferDate),
+    currency: transfer.sourceCurrency,
+    statusLabel: (transfer as any).status === 'CANCELLED' ? 'ملغى ومعكوس' : 'تحويل مرحّل ومعتمد',
+    statusTone: (transfer as any).status === 'CANCELLED' ? 'red' : 'green',
+    watermark: (transfer as any).status === 'CANCELLED' ? 'CANCELLED' : 'NONE',
+    kpis: [
+      { label: 'المبلغ المحول منه', value: `${money(transfer.sourceAmount)} ${transfer.sourceCurrency}`, tone: 'navy' },
+      { label: 'المبلغ المستلم', value: `${money(transfer.targetAmount)} ${transfer.targetCurrency}`, tone: 'emerald' },
+      { label: 'سعر الصرف المطبق', value: String(transfer.exchangeRate), tone: 'sky' },
+      { label: 'العمولة البنكية', value: transfer.bankFee > 0 ? `${money(transfer.bankFee)} ${transfer.sourceCurrency}` : '0.00', tone: 'amber' },
+    ],
+    metaFields: [
+      { label: 'رقم السند والمرجع', value: transfer.reference },
+      { label: 'تاريخ التحويل', value: date(transfer.transferDate) },
+      { label: 'رقم القيد المحاسبي', value: transfer.journalEntryNo || '—' },
+      { label: 'الحساب المحول منه', value: transfer.sourceBankName },
+      { label: 'الحساب المستلم', value: transfer.targetBankName },
+      { label: 'البيان والغرض', value: transfer.notes || '—' },
+    ],
+    totalAmountForTafqeet: Number(transfer.sourceAmount || 0),
+    signatureLabels: ['أمين الخزينة / المحاسب', 'المراجعة والتدقيق', 'اعتماد المدير المالي'],
+  });
   return (
     <Modal
       open
       onClose={onClose}
       title="سند تحويل بنكي وصرافة عملات رسمي (للطباعة A4)"
-      maxWidth="max-w-2xl"
+      maxWidth="max-w-3xl"
       footer={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button className="btn-secondary text-xs" onClick={onClose}>إغلاق</button>
           <button
-            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
-            onClick={() =>
-              void ExportEngine.exportDetailPdf({
-                title: 'سند تحويل بنكي وصرافة عملات رسمي معتمد',
-                subtitle: 'مستند تحويل مصرفي بين الحسابات البنكية ومطابقة سعر الصرف',
-                filename: `bank-transfer-${transfer.reference}-${transfer.transferDate}`,
-                docNo: transfer.reference,
-                docDate: date(transfer.transferDate),
-                currency: transfer.sourceCurrency,
-                statusLabel: 'تحويل مرحّل ومعتمد',
-                statusTone: 'green',
-                kpis: [
-                  { label: 'المبلغ المحول منه', value: `${money(transfer.sourceAmount)} ${transfer.sourceCurrency}`, tone: 'navy' },
-                  { label: 'المبلغ المستلم', value: `${money(transfer.targetAmount)} ${transfer.targetCurrency}`, tone: 'emerald' },
-                  { label: 'سعر الصرف المطبق', value: String(transfer.exchangeRate), tone: 'sky' },
-                  { label: 'العمولة البنكية', value: transfer.bankFee > 0 ? `${money(transfer.bankFee)} EGP` : '0.00', tone: 'amber' },
-                ],
-                metaFields: [
-                  { label: 'رقم السند والمرجع', value: transfer.reference },
-                  { label: 'تاريخ التحويل', value: date(transfer.transferDate) },
-                  { label: 'رقم القيد المحاسبي', value: transfer.journalEntryNo || '—' },
-                  { label: 'الحساب المحول منه', value: transfer.sourceBankName },
-                  { label: 'الحساب المستلم', value: transfer.targetBankName },
-                  { label: 'البيان والغرض', value: transfer.notes || '—' },
-                ],
-                totalAmountForTafqeet: Number(transfer.sourceAmount || 0),
-                signatureLabels: ['أمين الخزينة / المحاسب', 'المراجعة والتدقيق', 'اعتماد المدير المالي'],
-              })
-            }
+            className="btn-secondary text-xs flex items-center gap-1.5 border-indigo-200 text-indigo-700"
+            onClick={() => ExportEngine.openDetailPreview(buildDoc())}
           >
-            <Printer className="size-3.5" /> طباعة / PDF ملكي
+            <Printer className="size-3.5" /> معاينة قبل الطباعة (A4)
+          </button>
+          <button
+            className="btn-secondary text-xs flex items-center gap-1.5"
+            onClick={() => void ExportEngine.printDetail(buildDoc())}
+          >
+            <Printer className="size-3.5" /> طباعة A4
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+            onClick={() => void ExportEngine.exportDetailPdf(buildDoc())}
+          >
+            <Printer className="size-3.5" /> تصدير PDF مباشر
           </button>
           <button
             className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"

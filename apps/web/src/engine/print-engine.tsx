@@ -126,15 +126,19 @@ export const OfficialPrintHeader: React.FC<PrintDocumentHeaderProps> = ({
         {/* Company Identity */}
         <div className="space-y-1.5 max-w-sm">
           <div className="flex items-center gap-3">
-            <div className="size-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xl shadow-sm">
-              ع
-            </div>
+            {company.logoDataUrl ? (
+              <img src={company.logoDataUrl} alt={company.nameAr} className="size-12 rounded-xl object-contain bg-white border border-slate-200 p-1 shadow-sm" />
+            ) : (
+              <div className="size-12 rounded-xl bg-gradient-to-br from-slate-900 to-indigo-900 text-amber-400 border border-amber-400/50 flex items-center justify-center font-black text-xl shadow-sm">
+                إ
+              </div>
+            )}
             <div>
               <h1 className="font-extrabold text-base leading-tight text-slate-950">
                 {company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية'}
               </h1>
               <p className="text-xs font-semibold text-slate-500 tracking-wide">
-                {company.nameEn || 'AZM TECH & DIGITAL SOLUTIONS'}
+                {company.nameEn || 'NUZUM IMDAD TECHNOLOGY CO. • IDHAM ERP'}
               </p>
             </div>
           </div>

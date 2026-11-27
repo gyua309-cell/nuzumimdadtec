@@ -283,6 +283,63 @@ export class TreasuryService {
     });
   }
 
+  async updateAccount(companyId: string, id: string, input: Partial<z.infer<typeof TreasuryAccountCreate>>) {
+    return this.db.tx(async () => {
+      const cur = await this.db.one<any>(`SELECT * FROM acc.bank_accounts WHERE company_id = $1 AND id = $2 FOR UPDATE`, [companyId, id]);
+      if (!cur) throw new NotFoundError('BankAccount', id);
+      await this.db.query(
+        `UPDATE acc.bank_accounts
+            SET code = COALESCE($3, code), name = COALESCE($4, name), bank_name = $5, bank_branch = $6,
+                account_number = $7, iban = $8, treasurer_employee_id = $9, branch_id = $10, notes = $11,
+                is_active = COALESCE($12, is_active), updated_at = now()
+          WHERE company_id = $1 AND id = $2`,
+        [
+          companyId, id,
+          input.code ?? null, input.name ?? null,
+          input.bankName !== undefined ? input.bankName : cur.bank_name,
+          input.bankBranch !== undefined ? input.bankBranch : cur.bank_branch,
+          input.accountNumber !== undefined ? input.accountNumber : cur.account_number,
+          input.iban !== undefined ? input.iban : cur.iban,
+          input.treasurerEmployeeId !== undefined ? input.treasurerEmployeeId : cur.treasurer_employee_id,
+          input.branchId !== undefined ? input.branchId : cur.branch_id,
+          input.notes !== undefined ? input.notes : cur.notes,
+          input.isActive !== undefined ? input.isActive : null,
+        ],
+      );
+      await this.db.query(`SELECT audit.log_action('acc','bank_accounts',$1,'UPDATE',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ name: cur.name, code: cur.code }),
+        JSON.stringify({ name: input.name ?? cur.name, code: input.code ?? cur.code }),
+        `تعديل بيانات الحساب ${input.name ?? cur.name}`,
+        cur.code,
+      ]);
+      return (await this.listAccounts(companyId)).find((x: any) => x.id === id);
+    });
+  }
+
+  async deleteAccount(companyId: string, id: string) {
+    return this.db.tx(async () => {
+      const cur = await this.db.one<any>(`SELECT * FROM acc.bank_accounts WHERE company_id = $1 AND id = $2 FOR UPDATE`, [companyId, id]);
+      if (!cur) throw new NotFoundError('BankAccount', id);
+      const hasVouchers = await this.db.one<{ n: string }>(`SELECT count(*)::text n FROM fin.treasury_vouchers WHERE company_id = $1 AND treasury_account_id = $2`, [companyId, id]);
+      if (Number(hasVouchers?.n || 0) > 0) throw new DomainError('TREASURY_ACCOUNT_IN_USE', 'لا يمكن حذف حساب/خزينة مرتبطة بسندات قبض أو صرف');
+      const hasCheques = await this.db.one<{ n: string }>(`SELECT count(*)::text n FROM fin.cheques WHERE company_id = $1 AND bank_account_id = $2`, [companyId, id]);
+      if (Number(hasCheques?.n || 0) > 0) throw new DomainError('TREASURY_ACCOUNT_IN_USE', 'لا يمكن حذف حساب/خزينة مرتبطة بشيكات');
+      const hasJeLines = cur.gl_account_id
+        ? await this.db.one<{ n: string }>(`SELECT count(*)::text n FROM acc.journal_lines jl JOIN acc.journal_entries je ON je.id = jl.entry_id WHERE jl.company_id = $1 AND jl.account_id = $2 AND je.status = 'POSTED'`, [companyId, cur.gl_account_id])
+        : { n: '0' };
+      if (Number(hasJeLines?.n || 0) > 0) throw new DomainError('TREASURY_ACCOUNT_HAS_LEDGER', 'لا يمكن حذف حساب/خزينة له حركات أو رصيد بدفتر الأستاذ');
+      await this.db.query(`DELETE FROM acc.bank_accounts WHERE company_id = $1 AND id = $2`, [companyId, id]);
+      await this.db.query(`SELECT audit.log_action('acc','bank_accounts',$1,'DELETE',$2::jsonb,NULL,$3,$4)`, [
+        id,
+        JSON.stringify({ code: cur.code, name: cur.name }),
+        `حذف ${cur.kind === 'CASH' ? 'الخزينة' : 'الحساب البنكي'} ${cur.name}`,
+        cur.code,
+      ]);
+      return { success: true, id };
+    });
+  }
+
   async overview(companyId: string) {
     const accounts = await this.listAccounts(companyId);
     const banks = accounts.filter((a: any) => a.kind === 'BANK');
@@ -526,19 +583,173 @@ export class TreasuryService {
     });
   }
 
+  async updateVoucher(companyId: string, id: string, input: Partial<z.infer<typeof VoucherCreate>> & { reason?: string }) {
+    return this.db.tx(async () => {
+      const v = await this.db.one<any>(`SELECT * FROM fin.treasury_vouchers WHERE company_id = $1 AND id = $2 FOR UPDATE`, [companyId, id]);
+      if (!v) throw new NotFoundError('TreasuryVoucher', id);
+      if (v.status === 'CANCELLED') throw new DomainError('VOUCHER_CANCELLED', 'لا يمكن تعديل سند ملغى');
+      if (v.cheque_id) {
+        const chq = await this.db.one<{ status: string }>(`SELECT status FROM fin.cheques WHERE id = $1`, [v.cheque_id]);
+        if (chq && ['UNDER_COLLECTION', 'COLLECTED', 'PAID'].includes(chq.status)) {
+          throw new DomainError('CHEQUE_ALREADY_PROCESSED', 'لا يمكن تعديل سند مرتبط بشيك قيد التحصيل أو تم تحصيله/صرفه');
+        }
+      }
+
+      const wasPosted = v.status === 'POSTED';
+      if (wasPosted) {
+        if (v.journal_entry_id) {
+          await this.journal.reverse(
+            companyId,
+            v.journal_entry_id,
+            input.reason || `تعديل ${v.voucher_type === 'RECEIPT' ? 'سند القبض' : 'سند الصرف'} ${v.voucher_no}`,
+            input.voucherDate || String(v.voucher_date).slice(0, 10),
+            { allowSourceSync: true },
+          );
+        }
+        if (v.payment_method !== 'CHEQUE') {
+          if (v.invoice_id && v.voucher_type === 'RECEIPT') {
+            await this.applySalesInvoiceSettlement(companyId, v.invoice_id, -Number(v.amount_tx || 0));
+          }
+          if (v.purchase_invoice_id && v.voucher_type === 'PAYMENT') {
+            await this.db.query(`UPDATE pur.purchase_invoices SET payment_status = 'UNPAID' WHERE company_id = $1 AND id = $2`, [companyId, v.purchase_invoice_id]);
+          }
+        }
+      }
+
+      const treasuryAccountId = input.treasuryAccountId ?? v.treasury_account_id;
+      const bankAcc = await this.db.one<{ id: string; gl_account_id: string; currency_code: string; branch_id: string | null }>(
+        `SELECT id, gl_account_id, currency_code, branch_id FROM acc.bank_accounts WHERE company_id = $1 AND id = $2`,
+        [companyId, treasuryAccountId],
+      );
+      if (!bankAcc) throw new NotFoundError('BankAccount', treasuryAccountId);
+
+      const voucherDate = input.voucherDate ?? String(v.voucher_date).slice(0, 10);
+      const period = await this.db.one<{ id: string; status: string }>(
+        `SELECT id, status FROM core.fiscal_periods WHERE company_id = $1 AND NOT is_adjustment_period AND $2::date BETWEEN start_date AND end_date`,
+        [companyId, voucherDate],
+      );
+      if (!period) throw new DomainError('PERIOD_NOT_FOUND_FOR_DATE');
+
+      const cur = (input.currencyCode || v.currency_code || bankAcc.currency_code || 'SAR').toUpperCase();
+      const base = await this.fx.baseCurrency(companyId);
+      const exRate = cur === base.code ? 1 : (input.exchangeRate ?? Number((await this.fx.getRate(companyId, cur, base.code, voucherDate)).rate));
+      const amtTx = D(input.amount ?? v.amount_tx);
+      const amtBase = amtTx.times(exRate);
+
+      const mergedForResolve: any = {
+        voucherType: input.voucherType ?? v.voucher_type,
+        voucherDate,
+        paymentMethod: input.paymentMethod ?? v.payment_method,
+        treasuryAccountId,
+        partyType: input.partyType ?? v.party_type,
+        partySubType: input.partySubType !== undefined ? input.partySubType : v.party_sub_type,
+        clientId: input.clientId !== undefined ? input.clientId : v.client_id,
+        vendorId: input.vendorId !== undefined ? input.vendorId : v.vendor_id,
+        invoiceId: input.invoiceId !== undefined ? input.invoiceId : v.invoice_id,
+        purchaseInvoiceId: input.purchaseInvoiceId !== undefined ? input.purchaseInvoiceId : v.purchase_invoice_id,
+        employeeId: input.employeeId !== undefined ? input.employeeId : v.employee_id,
+        projectId: input.projectId !== undefined ? input.projectId : v.project_id,
+        costCenterId: input.costCenterId !== undefined ? input.costCenterId : v.cost_center_id,
+        departmentId: input.departmentId !== undefined ? input.departmentId : v.department_id,
+        branchId: input.branchId !== undefined ? input.branchId : v.branch_id,
+        counterAccountId: input.counterAccountId !== undefined ? input.counterAccountId : v.counter_account_id,
+      };
+      const dims = await this.resolveDimensions(companyId, mergedForResolve);
+      const counterAccId = await this.resolveCounterAccountId(companyId, mergedForResolve);
+
+      await this.db.query(
+        `UPDATE fin.treasury_vouchers
+            SET voucher_date = $3, fiscal_period_id = $4, payment_method = $5, treasury_account_id = $6,
+                currency_code = $7, exchange_rate = $8, amount_tx = $9, amount_base = $10,
+                party_type = $11, party_sub_type = $12, client_id = $13, vendor_id = $14,
+                invoice_id = $15, purchase_invoice_id = $16, employee_id = $17, project_id = $18,
+                cost_center_id = $19, department_id = $20, branch_id = $21, counter_account_id = $22,
+                beneficiary_name = $23, reference = $24, description = $25,
+                status = 'DRAFT', journal_entry_id = CASE WHEN $26 THEN NULL ELSE journal_entry_id END
+          WHERE company_id = $1 AND id = $2`,
+        [
+          companyId, id, voucherDate, period.id, mergedForResolve.paymentMethod, treasuryAccountId,
+          cur, String(exRate), amtTx.toFixed(4), amtBase.toFixed(4),
+          mergedForResolve.partyType, mergedForResolve.partySubType ?? null,
+          mergedForResolve.clientId ?? null, mergedForResolve.vendorId ?? null,
+          mergedForResolve.invoiceId ?? null, mergedForResolve.purchaseInvoiceId ?? null,
+          dims.employeeId, dims.projectId, dims.costCenterId, dims.departmentId, dims.branchId || bankAcc.branch_id,
+          counterAccId,
+          input.beneficiaryName !== undefined ? input.beneficiaryName : v.beneficiary_name,
+          input.reference !== undefined ? input.reference : v.reference,
+          input.description ?? v.description,
+          wasPosted,
+        ],
+      );
+
+      await this.db.query(`SELECT audit.log_action('fin','treasury_vouchers',$1,'UPDATE',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ amountTx: v.amount_tx, treasuryAccountId: v.treasury_account_id, employeeId: v.employee_id }),
+        JSON.stringify({ amountTx: amtTx.toFixed(4), treasuryAccountId, employeeId: dims.employeeId }),
+        input.reason || `تعديل السند ${v.voucher_no}`,
+        v.voucher_no,
+      ]);
+
+      if (wasPosted) {
+        return this.postVoucher(companyId, id);
+      }
+      return (await this.listVouchers(companyId)).find((x: any) => x.id === id);
+    });
+  }
+
+  async deleteVoucher(companyId: string, id: string) {
+    return this.db.tx(async () => {
+      const v = await this.db.one<any>(`SELECT * FROM fin.treasury_vouchers WHERE company_id = $1 AND id = $2 FOR UPDATE`, [companyId, id]);
+      if (!v) throw new NotFoundError('TreasuryVoucher', id);
+      if (v.status !== 'DRAFT') {
+        throw new DomainError('VOUCHER_NOT_DRAFT', 'لا يمكن حذف سند مرحّل نهائياً؛ استخدم خيار الإلغاء لعكس القيد والأرصدة وتوثيق سبب الإلغاء');
+      }
+      if (v.cheque_id) {
+        await this.db.query(`DELETE FROM fin.cheques WHERE company_id = $1 AND id = $2`, [companyId, v.cheque_id]);
+      }
+      await this.db.query(`DELETE FROM fin.treasury_vouchers WHERE company_id = $1 AND id = $2`, [companyId, id]);
+      await this.db.query(`SELECT audit.log_action('fin','treasury_vouchers',$1,'DELETE',$2::jsonb,NULL,$3,$4)`, [
+        id,
+        JSON.stringify({ voucherNo: v.voucher_no, amountTx: v.amount_tx }),
+        `حذف مسودة السند ${v.voucher_no}`,
+        v.voucher_no,
+      ]);
+      return { success: true, id };
+    });
+  }
+
   async cancelVoucher(companyId: string, id: string, reason: string) {
     return this.db.tx(async () => {
       const v = await this.db.one<any>(`SELECT * FROM fin.treasury_vouchers WHERE company_id = $1 AND id = $2 FOR UPDATE`, [companyId, id]);
       if (!v) throw new NotFoundError('TreasuryVoucher', id);
       if (v.status === 'CANCELLED') return v;
+      if (v.cheque_id) {
+        const chq = await this.db.one<{ status: string }>(`SELECT status FROM fin.cheques WHERE id = $1`, [v.cheque_id]);
+        if (chq && ['COLLECTED', 'PAID'].includes(chq.status)) {
+          throw new DomainError('CHEQUE_ALREADY_CLEARED', 'هذا السند مرتبط بشيك تم تحصيله/صرفه؛ قم بعمل ارتداد للشيك من حافظة الشيكات');
+        }
+        await this.db.query(`UPDATE fin.cheques SET status = 'CANCELLED', bounce_reason = $2 WHERE id = $1`, [v.cheque_id, reason || `إلغاء السند ${v.voucher_no}`]);
+      }
       let revId: string | null = null;
       if (v.status === 'POSTED' && v.journal_entry_id) {
-        revId = await this.journal.reverse(companyId, v.journal_entry_id, reason || `إلغاء سند ${v.voucher_no}`);
-        if (v.payment_method !== 'CHEQUE' && v.invoice_id && v.voucher_type === 'RECEIPT') {
-          await this.applySalesInvoiceSettlement(companyId, v.invoice_id, -Number(v.amount_tx));
+        revId = await this.journal.reverse(companyId, v.journal_entry_id, reason || `إلغاء سند ${v.voucher_no}`, undefined, { allowSourceSync: true });
+        if (v.payment_method !== 'CHEQUE') {
+          if (v.invoice_id && v.voucher_type === 'RECEIPT') {
+            await this.applySalesInvoiceSettlement(companyId, v.invoice_id, -Number(v.amount_tx));
+          }
+          if (v.purchase_invoice_id && v.voucher_type === 'PAYMENT') {
+            await this.db.query(`UPDATE pur.purchase_invoices SET payment_status = 'UNPAID' WHERE company_id = $1 AND id = $2`, [companyId, v.purchase_invoice_id]);
+          }
         }
       }
       await this.db.query(`UPDATE fin.treasury_vouchers SET status = 'CANCELLED', reversal_journal_entry_id = $2, cancel_reason = $3 WHERE id = $1`, [id, revId, reason]);
+      await this.db.query(`SELECT audit.log_action('fin','treasury_vouchers',$1,'CANCEL',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ status: v.status, amountTx: v.amount_tx }),
+        JSON.stringify({ status: 'CANCELLED', reversalJournalEntryId: revId }),
+        reason || `إلغاء السند ${v.voucher_no}`,
+        v.voucher_no,
+      ]);
       return { success: true, id, status: 'CANCELLED', reversalJournalEntryId: revId };
     });
   }
@@ -739,6 +950,63 @@ export class TreasuryService {
     });
   }
 
+  async updateCheque(companyId: string, id: string, input: Partial<z.infer<typeof ChequeCreate>> & { reason?: string }) {
+    return this.db.tx(async () => {
+      const chq = await this.db.one<any>(`SELECT * FROM fin.cheques WHERE company_id = $1 AND id = $2 FOR UPDATE`, [companyId, id]);
+      if (!chq) throw new NotFoundError('Cheque', id);
+      if (['COLLECTED', 'PAID', 'BOUNCED', 'CANCELLED'].includes(chq.status)) {
+        throw new DomainError('CHEQUE_LOCKED', 'لا يمكن تعديل شيك محصّل أو مصروف أو مرتد أو ملغى');
+      }
+      await this.db.query(
+        `UPDATE fin.cheques
+            SET cheque_no = COALESCE($3, cheque_no), due_date = COALESCE($4, due_date), bank_name = COALESCE($5, bank_name),
+                drawer_name = $6, bank_account_id = $7, employee_id = $8, project_id = $9, cost_center_id = $10, notes = $11
+          WHERE company_id = $1 AND id = $2`,
+        [
+          companyId, id,
+          input.chequeNo ?? null, input.dueDate ?? null, input.bankName ?? null,
+          input.drawerName !== undefined ? input.drawerName : chq.drawer_name,
+          input.bankAccountId !== undefined ? input.bankAccountId : chq.bank_account_id,
+          input.employeeId !== undefined ? input.employeeId : chq.employee_id,
+          input.projectId !== undefined ? input.projectId : chq.project_id,
+          input.costCenterId !== undefined ? input.costCenterId : chq.cost_center_id,
+          input.notes !== undefined ? input.notes : chq.notes,
+        ],
+      );
+      await this.db.query(`SELECT audit.log_action('fin','cheques',$1,'UPDATE',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ chequeNo: chq.cheque_no, dueDate: chq.due_date, bankName: chq.bank_name }),
+        JSON.stringify({ chequeNo: input.chequeNo ?? chq.cheque_no, dueDate: input.dueDate ?? chq.due_date }),
+        input.reason || `تعديل بيانات الشيك ${chq.cheque_no}`,
+        chq.cheque_no,
+      ]);
+      return (await this.listCheques(companyId)).find((x: any) => x.id === id);
+    });
+  }
+
+  async deleteCheque(companyId: string, id: string, reason = 'حذف / إلغاء شيك وعكس قيده') {
+    return this.db.tx(async () => {
+      const chq = await this.db.one<any>(`SELECT * FROM fin.cheques WHERE company_id = $1 AND id = $2 FOR UPDATE`, [companyId, id]);
+      if (!chq) throw new NotFoundError('Cheque', id);
+      if (['COLLECTED', 'PAID'].includes(chq.status)) {
+        throw new DomainError('CHEQUE_CLEARED_USE_BOUNCE', 'لا يمكن حذف شيك تم تحصيله/صرفه؛ استخدم إجراء ارتداد الشيك لعكس القيد والرصيد البنكي');
+      }
+      if (chq.status !== 'CANCELLED' && chq.status !== 'BOUNCED' && chq.initial_journal_entry_id) {
+        const revId = await this.journal.reverse(companyId, chq.initial_journal_entry_id, reason, undefined, { allowSourceSync: true });
+        await this.db.query(`UPDATE fin.cheques SET status = 'CANCELLED', bounce_reason = $2, bounce_journal_entry_id = $3 WHERE id = $1`, [id, reason, revId]);
+      } else {
+        await this.db.query(`UPDATE fin.cheques SET status = 'CANCELLED', bounce_reason = $2 WHERE id = $1`, [id, reason]);
+      }
+      await this.db.query(`SELECT audit.log_action('fin','cheques',$1,'CANCEL',$2::jsonb,NULL,$3,$4)`, [
+        id,
+        JSON.stringify({ chequeNo: chq.cheque_no, status: chq.status }),
+        reason,
+        chq.cheque_no,
+      ]);
+      return { success: true, id, status: 'CANCELLED' };
+    });
+  }
+
   async bounceCheque(companyId: string, id: string, body: { reason?: string; bounceDate?: string }) {
     return this.db.tx(async () => {
       const chq = await this.db.one<any>(`SELECT * FROM fin.cheques WHERE company_id = $1 AND id = $2 FOR UPDATE`, [companyId, id]);
@@ -746,14 +1014,30 @@ export class TreasuryService {
       if (chq.status === 'BOUNCED' || chq.status === 'CANCELLED') return chq;
       const reason = body.reason || 'ارتداد / رفض الشيك من البنك';
       let bounceJeId: string | null = null;
-      const targetJe = chq.clearing_journal_entry_id || chq.initial_journal_entry_id;
-      if (targetJe) {
-        bounceJeId = await this.journal.reverse(companyId, targetJe, reason, body.bounceDate);
+      if (chq.clearing_journal_entry_id) {
+        bounceJeId = await this.journal.reverse(companyId, chq.clearing_journal_entry_id, reason, body.bounceDate, { allowSourceSync: true });
+        if (chq.direction === 'INCOMING' && chq.invoice_id) {
+          await this.applySalesInvoiceSettlement(companyId, chq.invoice_id, -Number(chq.amount_tx || 0));
+        }
+        if (chq.direction === 'OUTGOING' && chq.purchase_invoice_id) {
+          await this.db.query(`UPDATE pur.purchase_invoices SET payment_status = 'UNPAID' WHERE company_id = $1 AND id = $2`, [companyId, chq.purchase_invoice_id]);
+        }
+      }
+      if (chq.initial_journal_entry_id) {
+        const rev2 = await this.journal.reverse(companyId, chq.initial_journal_entry_id, reason, body.bounceDate, { allowSourceSync: true });
+        if (!bounceJeId) bounceJeId = rev2;
       }
       await this.db.query(
         `UPDATE fin.cheques SET status = 'BOUNCED', bounce_reason = $2, bounced_at = $3, bounce_journal_entry_id = $4 WHERE id = $1`,
         [id, reason, body.bounceDate || new Date().toISOString().slice(0, 10), bounceJeId],
       );
+      await this.db.query(`SELECT audit.log_action('fin','cheques',$1,'BOUNCE',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ status: chq.status }),
+        JSON.stringify({ status: 'BOUNCED', bounceJournalEntryId: bounceJeId }),
+        reason,
+        chq.cheque_no,
+      ]);
       return (await this.listCheques(companyId)).find((x: any) => x.id === id);
     });
   }

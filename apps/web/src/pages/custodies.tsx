@@ -686,9 +686,42 @@ export function CustodiesPage() {
                             onClick={() => setSelectedCustodyId(c.id)}
                           />
                           <ActionButton
+                            variant="preview"
+                            title="معاينة سند العهدة قبل الطباعة (A4)"
+                            onClick={() => setPrintModalCustody(c)}
+                          />
+                          <ActionButton
                             variant="print"
                             title="طباعة سند صرف وتسوية رسمي"
                             onClick={() => setPrintModalCustody(c)}
+                          />
+                          <ActionButton
+                            variant="pdf"
+                            title="تصدير PDF مباشر لسند العهدة"
+                            onClick={() =>
+                              void ExportEngine.exportDetailPdf({
+                                title: `سند عهدة نقدية #${c.custody_no}`,
+                                subtitle: `${c.title_ar} — ${c.employeeNameAr}`,
+                                filename: `custody-${c.custody_no}-${today()}`,
+                                docNo: c.custody_no,
+                                docDate: date(c.created_at),
+                                currency: c.source_currency || 'SAR',
+                                statusLabel: CUSTODY_STATUS_CONFIG[c.status]?.label || c.status,
+                                statusTone: c.status === 'CLOSED' || c.status === 'SETTLED' ? 'green' : c.status === 'CANCELLED' ? 'red' : 'blue',
+                                kpis: [
+                                  { label: 'المبلغ المنصرف', value: `${money(c.disbursed_amount)} ${c.source_currency}`, tone: 'navy' },
+                                  { label: 'المسوّى', value: `${money(c.total_settled_amount_target)} ${c.target_currency}`, tone: 'emerald' },
+                                  { label: 'المتبقي', value: `${money(c.remaining_balance_target)} ${c.target_currency}`, tone: 'amber' },
+                                ],
+                                metaFields: [
+                                  { label: 'رقم العهدة', value: c.custody_no },
+                                  { label: 'أمين العهدة (الموظف)', value: `${c.employeeCode || ''} — ${c.employeeNameAr}` },
+                                  { label: 'العنوان', value: c.title_ar },
+                                  { label: 'الغرض', value: c.purpose || '—' },
+                                ],
+                                totalAmountForTafqeet: Number(c.disbursed_amount || 0),
+                              })
+                            }
                           />
                           {c.status === 'DRAFT' && (
                             <ActionButton

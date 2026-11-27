@@ -204,7 +204,60 @@ export function CompanyPage() {
           <div className="space-y-4">
             <div className="p-3.5 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/40 rounded-xl text-xs text-blue-800 dark:text-blue-300 flex items-center gap-2">
               <span className="font-bold">ملاحظة نظامية:</span>
-              <span>تعديلات اسم الشركة والرقم الضريبي تنعكس فورياً وبشكل دائم على الهوية البصرية، الفواتير، التقارير المالية، والطباعة.</span>
+              <span>تعديلات اسم الشركة والرقم الضريبي والشعار تنعكس فورياً وبشكل دائم على الهوية البصرية، الفواتير، التقارير المالية، والطباعة الملكية A4.</span>
+            </div>
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {form.logoDataUrl ? (
+                  <img
+                    src={form.logoDataUrl}
+                    alt="شعار المنشأة"
+                    className="size-14 rounded-xl object-contain border border-slate-300 dark:border-slate-700 bg-white p-1 shadow-xs"
+                  />
+                ) : (
+                  <div className="size-14 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center justify-center font-black text-indigo-700 text-lg">
+                    إ
+                  </div>
+                )}
+                <div className="text-xs">
+                  <div className="font-bold text-slate-900 dark:text-white">الشعار الرسمي للمنشأة (Company Logo)</div>
+                  <div className="text-slate-500 mt-0.5">يظهر تلقائياً في ترويسة الطباعة الملكية ومعاينة A4 وملفات PDF المصدرة.</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  id="company-logo-upload"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (file.size > 400_000) {
+                      toast.error('يرجى اختيار صورة شعار بحجم أقل من 400 كيلوبايت لضمان سرعة الطباعة والتخزين');
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const dataUrl = String(reader.result || '');
+                      setForm((prev) => (prev ? { ...prev, logoDataUrl: dataUrl } : prev));
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                <label htmlFor="company-logo-upload" className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1.5">
+                  <Upload className="size-3.5" /> رفع شعار جديد
+                </label>
+                {form.logoDataUrl && (
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs text-rose-600 hover:bg-rose-50 inline-flex items-center gap-1"
+                    onClick={() => setForm((prev) => (prev ? { ...prev, logoDataUrl: '' } : prev))}
+                  >
+                    <Trash2 className="size-3.5" /> إزالة الشعار
+                  </button>
+                )}
+              </div>
             </div>
             <EntityForm fields={companyFields} value={form} onChange={setForm} />
           </div>

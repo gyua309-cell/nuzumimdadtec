@@ -729,7 +729,9 @@ export function createAutoPostedJournalEntry(opts: {
   journalType: string;
   sourceModule: string;
   sourceType: string;
+  sourceId?: string | null;
   postingEvent: string;
+  idempotencyKey?: string;
   reference?: string;
   description: string;
   lines: Array<{
@@ -749,6 +751,21 @@ export function createAutoPostedJournalEntry(opts: {
   const accounts = getNormalizedAccounts();
   const byCode = new Map(accounts.map((a) => [a.code, a]));
   const existing = getEntityList<any>('journal_entries', []);
+  if (opts.idempotencyKey) {
+    const dup = existing.find((x) => x.idempotencyKey === opts.idempotencyKey && x.status === 'POSTED');
+    if (dup) return dup;
+  }
+  if (opts.sourceId && opts.postingEvent && String(opts.sourceModule).toUpperCase() !== 'GL') {
+    const activeSame = existing.find(
+      (x) =>
+        x.sourceId === opts.sourceId &&
+        x.sourceType === opts.sourceType &&
+        x.postingEvent === opts.postingEvent &&
+        x.status === 'POSTED' &&
+        !x.reversedById,
+    );
+    if (activeSame) return activeSame;
+  }
   const seq = existing.filter((x) => x.status === 'POSTED').length + 1;
   const entryDate = (opts.entryDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const p = resolvePeriodByIdOrDate(opts.fiscalPeriodId, entryDate);
@@ -803,6 +820,8 @@ export function createAutoPostedJournalEntry(opts: {
     reference: opts.reference || null,
     sourceModule: opts.sourceModule,
     sourceType: opts.sourceType,
+    sourceId: opts.sourceId || null,
+    idempotencyKey: opts.idempotencyKey || null,
     postingEvent: opts.postingEvent,
     status: 'POSTED',
     description: opts.description,
@@ -816,12 +835,22 @@ export function createAutoPostedJournalEntry(opts: {
   return saveEntityItem('journal_entries', je);
 }
 
-export function createReversalJournalEntry(origId: string, reason: string, reversalDate?: string | null): any {
+export function createReversalJournalEntry(
+  origId: string,
+  reason: string,
+  reversalDate?: string | null,
+  opts?: { allowSourceSync?: boolean },
+): any {
   const accounts = getNormalizedAccounts();
   const jes = getEntityList<any>('journal_entries', []);
   const idx = jes.findIndex((x) => x.id === origId || x.entryNo === origId);
   if (idx < 0) throw new Error('القيد المطلوب عكسه غير موجود');
   const orig = normalizeJournalEntry(jes[idx], accounts);
+  if (!opts?.allowSourceSync && orig.sourceId && String(orig.sourceModule || '').toUpperCase() !== 'GL') {
+    throw new Error(
+      `لا يمكن عكس قيد مرتبط بمستند (${orig.sourceType} — ${orig.reference || orig.sourceId}) مباشرة من القيود؛ قم بتعديل أو إلغاء المستند الأصلي`,
+    );
+  }
   if (orig.status !== 'POSTED') throw new Error('لا يمكن عكس قيد غير مرحّل');
   if (orig.reversedById) throw new Error('تم عكس هذا القيد مسبقاً');
 

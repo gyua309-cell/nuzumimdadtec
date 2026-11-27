@@ -4,7 +4,7 @@
  * and seamless linking to Employee as Primary Cost Center (الموظف = مركز التكلفة).
  */
 
-import { getEntityList, replaceEntityList, saveEntityItem, uid } from './local-store';
+import { deleteEntityItem, getEntityList, replaceEntityList, runLocalAtomicTx, saveEntityItem, uid } from './local-store';
 import {
   assertPeriodOpen,
   convertToBase,
@@ -199,6 +199,68 @@ export function createTreasuryAccount(body: any): any {
   });
 
   return getEnrichedTreasuryAccounts().find((x) => x.id === saved.id) || saved;
+}
+
+export function updateTreasuryAccount(id: string, body: any): any {
+  return runLocalAtomicTx(['bank_accounts', 'accounts'], () => {
+    const list = getEntityList<any>('bank_accounts', defaultBankAccountsList);
+    const cur = list.find((x) => x.id === id || x.code === id);
+    if (!cur) throw new Error('الحساب البنكي / الخزينة غير موجودة');
+    const updated = saveEntityItem('bank_accounts', {
+      ...cur,
+      code: body?.code ?? cur.code,
+      name: body?.name ?? cur.name,
+      bankName: body?.bankName !== undefined ? body.bankName : cur.bankName,
+      bankBranch: body?.bankBranch !== undefined ? body.bankBranch : cur.bankBranch,
+      accountNumber: body?.accountNumber !== undefined ? body.accountNumber : cur.accountNumber,
+      iban: body?.iban !== undefined ? body.iban : cur.iban,
+      treasurerEmployeeId: body?.treasurerEmployeeId !== undefined ? body.treasurerEmployeeId : cur.treasurerEmployeeId,
+      branchId: body?.branchId !== undefined ? body.branchId : cur.branchId,
+      notes: body?.notes !== undefined ? body.notes : cur.notes,
+      isActive: body?.isActive !== undefined ? body.isActive : cur.isActive,
+    });
+    recordAudit({
+      action: 'UPDATE_TREASURY_ACCOUNT',
+      schemaName: 'acc',
+      tableName: 'bank_accounts',
+      entityId: cur.id,
+      oldValues: { code: cur.code, name: cur.name, treasurerEmployeeId: cur.treasurerEmployeeId },
+      newValues: { code: updated.code, name: updated.name, treasurerEmployeeId: updated.treasurerEmployeeId },
+      reason: body?.reason || `تعديل بيانات ${cur.kind === 'CASH' ? 'الخزينة' : 'الحساب البنكي'} (${updated.name})`,
+    });
+    return getEnrichedTreasuryAccounts().find((x) => x.id === updated.id) || updated;
+  });
+}
+
+export function deleteTreasuryAccount(id: string, reason?: string): any {
+  return runLocalAtomicTx(['bank_accounts', 'treasury_vouchers', 'cheques'], () => {
+    const list = getEntityList<any>('bank_accounts', defaultBankAccountsList);
+    const cur = list.find((x) => x.id === id || x.code === id);
+    if (!cur) throw new Error('الحساب البنكي / الخزينة غير موجودة');
+
+    const vouchers = getEntityList<any>('treasury_vouchers', []);
+    if (vouchers.some((v) => v.treasuryAccountId === cur.id)) {
+      throw new Error('لا يمكن حذف خزينة أو حساب بنكي مرتبط بسندات قبض أو صرف؛ يرجى تعطيل الحساب أو إلغاء السندات غير المرحلة أولاً');
+    }
+    const cheques = getEntityList<any>('cheques', []);
+    if (cheques.some((c) => c.bankAccountId === cur.id)) {
+      throw new Error('لا يمكن حذف حساب بنكي مرتبط بشيكات في حافظة الشيكات');
+    }
+    const jes = getEntityList<any>('journal_entries', []).filter((j) => j.status === 'POSTED');
+    if (cur.glAccountId && jes.some((j) => (j.lines || []).some((l: any) => l.accountId === cur.glAccountId || l.accountCode === cur.glAccountCode))) {
+      throw new Error('لا يمكن حذف خزينة أو حساب بنكي له حركات مالية أو رصيد افتتاحي مسجل بدفتر الأستاذ');
+    }
+    deleteEntityItem('bank_accounts', cur.id);
+    recordAudit({
+      action: 'DELETE_TREASURY_ACCOUNT',
+      schemaName: 'acc',
+      tableName: 'bank_accounts',
+      entityId: cur.id,
+      oldValues: { code: cur.code, name: cur.name, kind: cur.kind },
+      reason: reason || `حذف ${cur.kind === 'CASH' ? 'الخزينة' : 'الحساب البنكي'} (${cur.name})`,
+    });
+    return { success: true, id: cur.id };
+  });
 }
 
 function applySalesInvoiceDelta(invoiceId: string, deltaAmount: number, refLabel: string, refDate: string, journalEntryId?: string | null) {
@@ -438,6 +500,7 @@ export function postTreasuryVoucher(id: string): any {
     journalType: v.voucherType === 'RECEIPT' ? 'COLLECTION' : 'PAYMENT',
     sourceModule: 'TREASURY',
     sourceType: 'TREASURY_VOUCHER',
+    sourceId: v.id,
     postingEvent: v.voucherType === 'RECEIPT' ? 'TREASURY_RECEIPT_POSTED' : 'TREASURY_PAYMENT_POSTED',
     reference: v.voucherNo,
     description: `${v.voucherType === 'RECEIPT' ? 'قيد سند قبض' : 'قيد سند صرف'} ${v.voucherNo} — ${v.description}`,
@@ -503,27 +566,197 @@ export function postTreasuryVoucher(id: string): any {
   return saved;
 }
 
-export function cancelTreasuryVoucher(id: string, reason?: string): any {
-  const list = getEntityList<any>('treasury_vouchers', []);
-  const v = list.find((x) => x.id === id || x.voucherNo === id);
-  if (!v) throw new Error('السند غير موجود');
-  if (v.status === 'CANCELLED') return v;
-  const reasonText = reason || `إلغاء ${v.voucherType === 'RECEIPT' ? 'سند القبض' : 'سند الصرف'} ${v.voucherNo}`;
+export function updateTreasuryVoucher(id: string, body: any): any {
+  return runLocalAtomicTx(['treasury_vouchers', 'cheques', 'invoices', 'purchase_invoices', 'loans'], () => {
+    const list = getEntityList<any>('treasury_vouchers', []);
+    const v = list.find((x) => x.id === id || x.voucherNo === id);
+    if (!v) throw new Error('السند غير موجود');
+    if (v.status === 'CANCELLED') throw new Error('لا يمكن تعديل سند ملغى');
 
-  if (v.status === 'POSTED' && v.journalEntryId) {
-    assertPeriodOpen(v.fiscalPeriodId || v.voucherDate, reasonText);
-    const rev = createReversalJournalEntry(v.journalEntryId, reasonText);
-    v.reversalJournalEntryId = rev.id;
-    if (v.paymentMethod !== 'CHEQUE') {
-      if (v.invoiceId && v.voucherType === 'RECEIPT') applySalesInvoiceDelta(v.invoiceId, -Number(v.amountTx || 0), v.voucherNo, v.voucherDate);
-      if (v.purchaseInvoiceId && v.voucherType === 'PAYMENT') applyPurchaseInvoiceSettlement(v.purchaseInvoiceId, false);
+    if (v.chequeId) {
+      const chqs = getEntityList<any>('cheques', []);
+      const linkedChq = chqs.find((c) => c.id === v.chequeId);
+      if (linkedChq && ['UNDER_COLLECTION', 'COLLECTED', 'PAID'].includes(linkedChq.status)) {
+        throw new Error('لا يمكن تعديل سند مرتبط بشيك مودع بالتحصيل أو محصل/مصروف');
+      }
     }
-  }
-  v.status = 'CANCELLED';
-  v.cancelReason = reasonText;
-  const saved = saveEntityItem('treasury_vouchers', v);
-  recordAudit({ action: 'CANCEL_TREASURY_VOUCHER', schemaName: 'fin', tableName: 'treasury_vouchers', entityId: v.id, reason: reasonText });
-  return saved;
+
+    const oldSnap = { amountTx: v.amountTx, treasuryAccountId: v.treasuryAccountId, employeeId: v.employeeId, description: v.description };
+    const wasPosted = v.status === 'POSTED';
+    if (wasPosted) {
+      assertPeriodOpen(v.fiscalPeriodId || v.voucherDate, `تعديل سند ${v.voucherNo}`);
+      if (v.journalEntryId) {
+        createReversalJournalEntry(v.journalEntryId, body?.reason || `تعديل السند ${v.voucherNo}`, undefined, { allowSourceSync: true });
+      }
+      if (v.paymentMethod !== 'CHEQUE') {
+        if (v.invoiceId && v.voucherType === 'RECEIPT') applySalesInvoiceDelta(v.invoiceId, -Number(v.amountTx || 0), v.voucherNo, v.voucherDate);
+        if (v.purchaseInvoiceId && v.voucherType === 'PAYMENT') applyPurchaseInvoiceSettlement(v.purchaseInvoiceId, false);
+      }
+    }
+
+    const voucherDate = String(body?.voucherDate || v.voucherDate).slice(0, 10);
+    const period = assertPeriodOpen(voucherDate, `تعديل سند ${v.voucherNo}`);
+    const amt = round2(Number(body?.amount ?? body?.amountTx ?? v.amountTx));
+    if (amt <= 0) throw new Error('يجب إدخال مبلغ أكبر من الصفر');
+
+    const treasuryAccs = getEnrichedTreasuryAccounts();
+    const bankAcc = treasuryAccs.find((b) => b.id === (body?.treasuryAccountId || v.treasuryAccountId)) || treasuryAccs[0];
+    const paymentMethod = body?.paymentMethod || v.paymentMethod;
+    const partyType = body?.partyType || v.partyType;
+    const clientId = body?.clientId !== undefined ? body.clientId : v.clientId;
+    const vendorId = body?.vendorId !== undefined ? body.vendorId : v.vendorId;
+    const employeeId = body?.employeeId !== undefined ? body.employeeId : v.employeeId;
+    const projectId = body?.projectId !== undefined ? body.projectId : v.projectId;
+    const invoiceId = body?.invoiceId !== undefined ? body.invoiceId : v.invoiceId;
+    const purchaseInvoiceId = body?.purchaseInvoiceId !== undefined ? body.purchaseInvoiceId : v.purchaseInvoiceId;
+
+    const dims = resolveEmployeeAndDims({
+      employeeId,
+      projectId,
+      costCenterId: body?.costCenterId !== undefined ? body.costCenterId : v.costCenterId,
+      departmentId: body?.departmentId !== undefined ? body.departmentId : v.departmentId,
+      branchId: body?.branchId || bankAcc?.branchId || v.branchId,
+      clientId,
+    });
+    const clients = getEntityList<any>('clients', []);
+    const vendors = getEntityList<any>('vendors', []);
+    const cli = clientId ? clients.find((c) => c.id === clientId) : null;
+    const vnd = vendorId ? vendors.find((x) => x.id === vendorId) : null;
+
+    let fallbackCounterCode = v.voucherType === 'PAYMENT' ? '50401' : '40101';
+    if (partyType === 'CLIENT' || invoiceId) fallbackCounterCode = '10301';
+    else if (partyType === 'VENDOR' || purchaseInvoiceId) fallbackCounterCode = '20101';
+    else if (partyType === 'EMPLOYEE') {
+      const pst = body?.partySubType !== undefined ? body.partySubType : v.partySubType;
+      if (pst === 'LOAN' || pst === 'LOAN_REPAYMENT') fallbackCounterCode = '10401';
+      else if (pst === 'CUSTODY' || pst === 'CUSTODY_REFUND') fallbackCounterCode = '1320';
+      else if (pst === 'PAYROLL') fallbackCounterCode = '20401';
+    }
+    const counterAcc = resolveAccountByCodeOrId(body?.counterAccountId ?? v.counterAccountId, fallbackCounterCode);
+    const cur = String(body?.currencyCode || v.currencyCode || bankAcc?.currencyCode || getBaseCurrencyCode()).toUpperCase();
+    const fxInfo = convertToBase(amt, cur, voucherDate);
+    const beneficiaryName = body?.beneficiaryName || dims.emp?.fullNameAr || cli?.nameAr || vnd?.nameAr || counterAcc?.nameAr || v.beneficiaryName;
+
+    const updatedDraft = saveEntityItem('treasury_vouchers', {
+      ...v,
+      voucherDate,
+      fiscalPeriodId: period?.id || v.fiscalPeriodId,
+      paymentMethod,
+      treasuryAccountId: bankAcc?.id || v.treasuryAccountId,
+      treasuryAccountName: bankAcc?.name || v.treasuryAccountName,
+      treasuryAccountKind: bankAcc?.kind || v.treasuryAccountKind,
+      treasuryGlCode: bankAcc?.glAccountCode || v.treasuryGlCode,
+      currencyCode: cur,
+      exchangeRate: fxInfo.rate,
+      amountTx: amt.toFixed(2),
+      amountBase: fxInfo.amountBase.toFixed(2),
+      partyType,
+      partySubType: body?.partySubType !== undefined ? body.partySubType : v.partySubType,
+      clientId: dims.clientId || null,
+      clientName: cli?.nameAr || null,
+      vendorId: vendorId || null,
+      vendorName: vnd?.nameAr || null,
+      invoiceId: invoiceId || null,
+      purchaseInvoiceId: purchaseInvoiceId || null,
+      employeeId: dims.employeeId || null,
+      employeeCode: dims.emp?.code || null,
+      employeeName: dims.emp?.fullNameAr || null,
+      projectId: dims.projectId || null,
+      projectName: dims.prj?.nameAr || null,
+      costCenterId: dims.costCenterId || null,
+      departmentId: dims.departmentId || null,
+      branchId: dims.branchId || null,
+      counterAccountId: counterAcc.id,
+      counterAccountCode: counterAcc.code,
+      counterAccountName: counterAcc.nameAr,
+      beneficiaryName,
+      reference: body?.reference !== undefined ? body.reference : v.reference,
+      description: body?.description ?? v.description,
+      status: 'DRAFT',
+      journalEntryId: wasPosted ? null : v.journalEntryId,
+      journalEntryNo: wasPosted ? null : v.journalEntryNo,
+    });
+
+    recordAudit({
+      action: 'UPDATE_TREASURY_VOUCHER',
+      schemaName: 'fin',
+      tableName: 'treasury_vouchers',
+      entityId: v.id,
+      oldValues: oldSnap,
+      newValues: { amountTx: updatedDraft.amountTx, treasuryAccountId: updatedDraft.treasuryAccountId, employeeId: updatedDraft.employeeId, description: updatedDraft.description },
+      reason: body?.reason || `تعديل السند ${v.voucherNo}`,
+    });
+
+    return wasPosted ? postTreasuryVoucher(updatedDraft.id) : updatedDraft;
+  });
+}
+
+export function deleteTreasuryVoucher(id: string, reason?: string): any {
+  return runLocalAtomicTx(['treasury_vouchers', 'cheques'], () => {
+    const list = getEntityList<any>('treasury_vouchers', []);
+    const v = list.find((x) => x.id === id || x.voucherNo === id);
+    if (!v) throw new Error('السند غير موجود');
+    if (v.status !== 'DRAFT') {
+      throw new Error('لا يمكن حذف سند مرحّل نهائياً؛ استخدم زر الإلغاء لعكس قيده وتحديث الأرصدة وحفظ سجل التدقيق');
+    }
+    if (v.chequeId) {
+      deleteEntityItem('cheques', v.chequeId);
+    }
+    deleteEntityItem('treasury_vouchers', v.id);
+    recordAudit({
+      action: 'DELETE_TREASURY_VOUCHER',
+      schemaName: 'fin',
+      tableName: 'treasury_vouchers',
+      entityId: v.id,
+      oldValues: { voucherNo: v.voucherNo, amountTx: v.amountTx, status: v.status },
+      reason: reason || `حذف مسودة السند ${v.voucherNo}`,
+    });
+    return { success: true, id: v.id };
+  });
+}
+
+export function cancelTreasuryVoucher(id: string, reason?: string): any {
+  return runLocalAtomicTx(['treasury_vouchers', 'cheques', 'invoices', 'purchase_invoices'], () => {
+    const list = getEntityList<any>('treasury_vouchers', []);
+    const v = list.find((x) => x.id === id || x.voucherNo === id);
+    if (!v) throw new Error('السند غير موجود');
+    if (v.status === 'CANCELLED') return v;
+    const reasonText = reason || `إلغاء ${v.voucherType === 'RECEIPT' ? 'سند القبض' : 'سند الصرف'} ${v.voucherNo}`;
+
+    if (v.chequeId) {
+      const chqs = getEntityList<any>('cheques', []);
+      const linkedChq = chqs.find((c) => c.id === v.chequeId);
+      if (linkedChq && ['COLLECTED', 'PAID'].includes(linkedChq.status)) {
+        throw new Error('لا يمكن إلغاء سند مرتبط بشيك محصل/مصروف؛ قم بتنفيذ ارتداد للشيك من حافظة الشيكات أولاً');
+      }
+      if (linkedChq) {
+        saveEntityItem('cheques', { ...linkedChq, status: 'CANCELLED', bounceReason: reasonText });
+      }
+    }
+
+    if (v.status === 'POSTED' && v.journalEntryId) {
+      assertPeriodOpen(v.fiscalPeriodId || v.voucherDate, reasonText);
+      const rev = createReversalJournalEntry(v.journalEntryId, reasonText, undefined, { allowSourceSync: true });
+      v.reversalJournalEntryId = rev.id;
+      if (v.paymentMethod !== 'CHEQUE') {
+        if (v.invoiceId && v.voucherType === 'RECEIPT') applySalesInvoiceDelta(v.invoiceId, -Number(v.amountTx || 0), v.voucherNo, v.voucherDate);
+        if (v.purchaseInvoiceId && v.voucherType === 'PAYMENT') applyPurchaseInvoiceSettlement(v.purchaseInvoiceId, false);
+      }
+    }
+    v.status = 'CANCELLED';
+    v.cancelReason = reasonText;
+    const saved = saveEntityItem('treasury_vouchers', v);
+    recordAudit({
+      action: 'CANCEL_TREASURY_VOUCHER',
+      schemaName: 'fin',
+      tableName: 'treasury_vouchers',
+      entityId: v.id,
+      oldValues: { status: 'POSTED', amountTx: v.amountTx },
+      newValues: { status: 'CANCELLED', reason: reasonText },
+      reason: reasonText,
+    });
+    return saved;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -588,6 +821,7 @@ function createChequeInternal(body: any, postInitialJe: boolean): any {
       journalType: direction === 'INCOMING' ? 'COLLECTION' : 'PAYMENT',
       sourceModule: 'TREASURY',
       sourceType: 'CHEQUE',
+      sourceId: id,
       postingEvent: 'TREASURY_CHEQUE_RECEIVED',
       reference: chequeNo,
       description: `${direction === 'INCOMING' ? 'استلام شيك وارد' : 'إصدار شيك صادر'} رقم ${chequeNo}`,
@@ -716,6 +950,7 @@ export function collectCheque(id: string, body: any = {}): any {
     journalType: c.direction === 'INCOMING' ? 'COLLECTION' : 'PAYMENT',
     sourceModule: 'TREASURY',
     sourceType: 'CHEQUE_CLEAR',
+    sourceId: c.id,
     postingEvent: 'TREASURY_CHEQUE_CLEARED',
     reference: c.chequeNo,
     description: `${c.direction === 'INCOMING' ? 'تحصيل شيك وارد بالبنك' : 'صرف شيك صادر من البنك'} (${c.chequeNo})`,
@@ -741,35 +976,121 @@ export function collectCheque(id: string, body: any = {}): any {
   return saved;
 }
 
-export function bounceCheque(id: string, body: any = {}): any {
-  const list = getEntityList<any>('cheques', []);
-  const c = list.find((x) => x.id === id);
-  if (!c) throw new Error('الشيك غير موجود');
-  if (c.status === 'BOUNCED' || c.status === 'CANCELLED') return c;
-
-  const reason = body?.reason || 'ارتداد / رفض الشيك من البنك';
-  const bounceDate = (body?.bounceDate || new Date().toISOString()).slice(0, 10);
-
-  if (c.clearingJournalEntryId) {
-    const rev1 = createReversalJournalEntry(c.clearingJournalEntryId, reason, bounceDate);
-    if (c.direction === 'INCOMING' && c.invoiceId) applySalesInvoiceDelta(c.invoiceId, -Number(c.amountTx || 0), c.chequeNo, bounceDate);
-    if (c.direction === 'OUTGOING' && c.purchaseInvoiceId) applyPurchaseInvoiceSettlement(c.purchaseInvoiceId, false);
-    c.bounceJournalEntryId = rev1.id;
-    c.bounceJournalEntryNo = rev1.entryNo;
-  }
-  if (c.initialJournalEntryId) {
-    const rev2 = createReversalJournalEntry(c.initialJournalEntryId, reason, bounceDate);
-    if (!c.bounceJournalEntryId) {
-      c.bounceJournalEntryId = rev2.id;
-      c.bounceJournalEntryNo = rev2.entryNo;
+export function updateCheque(id: string, body: any = {}): any {
+  return runLocalAtomicTx(['cheques'], () => {
+    const list = getEntityList<any>('cheques', []);
+    const c = list.find((x) => x.id === id);
+    if (!c) throw new Error('الشيك غير موجود');
+    if (['COLLECTED', 'PAID', 'BOUNCED', 'CANCELLED'].includes(c.status)) {
+      throw new Error('لا يمكن تعديل شيك محصل أو مصروف أو مرتد أو ملغى');
     }
-  }
-  c.status = 'BOUNCED';
-  c.bounceReason = reason;
-  c.bouncedAt = bounceDate;
-  const saved = saveEntityItem('cheques', c);
-  recordAudit({ action: 'BOUNCE_CHEQUE', schemaName: 'fin', tableName: 'cheques', entityId: c.id, reason });
-  return saved;
+    const dims = resolveEmployeeAndDims({
+      employeeId: body?.employeeId !== undefined ? body.employeeId : c.employeeId,
+      projectId: body?.projectId !== undefined ? body.projectId : c.projectId,
+      costCenterId: body?.costCenterId !== undefined ? body.costCenterId : c.costCenterId,
+      branchId: body?.branchId !== undefined ? body.branchId : c.branchId,
+      clientId: body?.clientId !== undefined ? body.clientId : c.clientId,
+    });
+    const bankAccs = getEnrichedTreasuryAccounts('BANK');
+    const bank = body?.bankAccountId ? bankAccs.find((b) => b.id === body.bankAccountId) : null;
+    const saved = saveEntityItem('cheques', {
+      ...c,
+      chequeNo: body?.chequeNo ?? c.chequeNo,
+      dueDate: body?.dueDate ?? c.dueDate,
+      bankName: body?.bankName ?? c.bankName,
+      drawerName: body?.drawerName !== undefined ? body.drawerName : c.drawerName,
+      bankAccountId: body?.bankAccountId !== undefined ? body.bankAccountId : c.bankAccountId,
+      bankAccountName: bank?.name ?? c.bankAccountName,
+      employeeId: dims.employeeId || null,
+      employeeCode: dims.emp?.code || c.employeeCode,
+      employeeName: dims.emp?.fullNameAr || c.employeeName,
+      projectId: dims.projectId || null,
+      projectName: dims.prj?.nameAr || c.projectName,
+      costCenterId: dims.costCenterId || null,
+      notes: body?.notes !== undefined ? body.notes : c.notes,
+    });
+    recordAudit({
+      action: 'UPDATE_CHEQUE',
+      schemaName: 'fin',
+      tableName: 'cheques',
+      entityId: c.id,
+      oldValues: { chequeNo: c.chequeNo, dueDate: c.dueDate, bankName: c.bankName },
+      newValues: { chequeNo: saved.chequeNo, dueDate: saved.dueDate, bankName: saved.bankName },
+      reason: body?.reason || `تعديل بيانات الشيك ${saved.chequeNo}`,
+    });
+    return saved;
+  });
+}
+
+export function deleteCheque(id: string, reason = 'إلغاء وحذف الشيك وعكس قيده'): any {
+  return runLocalAtomicTx(['cheques'], () => {
+    const list = getEntityList<any>('cheques', []);
+    const c = list.find((x) => x.id === id);
+    if (!c) throw new Error('الشيك غير موجود');
+    if (['COLLECTED', 'PAID'].includes(c.status)) {
+      throw new Error('لا يمكن حذف شيك تم تحصيله/صرفه؛ استخدم إجراء ارتداد الشيك لعكس القيد والرصيد البنكي');
+    }
+    if (c.status !== 'CANCELLED' && c.status !== 'BOUNCED' && c.initialJournalEntryId) {
+      assertPeriodOpen(c.issueDate, reason);
+      const rev = createReversalJournalEntry(c.initialJournalEntryId, reason, undefined, { allowSourceSync: true });
+      c.bounceJournalEntryId = rev.id;
+      c.bounceJournalEntryNo = rev.entryNo;
+    }
+    c.status = 'CANCELLED';
+    c.bounceReason = reason;
+    const saved = saveEntityItem('cheques', c);
+    recordAudit({
+      action: 'CANCEL_CHEQUE',
+      schemaName: 'fin',
+      tableName: 'cheques',
+      entityId: c.id,
+      oldValues: { chequeNo: c.chequeNo, status: c.status },
+      newValues: { status: 'CANCELLED', reason },
+      reason,
+    });
+    return saved;
+  });
+}
+
+export function bounceCheque(id: string, body: any = {}): any {
+  return runLocalAtomicTx(['cheques', 'invoices', 'purchase_invoices'], () => {
+    const list = getEntityList<any>('cheques', []);
+    const c = list.find((x) => x.id === id);
+    if (!c) throw new Error('الشيك غير موجود');
+    if (c.status === 'BOUNCED' || c.status === 'CANCELLED') return c;
+
+    const reason = body?.reason || 'ارتداد / رفض الشيك من البنك';
+    const bounceDate = (body?.bounceDate || new Date().toISOString()).slice(0, 10);
+
+    if (c.clearingJournalEntryId) {
+      const rev1 = createReversalJournalEntry(c.clearingJournalEntryId, reason, bounceDate, { allowSourceSync: true });
+      if (c.direction === 'INCOMING' && c.invoiceId) applySalesInvoiceDelta(c.invoiceId, -Number(c.amountTx || 0), c.chequeNo, bounceDate);
+      if (c.direction === 'OUTGOING' && c.purchaseInvoiceId) applyPurchaseInvoiceSettlement(c.purchaseInvoiceId, false);
+      c.bounceJournalEntryId = rev1.id;
+      c.bounceJournalEntryNo = rev1.entryNo;
+    }
+    if (c.initialJournalEntryId) {
+      const rev2 = createReversalJournalEntry(c.initialJournalEntryId, reason, bounceDate, { allowSourceSync: true });
+      if (!c.bounceJournalEntryId) {
+        c.bounceJournalEntryId = rev2.id;
+        c.bounceJournalEntryNo = rev2.entryNo;
+      }
+    }
+    c.status = 'BOUNCED';
+    c.bounceReason = reason;
+    c.bouncedAt = bounceDate;
+    const saved = saveEntityItem('cheques', c);
+    recordAudit({
+      action: 'BOUNCE_CHEQUE',
+      schemaName: 'fin',
+      tableName: 'cheques',
+      entityId: c.id,
+      oldValues: { chequeNo: c.chequeNo, status: c.status },
+      newValues: { status: 'BOUNCED', bounceJournalEntryId: c.bounceJournalEntryId },
+      reason,
+    });
+    return saved;
+  });
 }
 
 export function listBankReconciliations(bankAccountId?: string): any[] {

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { activeCompanyId } from '../../../shared/http/request';
 import { uuid } from '../../../shared/http/common';
@@ -36,6 +36,18 @@ export class TreasuryController {
     return this.treasury.createAccount(activeCompanyId(), body);
   }
 
+  @Patch('accounts/:id')
+  @RequirePermission('acc.bank.create')
+  updateAccount(@Param('id', idPipe) id: string, @Body() body: Partial<z.infer<typeof TreasuryAccountCreate>>) {
+    return this.treasury.updateAccount(activeCompanyId(), id, body);
+  }
+
+  @Delete('accounts/:id')
+  @RequirePermission('acc.bank.create')
+  deleteAccount(@Param('id', idPipe) id: string) {
+    return this.treasury.deleteAccount(activeCompanyId(), id);
+  }
+
   @Get('vouchers')
   @RequirePermission('acc.bank.view')
   listVouchers(@Query('voucherType') voucherType?: string, @Query('employeeId') employeeId?: string) {
@@ -46,6 +58,18 @@ export class TreasuryController {
   @RequirePermission('acc.bank.create')
   createVoucher(@Body(new ZodPipe(VoucherCreate)) body: z.infer<typeof VoucherCreate>) {
     return this.treasury.createVoucher(activeCompanyId(), body);
+  }
+
+  @Patch('vouchers/:id')
+  @RequirePermission('acc.bank.create')
+  updateVoucher(@Param('id', idPipe) id: string, @Body() body: Partial<z.infer<typeof VoucherCreate>> & { reason?: string }) {
+    return this.treasury.updateVoucher(activeCompanyId(), id, body);
+  }
+
+  @Delete('vouchers/:id')
+  @RequirePermission('acc.bank.create')
+  deleteVoucher(@Param('id', idPipe) id: string) {
+    return this.treasury.deleteVoucher(activeCompanyId(), id);
   }
 
   @Post('vouchers/:id/post')
@@ -70,6 +94,18 @@ export class TreasuryController {
   @RequirePermission('acc.bank.create')
   createCheque(@Body(new ZodPipe(ChequeCreate)) body: z.infer<typeof ChequeCreate>) {
     return this.treasury.createCheque(activeCompanyId(), body);
+  }
+
+  @Patch('cheques/:id')
+  @RequirePermission('acc.bank.create')
+  updateCheque(@Param('id', idPipe) id: string, @Body() body: Partial<z.infer<typeof ChequeCreate>> & { reason?: string }) {
+    return this.treasury.updateCheque(activeCompanyId(), id, body);
+  }
+
+  @Delete('cheques/:id')
+  @RequirePermission('acc.bank.create')
+  deleteCheque(@Param('id', idPipe) id: string) {
+    return this.treasury.deleteCheque(activeCompanyId(), id);
   }
 
   @Post('cheques/:id/deposit')

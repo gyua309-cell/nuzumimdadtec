@@ -200,6 +200,16 @@ export class JournalService {
   }
 
   // ------------------------------------------------------------------ commands
+  private assertCanMutateStandalone(e: EntryRow, allowSourceSync?: boolean) {
+    if (allowSourceSync) return;
+    if (e.source_id && String(e.source_module || '').toUpperCase() !== 'GL') {
+      throw new DomainError(
+        'SOURCE_DOCUMENT_LINKED',
+        `لا يمكن حذف أو عكس قيد مرتبط بمستند (${e.source_type} — مرجع ${e.reference || e.source_id}) مباشرة من القيود؛ يجب تعديل أو إلغاء المستند من شاشته لضمان تطابق الدفاتر والأرصدة`,
+      );
+    }
+  }
+
   async createDraft(companyId: string, input: DraftInput): Promise<string> {
     return this.db.tx(async () => {
       if (input.idempotencyKey) {
@@ -208,6 +218,16 @@ export class JournalService {
           [companyId, input.idempotencyKey],
         );
         if (existing) return existing.id;
+      }
+      if (input.sourceId && input.postingEvent && !input.reversalOfId && input.journalType !== 'REVERSAL' && String(input.sourceModule).toUpperCase() !== 'GL') {
+        const activeDup = await this.db.one<{ id: string }>(
+          `SELECT id FROM acc.journal_entries
+            WHERE company_id = $1 AND source_type = $2 AND source_id = $3 AND posting_event = $4
+              AND status IN ('DRAFT', 'POSTED') AND reversed_by_id IS NULL
+            LIMIT 1`,
+          [companyId, input.sourceType, input.sourceId, input.postingEvent],
+        );
+        if (activeDup) return activeDup.id;
       }
       const period = await this.resolvePeriod(companyId, input.entryDate, input.fiscalPeriodId);
       const lines = await this.prepareLines(companyId, input.entryDate, input.currencyCode, input.lines);
@@ -284,9 +304,10 @@ export class JournalService {
     });
   }
 
-  async cancel(companyId: string, id: string, reason: string) {
+  async cancel(companyId: string, id: string, reason: string, opts?: { allowSourceSync?: boolean }) {
     return this.db.tx(async () => {
       const e = await this.lockEntry(companyId, id);
+      this.assertCanMutateStandalone(e, opts?.allowSourceSync);
       if (e.status !== 'DRAFT') throw new DomainError('JE_NOT_DRAFT');
       await this.db.setReason(reason);
       await this.db.query(
@@ -302,9 +323,10 @@ export class JournalService {
    * Reverses a posted entry with an exact mirror (same currency, rate and base
    * amounts) dated `reversalDate` (default: original date when its period is open).
    */
-  async reverse(companyId: string, id: string, reason: string, reversalDate?: string | null): Promise<string> {
+  async reverse(companyId: string, id: string, reason: string, reversalDate?: string | null, opts?: { allowSourceSync?: boolean }): Promise<string> {
     return this.db.tx(async () => {
       const e = await this.lockEntry(companyId, id);
+      this.assertCanMutateStandalone(e, opts?.allowSourceSync);
       if (e.status !== 'POSTED') throw new DomainError('JE_NOT_POSTED');
       if (e.reversed_by_id) throw new DomainError('JE_ALREADY_REVERSED', undefined, HttpStatus.CONFLICT);
       if (e.reversal_of_id) throw new DomainError('JE_IS_REVERSAL', 'A reversal entry cannot be reversed; post a new entry instead');
@@ -354,9 +376,10 @@ export class JournalService {
     }, { reason });
   }
 
-  async removeDraft(companyId: string, id: string): Promise<void> {
+  async removeDraft(companyId: string, id: string, opts?: { allowSourceSync?: boolean }): Promise<void> {
     await this.db.tx(async () => {
       const e = await this.lockEntry(companyId, id);
+      this.assertCanMutateStandalone(e, opts?.allowSourceSync);
       if (e.status !== 'DRAFT') {
         throw new DomainError('JE_NOT_DRAFT', 'يمكن حذف مسودات القيود اليومية فقط');
       }

@@ -12,6 +12,8 @@ import {
 } from '../components/ui';
 import { ExportMenu } from '../components/ExportMenu';
 import { ExportEngine } from '../engine/export-engine';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { handleErpFormKeyDown } from '../lib/form-draft';
 
 export interface ServiceItem {
   id: string;
@@ -595,13 +597,72 @@ export function ServiceCatalogPage() {
                             onClick={() => setViewingService(item)}
                           />
                           <ActionButton
-                            variant="edit"
-                            title="تعديل الخدمة"
-                            onClick={() => openEdit(item)}
+                            variant="preview"
+                            title="معاينة قبل الطباعة (ملكي A4)"
+                            onClick={() =>
+                              ExportEngine.openDetailPreview({
+                                title: `بطاقة خدمة معتمدة: ${item.nameAr}`,
+                                subtitle: `رمز الخدمة: ${item.code} • ${CATEGORY_LABELS[item.category]?.label || item.category}`,
+                                filename: `service-${item.code}-${today()}`,
+                                docNo: item.code,
+                                docDate: today(),
+                                currency: item.currencyCode || 'SAR',
+                                statusLabel: item.isActive ? 'خدمة نشطة' : 'معطلة',
+                                statusTone: item.isActive ? 'green' : 'slate',
+                                kpis: [
+                                  { label: 'السعر القياسي', value: `${money(item.defaultUnitPrice)} ${item.currencyCode}`, tone: 'emerald' },
+                                  { label: 'أساس الفوترة', value: BILLING_BASIS_LABELS[item.billingBasis] || item.billingBasis, tone: 'indigo' },
+                                  { label: 'ضريبة ZATCA', value: `${item.vatRate}%`, tone: 'amber' },
+                                ],
+                                metaFields: [
+                                  { label: 'رمز الخدمة', value: item.code },
+                                  { label: 'الاسم بالعربية', value: item.nameAr },
+                                  { label: 'الاسم بالإنجليزية', value: item.nameEn || '—' },
+                                  { label: 'التصنيف', value: CATEGORY_LABELS[item.category]?.label || item.category },
+                                  { label: 'حساب الإيراد', value: item.glAccountId || '40101' },
+                                  { label: 'الحالة', value: item.isActive ? 'نشط' : 'معطل' },
+                                ],
+                                notes: item.description || undefined,
+                                totalAmountForTafqeet: Number(item.defaultUnitPrice || 0),
+                                signatureLabels: ['الإدارة التجارية', 'المراجعة المالية', 'الاعتماد'],
+                              })
+                            }
                           />
                           <ActionButton
                             variant="print"
                             title="طباعة بطاقة الخدمة (ملكي A4)"
+                            onClick={() =>
+                              void ExportEngine.printDetail({
+                                title: `بطاقة خدمة معتمدة: ${item.nameAr}`,
+                                subtitle: `رمز الخدمة: ${item.code} • ${CATEGORY_LABELS[item.category]?.label || item.category}`,
+                                filename: `service-${item.code}-${today()}`,
+                                docNo: item.code,
+                                docDate: today(),
+                                currency: item.currencyCode || 'SAR',
+                                statusLabel: item.isActive ? 'خدمة نشطة' : 'معطلة',
+                                statusTone: item.isActive ? 'green' : 'slate',
+                                kpis: [
+                                  { label: 'السعر القياسي', value: `${money(item.defaultUnitPrice)} ${item.currencyCode}`, tone: 'emerald' },
+                                  { label: 'أساس الفوترة', value: BILLING_BASIS_LABELS[item.billingBasis] || item.billingBasis, tone: 'indigo' },
+                                  { label: 'ضريبة ZATCA', value: `${item.vatRate}%`, tone: 'amber' },
+                                ],
+                                metaFields: [
+                                  { label: 'رمز الخدمة', value: item.code },
+                                  { label: 'الاسم بالعربية', value: item.nameAr },
+                                  { label: 'الاسم بالإنجليزية', value: item.nameEn || '—' },
+                                  { label: 'التصنيف', value: CATEGORY_LABELS[item.category]?.label || item.category },
+                                  { label: 'حساب الإيراد', value: item.glAccountId || '40101' },
+                                  { label: 'الحالة', value: item.isActive ? 'نشط' : 'معطل' },
+                                ],
+                                notes: item.description || undefined,
+                                totalAmountForTafqeet: Number(item.defaultUnitPrice || 0),
+                                signatureLabels: ['الإدارة التجارية', 'المراجعة المالية', 'الاعتماد'],
+                              })
+                            }
+                          />
+                          <ActionButton
+                            variant="pdf"
+                            title="تصدير PDF مباشر لبطاقة الخدمة"
                             onClick={() =>
                               void ExportEngine.exportDetailPdf({
                                 title: `بطاقة خدمة معتمدة: ${item.nameAr}`,
@@ -632,6 +693,11 @@ export function ServiceCatalogPage() {
                             }
                           />
                           <ActionButton
+                            variant="edit"
+                            title="تعديل الخدمة"
+                            onClick={() => openEdit(item)}
+                          />
+                          <ActionButton
                             variant="delete"
                             title="حذف الخدمة"
                             onClick={() => handleDelete(item)}
@@ -656,9 +722,14 @@ export function ServiceCatalogPage() {
         }}
         title={editingService ? `تعديل الخدمة: ${editingService.code}` : 'إضافة خدمة جديدة إلى المخزون الخدمي'}
         wide
+        size="xl"
+        dirty={Boolean(formData.nameAr || formData.defaultUnitPrice || formData.description)}
+        saving={saveMutation.isPending}
+        onSaveShortcut={() => !saveMutation.isPending && saveMutation.mutate()}
         footer={
           <>
             <button
+              type="button"
               className="btn-secondary"
               onClick={() => {
                 setIsAdding(false);
@@ -668,6 +739,7 @@ export function ServiceCatalogPage() {
               إلغاء
             </button>
             <button
+              type="button"
               className="btn-primary"
               disabled={saveMutation.isPending}
               onClick={() => saveMutation.mutate()}
@@ -677,9 +749,17 @@ export function ServiceCatalogPage() {
           </>
         }
       >
-        <div className="space-y-4 text-xs">
+        <form
+          data-erp-form
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveMutation.mutate();
+          }}
+          onKeyDown={(e) => handleErpFormKeyDown(e, { onSave: () => !saveMutation.isPending && saveMutation.mutate() })}
+          className="space-y-4 text-xs"
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="رمز الخدمة (Service Code) *">
+            <Field label="رمز الخدمة (Service Code)" required>
               <input
                 type="text"
                 className="input font-mono"
@@ -690,21 +770,16 @@ export function ServiceCatalogPage() {
               />
             </Field>
 
-            <Field label="تصنيف الخدمة *">
-              <select
-                className="input"
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
-              >
-                {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v.label}
-                  </option>
-                ))}
-              </select>
+            <Field label="تصنيف الخدمة" required>
+              <SearchableSelect
+                clearable={false}
+                value={formData.category || 'SOFTWARE_DEVELOPMENT'}
+                onChange={(val) => setFormData({ ...formData, category: (val || 'SOFTWARE_DEVELOPMENT') as any })}
+                options={Object.entries(CATEGORY_LABELS).map(([k, v]) => ({ value: k, label: v.label }))}
+              />
             </Field>
 
-            <Field label="اسم الخدمة بالعربية *" className="col-span-1 md:col-span-2">
+            <Field label="اسم الخدمة بالعربية" required className="col-span-1 md:col-span-2">
               <input
                 type="text"
                 className="input"
@@ -725,21 +800,16 @@ export function ServiceCatalogPage() {
               />
             </Field>
 
-            <Field label="أساس الفوترة للعميل *">
-              <select
-                className="input"
-                value={formData.billingBasis}
-                onChange={(e) => setFormData({ ...formData, billingBasis: e.target.value as any })}
-              >
-                {Object.entries(BILLING_BASIS_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
-              </select>
+            <Field label="أساس الفوترة للعميل" required>
+              <SearchableSelect
+                clearable={false}
+                value={formData.billingBasis || 'DAILY'}
+                onChange={(val) => setFormData({ ...formData, billingBasis: (val || 'DAILY') as any })}
+                options={Object.entries(BILLING_BASIS_LABELS).map(([k, v]) => ({ value: k, label: v }))}
+              />
             </Field>
 
-            <Field label="السعر القياسي / الفوترة *">
+            <Field label="السعر القياسي / الفوترة" required>
               <div className="relative">
                 <input
                   type="number"
@@ -753,28 +823,30 @@ export function ServiceCatalogPage() {
               </div>
             </Field>
 
-            <Field label="العملة *">
-              <select
-                className="input"
-                value={formData.currencyCode}
-                onChange={(e) => setFormData({ ...formData, currencyCode: e.target.value as any })}
-              >
-                <option value="SAR">ريال سعودي (SAR)</option>
-                <option value="EGP">جنيه مصري (EGP)</option>
-                <option value="USD">دولار أمريكي (USD)</option>
-              </select>
+            <Field label="العملة" required>
+              <SearchableSelect
+                clearable={false}
+                value={formData.currencyCode || 'SAR'}
+                onChange={(val) => setFormData({ ...formData, currencyCode: (val || 'SAR') as any })}
+                options={[
+                  { value: 'SAR', label: 'ريال سعودي (SAR)' },
+                  { value: 'EGP', label: 'جنيه مصري (EGP)' },
+                  { value: 'USD', label: 'دولار أمريكي (USD)' },
+                ]}
+              />
             </Field>
 
-            <Field label="نسبة ضريبة القيمة المضافة (ZATCA) *">
-              <select
-                className="input font-mono"
-                value={formData.vatRate}
-                onChange={(e) => setFormData({ ...formData, vatRate: Number(e.target.value) })}
-              >
-                <option value={15}>15% (المملكة العربية السعودية - ZATCA)</option>
-                <option value={14}>14% (جمهورية مصر العربية)</option>
-                <option value={0}>0% (معفى من الضريبة)</option>
-              </select>
+            <Field label="نسبة ضريبة القيمة المضافة (ZATCA)" required>
+              <SearchableSelect
+                clearable={false}
+                value={String(formData.vatRate ?? 15)}
+                onChange={(val) => setFormData({ ...formData, vatRate: Number(val ?? 15) })}
+                options={[
+                  { value: '15', label: '15% (المملكة العربية السعودية - ZATCA)' },
+                  { value: '14', label: '14% (جمهورية مصر العربية)' },
+                  { value: '0', label: '0% (معفى من الضريبة)' },
+                ]}
+              />
             </Field>
 
             <Field label="حساب الإيراد بدفتر الأستاذ العام (GL Account)">
@@ -808,7 +880,7 @@ export function ServiceCatalogPage() {
               />
             </Field>
           </div>
-        </div>
+        </form>
       </Drawer>
 
       {/* ── Slide-Over Modal / Drawer (Right Side) for Viewing Service Details ─── */}

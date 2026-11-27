@@ -55,6 +55,7 @@ import {
   autoGenerateSalesInvoicesFromAssignments,
   buildZatcaUblXml,
   cancelDepreciationRunItem,
+  cancelInterBankTransfer,
   cancelPurchaseInvoiceItem,
   cancelSalesInvoice,
   cancelZakatReturnItem,
@@ -72,6 +73,8 @@ import {
   createSalesInvoice,
   decodeZatcaTlv,
   deleteCustodyExpenseLine,
+  deletePurchaseInvoiceItem,
+  deleteSalesInvoice,
   disburseCustodyItem,
   disposeAssetItem,
   executeDepreciationRun,
@@ -91,6 +94,8 @@ import {
   settleVatReturnPeriod,
   syncAllOperationalJournals,
   topUpCustodyTransfer,
+  updatePurchaseInvoiceItem,
+  updateSalesInvoice,
   executeInterBankTransfer,
   payPayrollRunFromBank,
   postEosbSettlementJournal,
@@ -124,6 +129,9 @@ import {
   createCheque,
   createTreasuryAccount,
   createTreasuryVoucher,
+  deleteCheque,
+  deleteTreasuryAccount,
+  deleteTreasuryVoucher,
   depositCheque,
   ensureSyncedEmployeeCostCenter,
   getEnrichedTreasuryAccounts,
@@ -133,6 +141,9 @@ import {
   listTreasuryVouchers,
   postTreasuryVoucher,
   reconcileBankAccount,
+  updateCheque,
+  updateTreasuryAccount,
+  updateTreasuryVoucher,
 } from './treasury-engine';
 
 function round2Val(n: number): number {
@@ -1628,6 +1639,9 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         const list = getEntityList<any>('journal_entries', []);
         const idx = list.findIndex((j) => j.id === jeId);
         if (idx < 0) throw new Error('القيد غير موجود');
+        if (list[idx].sourceId && String(list[idx].sourceModule || '').toUpperCase() !== 'GL') {
+          throw new Error(`لا يمكن إلغاء قيد مرتبط بمستند (${list[idx].sourceType}) مباشرة؛ قم بإلغاء المستند الأصلي`);
+        }
         if (list[idx].status !== 'DRAFT') throw new Error('لا يمكن إلغاء قيد مرحّل؛ استخدم القيد العكسي بدلاً من ذلك');
         list[idx].status = 'CANCELLED';
         list[idx].cancelReason = body?.reason || 'إلغاء مسودة القيد';
@@ -1643,6 +1657,9 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       if (method === 'DELETE' && jeId && !action) {
         const list = getEntityList<any>('journal_entries', []);
         const target = list.find((j) => j.id === jeId);
+        if (target?.sourceId && String(target?.sourceModule || '').toUpperCase() !== 'GL') {
+          throw new Error(`لا يمكن حذف قيد مرتبط بمستند (${target.sourceType}) مباشرة من دفتر الأستاذ`);
+        }
         if (target?.status === 'POSTED') throw new Error('لا يمكن حذف قيد مرحّل نهائياً؛ استخدم القيد العكسي حفاظاً على سجل التدقيق');
         deleteEntityItem('journal_entries', jeId);
         recordAudit({ action: 'DELETE', schemaName: 'acc', tableName: 'journal_entries', entityId: jeId, reason: 'حذف مسودة قيد يومي' });
@@ -2053,6 +2070,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     if ((cleanActionPath === '/invoices' || cleanActionPath === '/sal/invoices') && method === 'POST') {
       return createSalesInvoice(body);
     }
+    if ((cleanActionPath.startsWith('/invoices/') || cleanActionPath.startsWith('/sal/invoices/')) && (method === 'PATCH' || method === 'PUT')) {
+      const id = cleanActionPath.split('/').filter(Boolean).pop()!;
+      return updateSalesInvoice(id, body);
+    }
+    if ((cleanActionPath.startsWith('/invoices/') || cleanActionPath.startsWith('/sal/invoices/')) && method === 'DELETE') {
+      const id = cleanActionPath.split('/').filter(Boolean).pop()!;
+      return deleteSalesInvoice(id);
+    }
     if (cleanActionPath === '/credit-notes' && method === 'POST') {
       return createCreditNoteAndPost(body);
     }
@@ -2075,6 +2100,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     }
     if ((cleanActionPath === '/purchase-invoices' || cleanActionPath === '/pur/invoices') && method === 'POST') {
       return createPurchaseInvoiceItem(body);
+    }
+    if ((cleanActionPath.startsWith('/purchase-invoices/') || cleanActionPath.startsWith('/pur/invoices/')) && (method === 'PATCH' || method === 'PUT')) {
+      const id = cleanActionPath.split('/').filter(Boolean).pop()!;
+      return updatePurchaseInvoiceItem(id, body);
+    }
+    if ((cleanActionPath.startsWith('/purchase-invoices/') || cleanActionPath.startsWith('/pur/invoices/')) && method === 'DELETE') {
+      const id = cleanActionPath.split('/').filter(Boolean).pop()!;
+      return deletePurchaseInvoiceItem(id);
     }
     if (cleanActionPath === '/debit-notes' && method === 'POST') {
       return createDebitNoteAndPost(body);
@@ -2183,8 +2216,21 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     if ((cleanActionPath === '/bank-accounts' || cleanActionPath === '/banks' || cleanActionPath === '/treasury/accounts') && method === 'POST') {
       return createTreasuryAccount(body);
     }
+    if ((cleanActionPath.startsWith('/bank-accounts/') || cleanActionPath.startsWith('/banks/') || cleanActionPath.startsWith('/treasury/accounts/')) && (method === 'PATCH' || method === 'PUT')) {
+      const id = cleanActionPath.split('/').filter(Boolean).pop()!;
+      return updateTreasuryAccount(id, body);
+    }
+    if ((cleanActionPath.startsWith('/bank-accounts/') || cleanActionPath.startsWith('/banks/') || cleanActionPath.startsWith('/treasury/accounts/')) && method === 'DELETE') {
+      const id = cleanActionPath.split('/').filter(Boolean).pop()!;
+      return deleteTreasuryAccount(id, body?.reason);
+    }
     if (cleanActionPath === '/bank-transfers' && method === 'POST') {
       return executeInterBankTransfer(body);
+    }
+    if (cleanActionPath.startsWith('/bank-transfers/') && (cleanActionPath.endsWith('/cancel') || method === 'DELETE')) {
+      const segs = cleanActionPath.split('/').filter(Boolean);
+      const id = segs[1];
+      return cancelInterBankTransfer(id, body?.reason);
     }
     if (cleanActionPath === '/treasury/vouchers' && method === 'POST') {
       return createTreasuryVoucher(body);
@@ -2196,6 +2242,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     if (cleanActionPath.startsWith('/treasury/vouchers/') && cleanActionPath.endsWith('/cancel') && method === 'POST') {
       const id = cleanActionPath.split('/')[3];
       return cancelTreasuryVoucher(id, body?.reason);
+    }
+    if (cleanActionPath.startsWith('/treasury/vouchers/') && (method === 'PATCH' || method === 'PUT')) {
+      const id = cleanActionPath.split('/')[3];
+      return updateTreasuryVoucher(id, body);
+    }
+    if (cleanActionPath.startsWith('/treasury/vouchers/') && method === 'DELETE') {
+      const id = cleanActionPath.split('/')[3];
+      return deleteTreasuryVoucher(id, body?.reason);
     }
     if (cleanActionPath === '/treasury/cheques' && method === 'POST') {
       return createCheque(body);
@@ -2211,6 +2265,14 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     if (cleanActionPath.startsWith('/treasury/cheques/') && cleanActionPath.endsWith('/bounce') && method === 'POST') {
       const id = cleanActionPath.split('/')[3];
       return bounceCheque(id, body);
+    }
+    if (cleanActionPath.startsWith('/treasury/cheques/') && (method === 'PATCH' || method === 'PUT')) {
+      const id = cleanActionPath.split('/')[3];
+      return updateCheque(id, body);
+    }
+    if (cleanActionPath.startsWith('/treasury/cheques/') && method === 'DELETE') {
+      const id = cleanActionPath.split('/')[3];
+      return deleteCheque(id, body?.reason);
     }
     if (cleanActionPath === '/treasury/reconciliations' && method === 'POST') {
       return reconcileBankAccount(body);
@@ -2229,8 +2291,37 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       if (method === 'DELETE') {
         const id = path.split('?')[0].split('/').filter(Boolean).pop();
         if (id) {
+          if (targetKey === 'clients') {
+            if (getEntityList<any>('invoices', []).some((i) => i.clientId === id) || getEntityList<any>('projects', []).some((p) => p.clientId === id)) {
+              throw new Error('لا يمكن حذف عميل مرتبط بفواتير أو مشاريع مسجلة');
+            }
+          }
+          if (targetKey === 'vendors') {
+            if (getEntityList<any>('purchase_invoices', []).some((p) => p.vendorId === id) || getEntityList<any>('treasury_vouchers', []).some((v) => v.vendorId === id)) {
+              throw new Error('لا يمكن حذف مورد مرتبط بفواتير مشتريات أو سندات صرف');
+            }
+          }
+          if (targetKey === 'projects') {
+            if (getEntityList<any>('invoices', []).some((i) => i.projectId === id) || getEntityList<any>('assignments', []).some((a) => a.projectId === id)) {
+              throw new Error('لا يمكن حذف مشروع مرتبط بفواتير مبيعات أو تخصيصات كوادر');
+            }
+          }
+          if (targetKey === 'assets') {
+            const ast = getEntityList<any>('assets', []).find((a) => a.id === id);
+            if (ast && ast.status !== 'DRAFT') {
+              throw new Error('لا يمكن حذف أصل مفعّل أو مستبعد له قيود؛ استخدم شاشة استبعاد الأصل');
+            }
+          }
+          const existingList = getEntityList<any>(targetKey, []);
+          const prevItem = existingList.find((x) => x.id === id);
           deleteEntityItem(targetKey, id);
-          recordAudit({ action: 'DELETE', tableName: targetKey, entityId: id, reason: `حذف سجل من ${targetKey}` });
+          recordAudit({
+            action: 'DELETE',
+            tableName: targetKey,
+            entityId: id,
+            oldValues: prevItem ? { id: prevItem.id, code: prevItem.code, name: prevItem.nameAr || prevItem.name || prevItem.fullNameAr } : null,
+            reason: body?.reason || `حذف سجل من ${targetKey}`,
+          });
         }
         return { success: true };
       }

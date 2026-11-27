@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, FileSpreadsheet, FileText, Play, Plus, Printer, Search, Trash2, Calculator, Award, FileCheck2, CheckCircle2, Wallet, Landmark, BarChart3, PieChart, Users } from 'lucide-react';
+import { Eye, FileSpreadsheet, FileText, Play, Plus, Printer, Search, Calculator, Award, FileCheck2, CheckCircle2, Wallet, Landmark, BarChart3, PieChart, Users } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date as _date, money, today } from '../lib/format';
 import { ExportEngine, RoyalDetailDocumentOptions } from '../engine/export-engine';
@@ -1021,15 +1021,38 @@ export function PayrollRunsPage() {
                           <span>صرف من البنك</span>
                         </button>
                       )}
-                      <button
-                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
-                        onClick={() => setViewId(r.id)}
+                      <ActionButton
+                        variant="view"
                         title="معاينة تفاصيل المسيّر"
-                      >
-                        <Eye className="size-3.5" />
-                      </button>
-                      <button
-                        className="btn-ghost size-7 p-0 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                        onClick={() => setViewId(r.id)}
+                      />
+                      <ActionButton
+                        variant="preview"
+                        title="معاينة قبل الطباعة (ملكي A4)"
+                        onClick={async () => {
+                          try {
+                            const d = await api.get<any>(`/payroll-runs/${r.id}`);
+                            ExportEngine.openDetailPreview(buildPayrollRunDoc(d));
+                          } catch (err) {
+                            toast.error(err);
+                          }
+                        }}
+                      />
+                      <ActionButton
+                        variant="print"
+                        title="طباعة كشف مسيّر الرواتب A4"
+                        onClick={async () => {
+                          try {
+                            const d = await api.get<any>(`/payroll-runs/${r.id}`);
+                            await ExportEngine.printDetail(buildPayrollRunDoc(d));
+                          } catch (err) {
+                            toast.error(err);
+                          }
+                        }}
+                      />
+                      <ActionButton
+                        variant="pdf"
+                        title="تصدير PDF مباشر لكشف مسيّر الرواتب"
                         onClick={async () => {
                           try {
                             const d = await api.get<any>(`/payroll-runs/${r.id}`);
@@ -1038,18 +1061,13 @@ export function PayrollRunsPage() {
                             toast.error(err);
                           }
                         }}
-                        title="طباعة / PDF ملكي لكشف مسيّر الرواتب"
-                      >
-                        <Printer className="size-3.5" />
-                      </button>
+                      />
                       {r.status === 'POSTED' && (
-                        <button
-                          className="btn-ghost size-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                          onClick={() => setCancelId(r.id)}
+                        <ActionButton
+                          variant="delete"
                           title="إلغاء المسيّر وعكس القيد"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                          onClick={() => setCancelId(r.id)}
+                        />
                       )}
                     </div>
                   </td>
@@ -1066,11 +1084,27 @@ export function PayrollRunsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                className="btn-secondary text-xs flex items-center gap-1.5 border-indigo-200 text-indigo-700"
+                onClick={() => ExportEngine.openDetailPreview(buildPayrollRunDoc(detail.data))}
+                title="معاينة كشف مسيّر الرواتب قبل الطباعة (A4)"
+              >
+                <Eye className="size-3.5" /> معاينة A4
+              </button>
+              <button
+                type="button"
+                className="btn-secondary text-xs flex items-center gap-1.5"
+                onClick={() => void ExportEngine.printDetail(buildPayrollRunDoc(detail.data))}
+                title="طباعة كشف مسيّر الرواتب (A4)"
+              >
+                <Printer className="size-3.5" /> طباعة A4
+              </button>
+              <button
+                type="button"
                 className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
                 onClick={() => void ExportEngine.exportDetailPdf(buildPayrollRunDoc(detail.data))}
-                title="طباعة رسمية وتصدير PDF ملكي لكشف مسيّر الرواتب"
+                title="تصدير PDF مباشر لكشف مسيّر الرواتب"
               >
-                <FileText className="size-3.5" /> طباعة / PDF ملكي
+                <FileText className="size-3.5" /> تصدير PDF مباشر
               </button>
               <button
                 type="button"

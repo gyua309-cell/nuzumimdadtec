@@ -15,6 +15,8 @@ import { defaultAccountsList } from '../lib/fallback-engine';
 import { getEntityList } from '../lib/local-store';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JobsCenterButton } from './JobsCenterModal';
+import { RoyalPrintPreviewModal } from './RoyalPrintPreviewModal';
+import { CURRENT_BUILD_ID, checkLiveBuildFreshness } from '../lib/build-freshness';
 import { Modal } from './ui';
 
 interface NavItem {
@@ -812,6 +814,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
     setMobileMenuOpen(false);
   }, [loc.pathname]);
 
+  // Cloud build staleness protection (GitHub Pages CDN / cached tabs)
+  useEffect(() => {
+    void checkLiveBuildFreshness();
+  }, []);
+
   const toggleCollapse = () => {
     setCollapsed((prev) => {
       const next = !prev;
@@ -1276,6 +1283,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
                     <span>{me?.user.username === 'admin' ? 'المدير التنفيذي' : `@${me?.user.username}`}</span>
                     <span className="opacity-45">•</span>
                     <span className="font-mono">ZATCA ✓</span>
+                    <span className="opacity-45">•</span>
+                    <span className="font-mono text-[10px] text-sky-400/90" title="معرف الإصدار السحابي الحالي">
+                      v.{CURRENT_BUILD_ID}
+                    </span>
                   </div>
                 </div>
               )}
@@ -1561,6 +1572,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
           </ErrorBoundary>
         </main>
       </div>
+
+      {/* ─────────── Unified Royal A4 Print Preview & Direct PDF Modal ─────────── */}
+      <RoyalPrintPreviewModal />
 
       {/* ─────────── Global Command Palette Modal (Ctrl+K) ─────────── */}
       {cmdOpen && createPortal(

@@ -37,8 +37,9 @@ export class BankTransfersService {
               t.target_bank_id AS "targetBankId", tb.name AS "targetBankName",
               t.target_currency AS "targetCurrency", t.target_amount::float8 AS "targetAmount",
               t.exchange_rate::float8 AS "exchangeRate", t.bank_fee::float8 AS "bankFee",
-              t.reference, t.notes,
+              t.reference, t.notes, t.status, t.cancel_reason AS "cancelReason",
               t.journal_entry_id AS "journalEntryId", je.entry_no AS "journalEntryNo",
+              t.reversal_journal_entry_id AS "reversalJournalEntryId",
               t.created_at AS "createdAt"
          FROM acc.bank_transfers t
          JOIN acc.bank_accounts sb ON sb.id = t.source_bank_id
@@ -49,6 +50,36 @@ export class BankTransfersService {
         LIMIT 200`,
       [companyId],
     );
+  }
+
+  async cancel(companyId: string, id: string, reason: string) {
+    return this.db.tx(async () => {
+      const t = await this.db.one<any>(`SELECT * FROM acc.bank_transfers WHERE company_id = $1 AND id = $2 FOR UPDATE`, [companyId, id]);
+      if (!t) throw new NotFoundError('BankTransfer', id);
+      if (t.status === 'CANCELLED') return t;
+      let revId: string | null = null;
+      if (t.journal_entry_id) {
+        revId = await this.journal.reverse(
+          companyId,
+          t.journal_entry_id,
+          reason || `إلغاء تحويل بنكي (${t.reference || id})`,
+          undefined,
+          { allowSourceSync: true },
+        );
+      }
+      await this.db.query(
+        `UPDATE acc.bank_transfers SET status = 'CANCELLED', reversal_journal_entry_id = $2, cancel_reason = $3 WHERE company_id = $1 AND id = $4`,
+        [companyId, revId, reason || 'إلغاء التحويل البنكي', id],
+      );
+      await this.db.query(`SELECT audit.log_action('acc','bank_transfers',$1,'CANCEL',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ status: t.status, sourceAmount: t.source_amount }),
+        JSON.stringify({ status: 'CANCELLED', reversalJournalEntryId: revId }),
+        reason || 'إلغاء تحويل بنكي',
+        t.reference || id,
+      ]);
+      return { success: true, id, status: 'CANCELLED', reversalJournalEntryId: revId };
+    });
   }
 
   private async resolveOperatingAccount(companyId: string, preferredCodes: string[], fallbackClass: string) {

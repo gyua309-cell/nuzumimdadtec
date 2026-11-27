@@ -6,7 +6,7 @@ import { ZodPipe } from '../../../shared/http/zod.pipe';
 import { RequirePermission } from '../../iam/presentation/decorators';
 import { VendorCreate, VendorUpdate, VendorsService } from '../application/vendors.service';
 import {
-  DebitNoteCreate, PurchaseInvoiceCreate, PurchasesService,
+  DebitNoteCreate, PurchaseInvoiceCreate, PurchaseInvoiceUpdate, PurchasesService,
 } from '../application/purchases.service';
 
 const idPipe = new ZodPipe(uuid);
@@ -68,6 +68,18 @@ export class PurchaseInvoicesController {
   @RequirePermission('pur.invoice.create')
   create(@Body(new ZodPipe(PurchaseInvoiceCreate)) body: z.infer<typeof PurchaseInvoiceCreate>) {
     return this.svc.create(activeCompanyId(), body);
+  }
+
+  @Patch(':id')
+  @RequirePermission('pur.invoice.edit')
+  update(@Param('id', idPipe) id: string, @Body(new ZodPipe(PurchaseInvoiceUpdate)) body: z.infer<typeof PurchaseInvoiceUpdate>) {
+    return this.svc.update(activeCompanyId(), id, body);
+  }
+
+  @Delete(':id')
+  @RequirePermission('pur.invoice.delete')
+  remove(@Param('id', idPipe) id: string) {
+    return this.svc.remove(activeCompanyId(), id);
   }
 
   @Post(':id/post')

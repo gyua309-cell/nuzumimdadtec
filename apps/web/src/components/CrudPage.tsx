@@ -1197,18 +1197,28 @@ export function CrudPage({
                           {extraActions?.(row)}
                           <ActionButton
                             variant="view"
-                            title="معاينة وتفاصيل"
+                            title="عرض التفاصيل"
                             onClick={() => (onRowClick ? onRowClick(row) : setViewing(row))}
+                          />
+                          <ActionButton
+                            variant="preview"
+                            title="معاينة قبل الطباعة (ملكي A4)"
+                            onClick={() => ExportEngine.openDetailPreview(buildRecordRoyalDoc(row))}
+                          />
+                          <ActionButton
+                            variant="print"
+                            title="طباعة بطاقة السجل (ملكي A4)"
+                            onClick={() => void ExportEngine.printDetail(buildRecordRoyalDoc(row))}
+                          />
+                          <ActionButton
+                            variant="pdf"
+                            title="تصدير PDF مباشر (ملكي A4)"
+                            onClick={() => void ExportEngine.exportDetailPdf(buildRecordRoyalDoc(row))}
                           />
                           <ActionButton
                             variant="edit"
                             title="تعديل السجل"
                             onClick={() => open(row)}
-                          />
-                          <ActionButton
-                            variant="print"
-                            title="طباعة بطاقة السجل (ملكي A4)"
-                            onClick={() => void ExportEngine.exportDetailPdf(buildRecordRoyalDoc(row))}
                           />
                           {deletable && (
                             <ActionButton

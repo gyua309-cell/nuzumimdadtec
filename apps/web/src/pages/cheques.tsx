@@ -17,7 +17,10 @@ import { ExportMenu } from '../components/ExportMenu';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { date, money, today } from '../lib/format';
-import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, Stat, useToast } from '../components/ui';
+import { Badge, ConfirmDialog, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, ReasonDialog, Spinner, Stat, useToast } from '../components/ui';
+import { RowActionBar } from '../components/RowActionBar';
+import { ExportEngine, type RoyalDetailDocumentOptions } from '../engine/export-engine';
+import { clearFormDraft, handleErpFormKeyDown, loadFormDraft, saveFormDraft } from '../lib/form-draft';
 
 type ChequeTab = 'ALL' | 'INCOMING' | 'OUTGOING' | 'DUE_SOON';
 
@@ -38,6 +41,52 @@ export function ChequesPage() {
   const [tab, setTab] = useState<ChequeTab>('ALL');
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [viewingCheque, setViewingCheque] = useState<any | null>(null);
+  const [editingCheque, setEditingCheque] = useState<any | null>(null);
+  const [deletingCheque, setDeletingCheque] = useState<any | null>(null);
+  const [bouncingCheque, setBouncingCheque] = useState<any | null>(null);
+
+  const deleteChequeMut = useMutation({
+    mutationFn: (id: string) => api.del(`/treasury/cheques/${id}`),
+    onSuccess: () => {
+      setDeletingCheque(null);
+      qc.invalidateQueries({ queryKey: ['treasury-cheques'] });
+      qc.invalidateQueries({ queryKey: ['journals'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      toast.success('تم حذف الشيك وعكس قيده الأولي بالحافظة بنجاح');
+    },
+    onError: (e) => toast.error(e),
+  });
+
+  const buildChequeDoc = (c: any): RoyalDetailDocumentOptions => ({
+    title: c.direction === 'INCOMING' ? `حافظة شيك وارد #${c.chequeNo}` : `إشعار شيك صادر #${c.chequeNo}`,
+    subtitle: `${c.bankName || 'البنك المسحوب عليه'} — ${STATUS_BADGE[c.status]?.label || c.status}`,
+    filename: `cheque-${c.chequeNo}-${c.dueDate}`,
+    docNo: c.chequeNo,
+    docDate: date(c.issueDate),
+    currency: c.currencyCode || base,
+    statusLabel: STATUS_BADGE[c.status]?.label || c.status,
+    statusTone: ['COLLECTED', 'PAID'].includes(c.status) ? 'green' : ['BOUNCED', 'CANCELLED'].includes(c.status) ? 'red' : 'blue',
+    watermark: c.status === 'CANCELLED' || c.status === 'BOUNCED' ? 'CANCELLED' : 'NONE',
+    kpis: [
+      { label: 'مبلغ الشيك', value: `${money(c.amountBase)} ${base}`, tone: c.direction === 'INCOMING' ? 'emerald' : 'indigo' },
+      { label: 'الاتجاه', value: c.direction === 'INCOMING' ? 'شيك وارد (قبض)' : 'شيك صادر (دفع)', tone: 'sky' },
+      { label: 'تاريخ الاستحقاق', value: date(c.dueDate), tone: 'amber' },
+      { label: 'رقم القيد', value: c.clearingJournalEntryNo || c.initialJournalEntryNo || '—', tone: 'navy' },
+    ],
+    metaFields: [
+      { label: 'رقم الشيك', value: c.chequeNo },
+      { label: 'تاريخ التحرير', value: date(c.issueDate) },
+      { label: 'تاريخ الاستحقاق', value: date(c.dueDate) },
+      { label: 'البنك المسحوب عليه', value: c.bankName || '—' },
+      { label: 'الساحب / المستفيد', value: c.drawerName || c.clientName || c.vendorName || '—' },
+      { label: 'الموظف (مركز التكلفة)', value: c.employeeName ? `${c.employeeCode || ''} — ${c.employeeName}` : '—' },
+      { label: 'المشروع المرتبط', value: c.projectName || '—' },
+      { label: 'الملاحظات', value: c.notes || '—' },
+    ],
+    totalAmountForTafqeet: Number(c.amountBase || 0),
+    signatureLabels: ['أمين الحافظة / الخزينة', 'المحاسب المالي', 'اعتماد المدير المالي'],
+  });
 
   const chequesQ = useQuery({
     queryKey: ['treasury-cheques', search],
@@ -276,14 +325,23 @@ export function ChequesPage() {
                               {c.direction === 'INCOMING' ? 'تحصيل بالبنك' : 'صرف من البنك'}
                             </button>
                           )}
+                          <RowActionBar
+                            onView={() => setViewingCheque(c)}
+                            viewTitle="عرض تفاصيل الشيك"
+                            onPreview={() => ExportEngine.openDetailPreview(buildChequeDoc(c))}
+                            onPrint={() => void ExportEngine.printDetail(buildChequeDoc(c))}
+                            onPdf={() => void ExportEngine.exportDetailPdf(buildChequeDoc(c))}
+                            onExcel={() => void ExportEngine.exportDetailExcel(buildChequeDoc(c))}
+                            onEdit={['RECEIVED', 'ISSUED', 'UNDER_COLLECTION'].includes(c.status) ? () => { setEditingCheque(c); setCreateOpen(true); } : undefined}
+                            editTitle="تعديل بيانات الشيك"
+                            onDelete={['RECEIVED', 'ISSUED'].includes(c.status) ? () => setDeletingCheque(c) : undefined}
+                            deleteTitle="حذف الشيك من الحافظة"
+                          />
                           {!['BOUNCED', 'CANCELLED'].includes(c.status) && (
                             <button
-                              onClick={() => {
-                                const reason = prompt('سبب الارتداد / الإلغاء:', 'عدم كفاية الرصيد / إلغاء') || 'ارتداد شيك';
-                                bounceMut.mutate({ id: c.id, reason });
-                              }}
+                              onClick={() => setBouncingCheque(c)}
                               className="btn-ghost text-[11px] px-2 py-1 text-rose-600 hover:bg-rose-50"
-                              title="ارتداد / عكس"
+                              title="ارتداد / إلغاء وعكس القيد"
                             >
                               <XCircle className="size-3.5" />
                             </button>
@@ -301,24 +359,99 @@ export function ChequesPage() {
 
       {createOpen && (
         <CreateChequeModal
+          editingCheque={editingCheque}
           banks={banks}
           employees={emps}
           clients={clients}
           vendors={vendors}
           projects={projects}
-          onClose={() => setCreateOpen(false)}
-          onSuccess={() => {
+          onClose={() => {
             setCreateOpen(false);
+            setEditingCheque(null);
+          }}
+          onSuccess={() => {
+            const wasEdit = Boolean(editingCheque);
+            setCreateOpen(false);
+            setEditingCheque(null);
             qc.invalidateQueries({ queryKey: ['treasury-cheques'] });
-            toast.success('تم تسجيل الشيك وترحيل قيده الأولي بالحافظة بنجاح');
+            qc.invalidateQueries({ queryKey: ['journals'] });
+            qc.invalidateQueries({ queryKey: ['accounts'] });
+            toast.success(wasEdit ? 'تم تحديث بيانات الشيك بنجاح' : 'تم تسجيل الشيك وترحيل قيده الأولي بالحافظة بنجاح');
           }}
         />
       )}
+
+      <Modal
+        open={Boolean(viewingCheque)}
+        onClose={() => setViewingCheque(null)}
+        title={`بطاقة الشيك: ${viewingCheque?.chequeNo || ''}`}
+        size="lg"
+        footer={
+          viewingCheque && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className="btn-secondary text-xs" onClick={() => setViewingCheque(null)}>إغلاق</button>
+              <button type="button" className="btn-secondary text-xs" onClick={() => ExportEngine.openDetailPreview(buildChequeDoc(viewingCheque))}>معاينة A4</button>
+              <button type="button" className="btn-secondary text-xs" onClick={() => void ExportEngine.printDetail(buildChequeDoc(viewingCheque))}>طباعة A4</button>
+              <button type="button" className="btn-primary text-xs" onClick={() => void ExportEngine.exportDetailPdf(buildChequeDoc(viewingCheque))}>PDF مباشر</button>
+            </div>
+          )
+        }
+      >
+        {viewingCheque && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+              <div className="text-slate-500">رقم الشيك</div>
+              <div className="font-mono font-bold text-sm mt-0.5">{viewingCheque.chequeNo}</div>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+              <div className="text-slate-500">المبلغ والعملة</div>
+              <div className="font-mono font-black text-sm mt-0.5 text-emerald-700">{money(viewingCheque.amountBase)} {base}</div>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+              <div className="text-slate-500">الساحب / المستفيد</div>
+              <div className="font-bold mt-0.5">{viewingCheque.drawerName || viewingCheque.clientName || viewingCheque.vendorName || '—'}</div>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+              <div className="text-slate-500">تاريخ الاستحقاق</div>
+              <div className="font-mono font-bold mt-0.5">{date(viewingCheque.dueDate)}</div>
+            </div>
+            <div className="sm:col-span-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+              <div className="text-slate-500">ملاحظات الشيك</div>
+              <div className="font-medium mt-0.5">{viewingCheque.notes || 'لا توجد ملاحظات'}</div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deletingCheque)}
+        title={`حذف الشيك ${deletingCheque?.chequeNo || ''}`}
+        message="سيتم حذف الشيك غير المحصّل وعكس قيده الأولي بالحافظة من الأستاذ العام ذرياً. هل تريد المتابعة؟"
+        danger
+        busy={deleteChequeMut.isPending}
+        onClose={() => setDeletingCheque(null)}
+        onConfirm={() => deletingCheque && deleteChequeMut.mutate(deletingCheque.id)}
+      />
+
+      <ReasonDialog
+        open={Boolean(bouncingCheque)}
+        title={`ارتداد / إلغاء الشيك ${bouncingCheque?.chequeNo || ''}`}
+        confirmText="إثبات الارتداد وعكس القيود"
+        danger
+        onClose={() => setBouncingCheque(null)}
+        onConfirm={async (reason) => {
+          if (bouncingCheque) {
+            await bounceMut.mutateAsync({ id: bouncingCheque.id, reason });
+            setBouncingCheque(null);
+          }
+        }}
+      />
     </div>
   );
 }
 
 function CreateChequeModal({
+  editingCheque,
   banks,
   employees,
   clients,
@@ -327,6 +460,7 @@ function CreateChequeModal({
   onClose,
   onSuccess,
 }: {
+  editingCheque?: any | null;
   banks: any[];
   employees: any[];
   clients: any[];
@@ -336,24 +470,46 @@ function CreateChequeModal({
   onSuccess: () => void;
 }) {
   const toast = useToast();
-  const [direction, setDirection] = useState<'INCOMING' | 'OUTGOING'>('INCOMING');
-  const [chequeNo, setChequeNo] = useState('');
-  const [issueDate, setIssueDate] = useState(today());
-  const [dueDate, setDueDate] = useState(today());
-  const [bankAccountId, setBankAccountId] = useState(banks[0]?.id || '');
-  const [bankName, setBankName] = useState(banks[0]?.bankName || '');
-  const [amount, setAmount] = useState('');
-  const [partyType, setPartyType] = useState<'CLIENT' | 'VENDOR' | 'EMPLOYEE' | 'ACCOUNT'>('CLIENT');
-  const [clientId, setClientId] = useState('');
-  const [vendorId, setVendorId] = useState('');
-  const [employeeId, setEmployeeId] = useState('');
-  const [projectId, setProjectId] = useState('');
-  const [drawerName, setDrawerName] = useState('');
-  const [notes, setNotes] = useState('');
+  const isEdit = Boolean(editingCheque?.id);
+  const draft = !isEdit ? loadFormDraft<any>('cheque-new') : null;
+
+  const [direction, setDirection] = useState<'INCOMING' | 'OUTGOING'>(editingCheque?.direction ?? draft?.direction ?? 'INCOMING');
+  const [chequeNo, setChequeNo] = useState(editingCheque?.chequeNo ?? draft?.chequeNo ?? '');
+  const [issueDate, setIssueDate] = useState(editingCheque?.issueDate ?? draft?.issueDate ?? today());
+  const [dueDate, setDueDate] = useState(editingCheque?.dueDate ?? draft?.dueDate ?? today());
+  const [bankAccountId, setBankAccountId] = useState(editingCheque?.bankAccountId ?? draft?.bankAccountId ?? banks[0]?.id ?? '');
+  const [bankName, setBankName] = useState(editingCheque?.bankName ?? draft?.bankName ?? banks[0]?.bankName ?? '');
+  const [amount, setAmount] = useState(editingCheque ? String(editingCheque.amountTx ?? editingCheque.amountBase ?? '') : (draft?.amount ?? ''));
+  const [partyType, setPartyType] = useState<'CLIENT' | 'VENDOR' | 'EMPLOYEE' | 'ACCOUNT'>(editingCheque?.partyType ?? draft?.partyType ?? 'CLIENT');
+  const [clientId, setClientId] = useState(editingCheque?.clientId ?? draft?.clientId ?? '');
+  const [vendorId, setVendorId] = useState(editingCheque?.vendorId ?? draft?.vendorId ?? '');
+  const [employeeId, setEmployeeId] = useState(editingCheque?.employeeId ?? draft?.employeeId ?? '');
+  const [projectId, setProjectId] = useState(editingCheque?.projectId ?? draft?.projectId ?? '');
+  const [drawerName, setDrawerName] = useState(editingCheque?.drawerName ?? draft?.drawerName ?? '');
+  const [notes, setNotes] = useState(editingCheque?.notes ?? draft?.notes ?? '');
+
+  const persistDraft = (patch: Record<string, any>) => {
+    if (isEdit) return;
+    saveFormDraft('cheque-new', {
+      direction, chequeNo, issueDate, dueDate, bankAccountId, bankName, amount, partyType, clientId, vendorId, employeeId, projectId, drawerName, notes, ...patch,
+    });
+  };
 
   const mut = useMutation({
-    mutationFn: () =>
-      api.post('/treasury/cheques', {
+    mutationFn: () => {
+      if (isEdit && editingCheque) {
+        return api.patch(`/treasury/cheques/${editingCheque.id}`, {
+          chequeNo: chequeNo || editingCheque.chequeNo,
+          issueDate,
+          dueDate,
+          bankName: bankName || 'بنك تجاري',
+          drawerName: drawerName || undefined,
+          bankAccountId: bankAccountId || undefined,
+          amount: Number(amount),
+          notes: notes || undefined,
+        });
+      }
+      return api.post('/treasury/cheques', {
         chequeNo: chequeNo || `CHQ-${Date.now().toString().slice(-5)}`,
         direction,
         issueDate,
@@ -368,8 +524,12 @@ function CreateChequeModal({
         employeeId: employeeId || undefined,
         projectId: projectId || undefined,
         notes: notes || undefined,
-      }),
-    onSuccess,
+      });
+    },
+    onSuccess: () => {
+      if (!isEdit) clearFormDraft('cheque-new');
+      onSuccess();
+    },
     onError: (e) => toast.error(e),
   });
 
@@ -377,46 +537,60 @@ function CreateChequeModal({
     <Modal
       open
       onClose={onClose}
-      title="تسجيل شيك وارد أو صادر في حافظة الشيكات"
-      size="lg"
+      title={isEdit ? `تعديل بيانات الشيك ${editingCheque?.chequeNo}` : 'تسجيل شيك وارد أو صادر في حافظة الشيكات'}
+      size="xl"
+      dirty={Boolean(chequeNo || amount || notes)}
       saving={mut.isPending}
+      onSaveShortcut={() => !mut.isPending && Number(amount || 0) > 0 && mut.mutate()}
       footer={
         <div className="flex items-center gap-2">
           <button type="button" className="btn-secondary text-xs" onClick={onClose}>إلغاء</button>
           <button type="button" className="btn-primary text-xs flex items-center gap-1.5" disabled={mut.isPending || Number(amount || 0) <= 0} onClick={() => mut.mutate()}>
             {mut.isPending && <Spinner className="size-3.5" />}
-            حفظ الشيك وترحيل القيد المحاسبي
+            {isEdit ? 'حفظ التعديلات' : 'حفظ الشيك وترحيل القيد المحاسبي'}
           </button>
         </div>
       }
     >
-      <div className="space-y-4 text-xs">
+      <form
+        data-erp-form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (Number(amount || 0) > 0) mut.mutate();
+        }}
+        onKeyDown={(e) => handleErpFormKeyDown(e, { onSave: () => !mut.isPending && Number(amount || 0) > 0 && mut.mutate() })}
+        className="space-y-4 text-xs"
+      >
         <FormSection title="بيانات الشيك الأساسية" columns={3}>
           <Field label="نوع الشيك" required>
-            <select
-              className="input w-full font-bold"
+            <SearchableSelect
+              clearable={false}
+              disabled={isEdit}
               value={direction}
-              onChange={(e) => {
-                const d = e.target.value as 'INCOMING' | 'OUTGOING';
+              onChange={(val) => {
+                const d = (val || 'INCOMING') as 'INCOMING' | 'OUTGOING';
+                const nextParty = d === 'INCOMING' ? 'CLIENT' : 'VENDOR';
                 setDirection(d);
-                setPartyType(d === 'INCOMING' ? 'CLIENT' : 'VENDOR');
+                setPartyType(nextParty);
+                persistDraft({ direction: d, partyType: nextParty });
               }}
-            >
-              <option value="INCOMING">شيك وارد — أوراق قبض (10305)</option>
-              <option value="OUTGOING">شيك صادر — أوراق دفع (20105)</option>
-            </select>
+              options={[
+                { value: 'INCOMING', label: 'شيك وارد — أوراق قبض (10305)' },
+                { value: 'OUTGOING', label: 'شيك صادر — أوراق دفع (20105)' },
+              ]}
+            />
           </Field>
-          <Field label="رقم الشيك *" required>
-            <input className="input w-full font-mono font-bold" value={chequeNo} onChange={(e) => setChequeNo(e.target.value)} placeholder="CHQ-2026-01" />
+          <Field label="رقم الشيك" required>
+            <input className="input w-full font-mono font-bold" value={chequeNo} onChange={(e) => { setChequeNo(e.target.value); persistDraft({ chequeNo: e.target.value }); }} placeholder="CHQ-2026-01" />
           </Field>
-          <Field label="المبلغ *" required>
-            <input type="number" step="any" min="0.01" className="input w-full font-mono font-black" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+          <Field label="المبلغ" required>
+            <input type="number" step="any" min="0.01" className="input w-full font-mono font-black" value={amount} onChange={(e) => { setAmount(e.target.value); persistDraft({ amount: e.target.value }); }} placeholder="0.00" />
           </Field>
           <Field label="تاريخ التحرير" required>
-            <input type="date" className="input w-full font-mono" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+            <input type="date" className="input w-full font-mono" value={issueDate} onChange={(e) => { setIssueDate(e.target.value); persistDraft({ issueDate: e.target.value }); }} />
           </Field>
           <Field label="تاريخ الاستحقاق" required>
-            <input type="date" className="input w-full font-mono" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            <input type="date" className="input w-full font-mono" value={dueDate} onChange={(e) => { setDueDate(e.target.value); persistDraft({ dueDate: e.target.value }); }} />
           </Field>
           <Field label="البنك المستهدف للتحصيل / الصرف">
             <SearchableSelect
@@ -424,7 +598,9 @@ function CreateChequeModal({
               onChange={(v) => {
                 setBankAccountId(v);
                 const b = banks.find((x) => x.id === v);
+                const nextBankName = b?.bankName || bankName;
                 if (b?.bankName) setBankName(b.bankName);
+                persistDraft({ bankAccountId: v, bankName: nextBankName });
               }}
               placeholder="— اختر البنك —"
               options={banks.map((b) => ({ value: b.id, label: b.name }))}
@@ -434,16 +610,19 @@ function CreateChequeModal({
 
         <FormSection title="ربط الأطراف ومركز التكلفة (الموظف)" columns={2}>
           <Field label="اسم البنك المسحوب عليه">
-            <input className="input w-full" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="اسم المصرف" />
+            <input className="input w-full" value={bankName} onChange={(e) => { setBankName(e.target.value); persistDraft({ bankName: e.target.value }); }} placeholder="اسم المصرف" />
           </Field>
           {direction === 'INCOMING' ? (
             <Field label="العميل (إن وجد)">
               <SearchableSelect
+                disabled={isEdit}
                 value={clientId}
                 onChange={(v) => {
                   setClientId(v);
                   const c = clients.find((x) => x.id === v);
+                  const dn = c?.nameAr || drawerName;
                   if (c) setDrawerName(c.nameAr);
+                  persistDraft({ clientId: v, drawerName: dn });
                 }}
                 placeholder="— اختر العميل —"
                 options={clients.map((c) => ({ value: c.id, label: c.nameAr }))}
@@ -452,11 +631,14 @@ function CreateChequeModal({
           ) : (
             <Field label="المورد (إن وجد)">
               <SearchableSelect
+                disabled={isEdit}
                 value={vendorId}
                 onChange={(v) => {
                   setVendorId(v);
                   const vn = vendors.find((x) => x.id === v);
+                  const dn = vn?.nameAr || drawerName;
                   if (vn) setDrawerName(vn.nameAr);
+                  persistDraft({ vendorId: v, drawerName: dn });
                 }}
                 placeholder="— اختر المورد —"
                 options={vendors.map((v) => ({ value: v.id, label: v.nameAr }))}
@@ -465,22 +647,24 @@ function CreateChequeModal({
           )}
           <Field label="الموظف (مركز التكلفة الرئيسي)">
             <SearchableSelect
+              disabled={isEdit}
               value={employeeId}
-              onChange={setEmployeeId}
+              onChange={(v) => { setEmployeeId(v); persistDraft({ employeeId: v }); }}
               placeholder="— اختر الموظف كمركز تكلفة —"
               options={employees.map((e) => ({ value: e.id, label: `${e.code} — ${e.fullNameAr}` }))}
             />
           </Field>
           <Field label="المشروع المرتبط">
             <SearchableSelect
+              disabled={isEdit}
               value={projectId}
-              onChange={setProjectId}
+              onChange={(v) => { setProjectId(v); persistDraft({ projectId: v }); }}
               placeholder="— اختياري —"
               options={projects.map((p) => ({ value: p.id, label: `${p.code} — ${p.nameAr}` }))}
             />
           </Field>
           <Field label="ملاحظات الشيك" className="md:col-span-2">
-            <input className="input w-full" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات أو رقم العقد المرتبط..." />
+            <input className="input w-full" value={notes} onChange={(e) => { setNotes(e.target.value); persistDraft({ notes: e.target.value }); }} placeholder="ملاحظات أو رقم العقد المرتبط..." />
           </Field>
         </FormSection>
 
@@ -491,7 +675,7 @@ function CreateChequeModal({
           </span>
           <span className="font-bold text-emerald-400">{money(Number(amount || 0))}</span>
         </div>
-      </div>
+      </form>
     </Modal>
   );
 }

@@ -1092,28 +1092,30 @@ function CreateInvoiceModal({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-1">
-            <Field label="نوع الفاتورة الضريبية">
-              <select
-                className="input w-full"
+            <Field label="نوع الفاتورة الضريبية" required>
+              <SearchableSelect
+                clearable={false}
                 value={invoiceType}
-                onChange={(e) => setInvoiceType(e.target.value as any)}
-              >
-                <option value="TAX_INVOICE">فاتورة ضريبية قياسية (B2B الشركات والمؤسسات)</option>
-                <option value="SIMPLIFIED">فاتورة ضريبية مبسطة (B2C الأفراد)</option>
-              </select>
+                onChange={(v) => setInvoiceType((v || 'TAX_INVOICE') as any)}
+                options={[
+                  { value: 'TAX_INVOICE', label: 'فاتورة ضريبية قياسية (B2B الشركات والمؤسسات)' },
+                  { value: 'SIMPLIFIED', label: 'فاتورة ضريبية مبسطة (B2C الأفراد)' },
+                ]}
+              />
             </Field>
 
-            <Field label="العملة الرسمية">
-              <select
-                className="input w-full font-mono"
+            <Field label="العملة الرسمية" required>
+              <SearchableSelect
+                clearable={false}
                 value={currencyCode}
-                onChange={(e) => setCurrencyCode(e.target.value)}
-              >
-                <option value="SAR">SAR - ريال سعودي (الأساس)</option>
-                <option value="USD">USD - دولار أمريكي</option>
-                <option value="EUR">EUR - يورو أوروبي</option>
-                <option value="EGP">EGP - جنيه مصري</option>
-              </select>
+                onChange={(v) => setCurrencyCode(v || 'SAR')}
+                options={[
+                  { value: 'SAR', label: 'SAR - ريال سعودي (الأساس)' },
+                  { value: 'USD', label: 'USD - دولار أمريكي' },
+                  { value: 'EUR', label: 'EUR - يورو أوروبي' },
+                  { value: 'EGP', label: 'EGP - جنيه مصري' },
+                ]}
+              />
             </Field>
 
             <Field label="تاريخ الإصدار والتوريد">
@@ -1227,22 +1229,23 @@ function CreateInvoiceModal({
                       </td>
 
                       {/* Technical Track */}
-                      <td>
-                        <select
-                          className="input w-full text-xs py-1 font-medium"
+                      <td className="min-w-[165px]">
+                        <SearchableSelect
+                          clearable={false}
                           value={line.track}
-                          onChange={(e) => updateLine(idx, { track: e.target.value })}
-                        >
-                          <option value="تطوير Full-Stack">💻 تطوير Full-Stack</option>
-                          <option value="تطوير Backend & APIs">⚡ تطوير Backend & APIs</option>
-                          <option value="هندسة Frontend">🌐 هندسة Frontend & React</option>
-                          <option value="هندسة سحاب DevOps">☁️ هندسة سحاب DevOps & Infra</option>
-                          <option value="تطبيقات هواتف Mobile">📱 تطبيقات الهواتف Mobile</option>
-                          <option value="ذكاء اصطناعي وبيانات AI">🤖 ذكاء اصطناعي وهندسة بيانات</option>
-                          <option value="ضمان جودة وأتمتة QA">🧪 ضمان جودة وأتمتة QA</option>
-                          <option value="استشارات معمارية وتأمين">🔒 استشارات معمارية وتأمين</option>
-                          <option value="خدمات برمجية عامة">⚙️ خدمات برمجية عامة</option>
-                        </select>
+                          onChange={(val) => updateLine(idx, { track: val || 'تطوير Full-Stack' })}
+                          options={[
+                            { value: 'تطوير Full-Stack', label: '💻 تطوير Full-Stack' },
+                            { value: 'تطوير Backend & APIs', label: '⚡ تطوير Backend & APIs' },
+                            { value: 'هندسة Frontend', label: '🌐 هندسة Frontend & React' },
+                            { value: 'هندسة سحاب DevOps', label: '☁️ هندسة سحاب DevOps & Infra' },
+                            { value: 'تطبيقات هواتف Mobile', label: '📱 تطبيقات الهواتف Mobile' },
+                            { value: 'ذكاء اصطناعي وبيانات AI', label: '🤖 ذكاء اصطناعي وهندسة بيانات' },
+                            { value: 'ضمان جودة وأتمتة QA', label: '🧪 ضمان جودة وأتمتة QA' },
+                            { value: 'استشارات معمارية وتأمين', label: '🔒 استشارات معمارية وتأمين' },
+                            { value: 'خدمات برمجية عامة', label: '⚙️ خدمات برمجية عامة' },
+                          ]}
+                        />
                       </td>
 
                       {/* Detailed Description */}
@@ -1257,17 +1260,18 @@ function CreateInvoiceModal({
                       </td>
 
                       {/* Basis */}
-                      <td>
-                        <select
-                          className="input w-full text-xs py-1 text-center font-mono"
+                      <td className="min-w-[140px]">
+                        <SearchableSelect
+                          clearable={false}
                           value={line.pricingBasis}
-                          onChange={(e) => updateLine(idx, { pricingBasis: e.target.value as any })}
-                        >
-                          <option value="HOURS">ساعات عمل (Hourly)</option>
-                          <option value="DAYS">أيام عمل (Daily)</option>
-                          <option value="MONTH">تفرغ شهري (Monthly)</option>
-                          <option value="FIXED">مهمة محددة (Milestone)</option>
-                        </select>
+                          onChange={(val) => updateLine(idx, { pricingBasis: (val || 'DAYS') as any })}
+                          options={[
+                            { value: 'HOURS', label: 'ساعات عمل (Hourly)' },
+                            { value: 'DAYS', label: 'أيام عمل (Daily)' },
+                            { value: 'MONTH', label: 'تفرغ شهري (Monthly)' },
+                            { value: 'FIXED', label: 'مهمة محددة (Milestone)' },
+                          ]}
+                        />
                       </td>
 
                       {/* Quantity / Units */}
@@ -1621,6 +1625,28 @@ export function InvoiceDetailPage() {
           </div>
 
           <button
+            type="button"
+            className="btn-secondary flex items-center gap-1.5 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300"
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent('idham:element-preview', {
+                  detail: {
+                    elementId: 'tax-invoice-printable',
+                    title: `فاتورة ضريبية - ${inv.invoiceNo}`,
+                    subtitle: `${inv.clientName || ''} — ${inv.issueDate}`,
+                    filename: `invoice-${inv.invoiceNo}-${inv.issueDate}`,
+                    docNo: inv.invoiceNo,
+                    pageSize: printMode === 'THERMAL_80MM' ? '80mm' : 'A4',
+                    orientation: 'portrait',
+                  },
+                })
+              );
+            }}
+          >
+            <FileText className="size-3.5" /> معاينة قبل الطباعة
+          </button>
+
+          <button
             className="btn-primary bg-emerald-700 hover:bg-emerald-800 text-white flex items-center gap-1.5 text-xs shadow-sm"
             onClick={async () => {
               await PrintEngine.print({
@@ -1632,6 +1658,25 @@ export function InvoiceDetailPage() {
             }}
           >
             <Printer className="size-3.5" /> طباعة ({printMode === 'THERMAL_80MM' ? 'إيصال حراري' : 'A4'})
+          </button>
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent('idham:element-pdf', {
+                  detail: {
+                    elementId: 'tax-invoice-printable',
+                    title: `فاتورة ضريبية - ${inv.invoiceNo}`,
+                    filename: `invoice-${inv.invoiceNo}-${inv.issueDate}`,
+                    orientation: 'portrait',
+                  },
+                })
+              );
+            }}
+          >
+            <FileText className="size-3.5" /> تصدير PDF مباشر
           </button>
 
           <button
@@ -1943,9 +1988,53 @@ export function CreditNotesPage() {
                     </Badge>
                   </td>
                   <td className="text-end">
-                    <Link to={`/sal/invoices/${inv.id}`} className="btn-ghost h-7 px-2 text-xs">
-                      عرض وطباعة
-                    </Link>
+                    <div className="inline-flex items-center gap-1 justify-end">
+                      <Link
+                        to={`/sal/invoices/${inv.id}`}
+                        className="btn-ghost h-7 px-2 text-xs text-indigo-700 hover:bg-indigo-50 inline-flex items-center gap-1"
+                        title="عرض التفاصيل"
+                      >
+                        <FileText className="size-3.5" /> عرض
+                      </Link>
+                      <button
+                        type="button"
+                        className="btn-ghost h-7 px-2 text-xs text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"
+                        title="معاينة الإشعار الدائن (A4)"
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent('idham:element-preview', {
+                              detail: {
+                                detailOptions: {
+                                  title: `إشعار دائن ضريبي رقم ${inv.invoiceNo}`,
+                                  subtitle: `مرتبط بالعميل: ${inv.clientName || '—'}`,
+                                  filename: `credit-note-${inv.invoiceNo}-${inv.issueDate}`,
+                                  docNo: inv.invoiceNo,
+                                  docDate: inv.issueDate,
+                                  currency: inv.currencyCode || 'SAR',
+                                  statusLabel: inv.status === 'POSTED' ? 'معتمد ومرحل' : inv.status === 'CANCELLED' ? 'ملغى' : 'مسودة',
+                                  statusTone: inv.status === 'POSTED' ? 'green' : inv.status === 'CANCELLED' ? 'red' : 'amber',
+                                  kpis: [
+                                    { label: 'الصافي المردود', value: money(inv.subtotal), tone: 'navy' },
+                                    { label: 'الضريبة 15%', value: money(inv.vatAmount), tone: 'amber' },
+                                    { label: 'الإجمالي الدائن', value: money(inv.totalAmount), tone: 'purple' },
+                                  ],
+                                  metaFields: [
+                                    { label: 'رقم الإشعار', value: inv.invoiceNo },
+                                    { label: 'العميل', value: inv.clientName || '—' },
+                                    { label: 'المشروع', value: inv.projectName || '—' },
+                                    { label: 'تاريخ الإصدار', value: inv.issueDate },
+                                    { label: 'القيد العكسي', value: inv.journalEntryNo || '—' },
+                                  ],
+                                  totalAmountForTafqeet: Number(inv.totalAmount || 0),
+                                },
+                              },
+                            })
+                          )
+                        }
+                      >
+                        <Printer className="size-3.5" /> معاينة A4
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

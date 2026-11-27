@@ -391,6 +391,13 @@ export class BankTransfersController {
   create(@Body(new ZodPipe(BankTransferCreate)) body: z.infer<typeof BankTransferCreate>) {
     return this.transfers.create(activeCompanyId(), body);
   }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @RequirePermission('acc.bank.create')
+  cancel(@Param('id', id) tid: string, @Body(new ZodPipe(reasonSchema)) body: { reason: string }) {
+    return this.transfers.cancel(activeCompanyId(), tid, body.reason);
+  }
 }
 
 @Controller('accounting')

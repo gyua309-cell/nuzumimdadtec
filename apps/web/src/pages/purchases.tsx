@@ -1292,6 +1292,121 @@ export function PurchaseInvoiceDetailPage() {
           />
 
           <button
+            type="button"
+            className="btn-secondary text-xs flex items-center gap-1.5"
+            onClick={() =>
+              ExportEngine.openDetailPreview({
+                title: isDebitNote ? `إشعار مدين / مردودات مشتريات ${inv.invoiceNo}` : `سند استحقاق فاتورة مشتريات ${inv.invoiceNo}`,
+                subtitle: 'مستند التزام رسمي معتمد ومثبت بالدفاتر المحاسبية العامة',
+                filename: `Purchase-Voucher-${inv.invoiceNo}-${inv.issueDate}`,
+                docNo: inv.invoiceNo,
+                docDate: inv.issueDate,
+                currency: inv.currency || 'SAR',
+                statusLabel: inv.status === 'POSTED' ? 'مرحّلة ومعتمدة' : inv.status === 'CANCELLED' ? 'ملغاة' : 'مسودة',
+                statusTone: inv.status === 'POSTED' ? 'green' : inv.status === 'CANCELLED' ? 'red' : 'amber',
+                watermark: inv.status === 'CANCELLED' ? 'CANCELLED' : inv.status === 'DRAFT' ? 'DRAFT' : 'NONE',
+                kpis: [
+                  { label: 'المبلغ قبل الضريبة', value: `${money(inv.subtotal)} ${inv.currency || 'SAR'}`, tone: 'navy' },
+                  { label: 'ضريبة القيمة المضافة 15%', value: `${money(inv.vatAmount)} ${inv.currency || 'SAR'}`, tone: 'amber' },
+                  { label: 'الإجمالي شامل الضريبة', value: `${money(inv.totalAmount)} ${inv.currency || 'SAR'}`, tone: 'emerald' },
+                  { label: 'حالة السداد', value: inv.paymentStatus === 'PAID' ? 'مسددة بالكامل' : 'مستحقة السداد', tone: inv.paymentStatus === 'PAID' ? 'emerald' : 'rose' },
+                ],
+                metaFields: [
+                  { label: 'رقم السند الداخلي', value: inv.invoiceNo },
+                  { label: 'فاتورة المورد الأصلية', value: inv.vendorInvoiceNo || '—' },
+                  { label: 'اسم المورد', value: inv.vendorName || '—' },
+                  { label: 'تاريخ الإصدار', value: inv.issueDate },
+                  { label: 'تاريخ الاستحقاق', value: inv.dueDate || '—' },
+                  { label: 'رقم القيد المحاسبي', value: inv.journalEntryNo || '—' },
+                ],
+                sections: [
+                  {
+                    title: 'بنود المشتريات والمصروفات المحاسبية',
+                    columns: [
+                      { key: 'lineNo', header: '#', width: 6, type: 'number' },
+                      { key: 'description', header: 'البيان والتفاصيل', width: 30 },
+                      { key: 'accountName', header: 'حساب المصروف', width: 22 },
+                      { key: 'quantity', header: 'الكمية', width: 10, type: 'number' },
+                      { key: 'unitPrice', header: 'سعر الوحدة', width: 14, type: 'currency' },
+                      { key: 'subtotal', header: 'قبل الضريبة', width: 15, type: 'currency', isTotal: true },
+                      { key: 'vatAmount', header: 'الضريبة 15%', width: 14, type: 'currency', isTotal: true },
+                      { key: 'totalAmount', header: 'الإجمالي', width: 16, type: 'currency', isTotal: true },
+                    ],
+                    data: (inv.lines ?? []).map((l: any, idx: number) => ({
+                      ...l,
+                      lineNo: idx + 1,
+                      accountName: l.accountNameAr || l.accountName || l.accountId,
+                    })),
+                  },
+                ],
+                totalAmountForTafqeet: Number(inv.totalAmount || 0),
+                notes: inv.notes || undefined,
+                signatureLabels: ['مسؤول المشتريات', 'المحاسب المالي', 'اعتماد الإدارة المالية'],
+              })
+            }
+          >
+            <Printer className="size-3.5" /> معاينة قبل الطباعة (A4)
+          </button>
+
+          <button
+            type="button"
+            className="btn-secondary text-xs flex items-center gap-1.5"
+            onClick={() =>
+              void ExportEngine.printDetail({
+                title: isDebitNote ? `إشعار مدين / مردودات مشتريات ${inv.invoiceNo}` : `سند استحقاق فاتورة مشتريات ${inv.invoiceNo}`,
+                subtitle: 'مستند التزام رسمي معتمد ومثبت بالدفاتر المحاسبية العامة',
+                filename: `Purchase-Voucher-${inv.invoiceNo}-${inv.issueDate}`,
+                docNo: inv.invoiceNo,
+                docDate: inv.issueDate,
+                currency: inv.currency || 'SAR',
+                statusLabel: inv.status === 'POSTED' ? 'مرحّلة ومعتمدة' : inv.status === 'CANCELLED' ? 'ملغاة' : 'مسودة',
+                statusTone: inv.status === 'POSTED' ? 'green' : inv.status === 'CANCELLED' ? 'red' : 'amber',
+                watermark: inv.status === 'CANCELLED' ? 'CANCELLED' : inv.status === 'DRAFT' ? 'DRAFT' : 'NONE',
+                kpis: [
+                  { label: 'المبلغ قبل الضريبة', value: `${money(inv.subtotal)} ${inv.currency || 'SAR'}`, tone: 'navy' },
+                  { label: 'ضريبة القيمة المضافة 15%', value: `${money(inv.vatAmount)} ${inv.currency || 'SAR'}`, tone: 'amber' },
+                  { label: 'الإجمالي شامل الضريبة', value: `${money(inv.totalAmount)} ${inv.currency || 'SAR'}`, tone: 'emerald' },
+                  { label: 'حالة السداد', value: inv.paymentStatus === 'PAID' ? 'مسددة بالكامل' : 'مستحقة السداد', tone: inv.paymentStatus === 'PAID' ? 'emerald' : 'rose' },
+                ],
+                metaFields: [
+                  { label: 'رقم السند الداخلي', value: inv.invoiceNo },
+                  { label: 'فاتورة المورد الأصلية', value: inv.vendorInvoiceNo || '—' },
+                  { label: 'اسم المورد', value: inv.vendorName || '—' },
+                  { label: 'تاريخ الإصدار', value: inv.issueDate },
+                  { label: 'تاريخ الاستحقاق', value: inv.dueDate || '—' },
+                  { label: 'رقم القيد المحاسبي', value: inv.journalEntryNo || '—' },
+                ],
+                sections: [
+                  {
+                    title: 'بنود المشتريات والمصروفات المحاسبية',
+                    columns: [
+                      { key: 'lineNo', header: '#', width: 6, type: 'number' },
+                      { key: 'description', header: 'البيان والتفاصيل', width: 30 },
+                      { key: 'accountName', header: 'حساب المصروف', width: 22 },
+                      { key: 'quantity', header: 'الكمية', width: 10, type: 'number' },
+                      { key: 'unitPrice', header: 'سعر الوحدة', width: 14, type: 'currency' },
+                      { key: 'subtotal', header: 'قبل الضريبة', width: 15, type: 'currency', isTotal: true },
+                      { key: 'vatAmount', header: 'الضريبة 15%', width: 14, type: 'currency', isTotal: true },
+                      { key: 'totalAmount', header: 'الإجمالي', width: 16, type: 'currency', isTotal: true },
+                    ],
+                    data: (inv.lines ?? []).map((l: any, idx: number) => ({
+                      ...l,
+                      lineNo: idx + 1,
+                      accountName: l.accountNameAr || l.accountName || l.accountId,
+                    })),
+                  },
+                ],
+                totalAmountForTafqeet: Number(inv.totalAmount || 0),
+                notes: inv.notes || undefined,
+                signatureLabels: ['مسؤول المشتريات', 'المحاسب المالي', 'اعتماد الإدارة المالية'],
+              })
+            }
+          >
+            <Printer className="size-3.5" /> طباعة A4
+          </button>
+
+          <button
+            type="button"
             className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-l from-rose-600 to-red-600 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm hover:brightness-110 transition-all"
             onClick={() =>
               void ExportEngine.exportDetailPdf({
@@ -1344,7 +1459,7 @@ export function PurchaseInvoiceDetailPage() {
               })
             }
           >
-            <Printer className="size-3.5" /> طباعة السند الملكي (A4)
+            <Printer className="size-3.5" /> تصدير PDF مباشر
           </button>
 
           {inv.status !== 'CANCELLED' && (
@@ -1628,27 +1743,109 @@ export function PurchaseDebitNotesPage() {
                     <ActionGroup>
                       <ActionButton
                         variant="view"
-                        title="معاينة سند الاستحقاق"
+                        title="عرض سند الاستحقاق"
                         onClick={() => navigate(`/pur/invoices/${d.id}`)}
                       />
                       <ActionButton
+                        variant="preview"
+                        title="معاينة قبل الطباعة (ملكي A4)"
+                        onClick={() =>
+                          ExportEngine.openDetailPreview({
+                            title: `إشعار مدين / مردودات مشتريات ${d.invoiceNo}`,
+                            subtitle: 'مستند إشعار مدين للمورد ومثبت بالأستاذ العام',
+                            filename: `Purchase-Debit-${d.invoiceNo}-${d.issueDate}`,
+                            docNo: d.invoiceNo,
+                            docDate: d.issueDate,
+                            currency: d.currency || 'SAR',
+                            statusLabel: 'مرحّل ومعتمد',
+                            statusTone: 'green',
+                            kpis: [
+                              { label: 'قبل الضريبة', value: `${money(d.subtotal)} ${d.currency || 'SAR'}`, tone: 'navy' },
+                              { label: 'الضريبة 15%', value: `${money(d.vatAmount)} ${d.currency || 'SAR'}`, tone: 'amber' },
+                              { label: 'الإجمالي', value: `${money(d.totalAmount)} ${d.currency || 'SAR'}`, tone: 'rose' },
+                            ],
+                            metaFields: [
+                              { label: 'رقم الإشعار', value: d.invoiceNo },
+                              { label: 'المورد', value: d.vendorName || '—' },
+                              { label: 'المشروع', value: d.projectName || '—' },
+                              { label: 'تاريخ الإصدار', value: d.issueDate },
+                              { label: 'القيد العكسي', value: d.journalEntryNo || '—' },
+                            ],
+                            totalAmountForTafqeet: Number(d.totalAmount || 0),
+                          })
+                        }
+                      />
+                      <ActionButton
                         variant="print"
-                        title="طباعة سند الاستحقاق"
-                        onClick={() => window.open(`#/pur/invoices/${d.id}?print=true`, '_blank')}
+                        title="طباعة سند الاستحقاق A4"
+                        onClick={() =>
+                          void ExportEngine.printDetail({
+                            title: `إشعار مدين / مردودات مشتريات ${d.invoiceNo}`,
+                            subtitle: 'مستند إشعار مدين للمورد ومثبت بالأستاذ العام',
+                            filename: `Purchase-Debit-${d.invoiceNo}-${d.issueDate}`,
+                            docNo: d.invoiceNo,
+                            docDate: d.issueDate,
+                            currency: d.currency || 'SAR',
+                            statusLabel: 'مرحّل ومعتمد',
+                            statusTone: 'green',
+                            kpis: [
+                              { label: 'قبل الضريبة', value: `${money(d.subtotal)} ${d.currency || 'SAR'}`, tone: 'navy' },
+                              { label: 'الضريبة 15%', value: `${money(d.vatAmount)} ${d.currency || 'SAR'}`, tone: 'amber' },
+                              { label: 'الإجمالي', value: `${money(d.totalAmount)} ${d.currency || 'SAR'}`, tone: 'rose' },
+                            ],
+                            metaFields: [
+                              { label: 'رقم الإشعار', value: d.invoiceNo },
+                              { label: 'المورد', value: d.vendorName || '—' },
+                              { label: 'المشروع', value: d.projectName || '—' },
+                              { label: 'تاريخ الإصدار', value: d.issueDate },
+                              { label: 'القيد العكسي', value: d.journalEntryNo || '—' },
+                            ],
+                            totalAmountForTafqeet: Number(d.totalAmount || 0),
+                          })
+                        }
+                      />
+                      <ActionButton
+                        variant="pdf"
+                        title="تصدير PDF مباشر"
+                        onClick={() =>
+                          void ExportEngine.exportDetailPdf({
+                            title: `إشعار مدين / مردودات مشتريات ${d.invoiceNo}`,
+                            subtitle: 'مستند إشعار مدين للمورد ومثبت بالأستاذ العام',
+                            filename: `Purchase-Debit-${d.invoiceNo}-${d.issueDate}`,
+                            docNo: d.invoiceNo,
+                            docDate: d.issueDate,
+                            currency: d.currency || 'SAR',
+                            statusLabel: 'مرحّل ومعتمد',
+                            statusTone: 'green',
+                            kpis: [
+                              { label: 'قبل الضريبة', value: `${money(d.subtotal)} ${d.currency || 'SAR'}`, tone: 'navy' },
+                              { label: 'الضريبة 15%', value: `${money(d.vatAmount)} ${d.currency || 'SAR'}`, tone: 'amber' },
+                              { label: 'الإجمالي', value: `${money(d.totalAmount)} ${d.currency || 'SAR'}`, tone: 'rose' },
+                            ],
+                            metaFields: [
+                              { label: 'رقم الإشعار', value: d.invoiceNo },
+                              { label: 'المورد', value: d.vendorName || '—' },
+                              { label: 'المشروع', value: d.projectName || '—' },
+                              { label: 'تاريخ الإصدار', value: d.issueDate },
+                              { label: 'القيد العكسي', value: d.journalEntryNo || '—' },
+                            ],
+                            totalAmountForTafqeet: Number(d.totalAmount || 0),
+                          })
+                        }
                       />
                       <ActionButton
                         variant="edit"
-                        title="تعديل الفاتورة"
+                        title="فتح وتعديل المستند"
                         onClick={() => navigate(`/pur/invoices/${d.id}`)}
                       />
                       <ActionButton
                         variant="delete"
-                        title="إلغاء الفاتورة"
+                        title="إلغاء الإشعار وعكس القيد"
                         onClick={() => {
-                          if (confirm(`إلغاء فاتورة المشتريات ${d.invoiceNo}؟`)) {
+                          if (confirm(`إلغاء فاتورة المشتريات ${d.invoiceNo} وعكس قيدها المحاسبي؟`)) {
                             api.post(`/purchase-invoices/${d.id}/cancel`, { reason: 'إلغاء بناءً على طلب المستخدم' })
                               .then(() => {
-                                toast.success('تم إلغاء الفاتورة');
+                                toast.success('تم إلغاء المستند وعكس قيده المحاسبي');
                                 qc.invalidateQueries({ queryKey: ['/purchase-invoices'] });
                               })
                               .catch((err) => toast.error(err));

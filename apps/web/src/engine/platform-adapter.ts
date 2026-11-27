@@ -68,38 +68,19 @@ export class WebPlatformAdapter implements IPlatformAdapter {
         blob = new Blob([copy.buffer], { type: options?.mimeType || 'application/octet-stream' });
       }
 
-      // Modern Browser File System Access API (if available and HTTPS)
-      if ('showSaveFilePicker' in window && window.isSecureContext) {
-        try {
-          const pickerOpts: any = {
-            suggestedName: filename,
-            types: options?.filters?.map((f) => ({
-              description: f.name,
-              accept: { [options.mimeType || 'application/octet-stream']: f.extensions.map((e) => `.${e}`) },
-            })),
-          };
-          const handle = await (window as any).showSaveFilePicker(pickerOpts);
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          return true;
-        } catch (err: any) {
-          if (err.name === 'AbortError') return false;
-          // Fall back to standard anchor click download below
-        }
-      }
-
-      // Standard browser download trigger
+      // Standard direct browser download trigger (works reliably even after async PDF/Excel generation)
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
+      a.rel = 'noopener';
+      a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
       setTimeout(() => {
-        document.body.removeChild(a);
+        if (a.parentNode) document.body.removeChild(a);
         URL.revokeObjectURL(url);
-      }, 500);
+      }, 1500);
       return true;
     } catch (e) {
       console.error('[WebPlatformAdapter] saveFile failed', e);

@@ -856,6 +856,33 @@ export function AccountsPage() {
                       <td>
                         <div className="flex justify-end gap-1">
                           {!a.isPosting && <button className="btn-ghost h-7 px-2" title="إضافة حساب فرعي" onClick={() => void openCreateForm({ parentId: a.id, accountClass: a.accountClass, isPosting: true })}><Plus className="size-3.5" /></button>}
+                          <button
+                            className="btn-ghost h-7 px-2"
+                            title="معاينة / طباعة بطاقة الحساب A4"
+                            onClick={() =>
+                              ExportEngine.openDetailPreview({
+                                title: `بطاقة الحساب المحاسبي: ${a.code} — ${a.nameAr}`,
+                                subtitle: `${ACCOUNT_CLASS[a.accountClass] || a.accountClass} • المستوى ${a.level}`,
+                                filename: `account-${a.code}`,
+                                docNo: a.code,
+                                statusLabel: a.isActive ? 'نشط' : 'معطل',
+                                statusTone: a.isActive ? 'green' : 'amber',
+                                kpis: [
+                                  { label: 'إجمالي المدين', value: money(a.debitBase ?? 0), tone: 'emerald' },
+                                  { label: 'إجمالي الدائن', value: money(a.creditBase ?? 0), tone: 'rose' },
+                                  { label: 'الرصيد', value: money(a.currentBalanceBase ?? a.currentBalance ?? 0), tone: 'navy' },
+                                ],
+                                metaFields: [
+                                  { label: 'الرمز', value: a.code },
+                                  { label: 'الاسم بالعربية', value: a.nameAr },
+                                  { label: 'تصنيف القائمة', value: a.statementLineNameAr || STATEMENT_SECTION_LABELS[a.statementSection || ''] || '—' },
+                                  { label: 'الطبيعة', value: a.normalBalance === 'DEBIT' ? 'مدين' : 'دائن' },
+                                ],
+                              })
+                            }
+                          >
+                            <Printer className="size-3.5" />
+                          </button>
                           <button className="btn-ghost h-7 px-2" title="نقل الحساب لمستوى آخر" onClick={() => openMove(a)}><Move className="size-3.5" /></button>
                           <Link className="btn-ghost h-7 px-2 text-xs" to={`/reports/account-statement?accountId=${a.id}`}>كشف</Link>
                           <button className="btn-ghost h-7 px-2" title="تعديل" onClick={() => openEdit(a)}><Pencil className="size-3.5" /></button>
@@ -1243,6 +1270,37 @@ function VisualAccountNode({
             >
               <Eye className="size-3" /> كشف
             </Link>
+
+            <button
+              type="button"
+              className="btn-ghost h-6 px-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+              onClick={() =>
+                ExportEngine.openDetailPreview({
+                  title: `بطاقة الحساب المحاسبي: ${account.code} — ${account.nameAr}`,
+                  subtitle: `${ACCOUNT_CLASS[account.accountClass] || account.accountClass} • المستوى ${account.level}`,
+                  filename: `account-${account.code}`,
+                  docNo: account.code,
+                  statusLabel: account.isActive ? 'نشط' : 'معطل',
+                  statusTone: account.isActive ? 'green' : 'amber',
+                  kpis: [
+                    { label: 'إجمالي المدين', value: money(dr), tone: 'emerald' },
+                    { label: 'إجمالي الدائن', value: money(cr), tone: 'rose' },
+                    { label: 'صافي الرصيد', value: money(net), tone: 'navy' },
+                  ],
+                  metaFields: [
+                    { label: 'كود الحساب', value: account.code },
+                    { label: 'اسم الحساب بالعربية', value: account.nameAr },
+                    { label: 'اسم الحساب بالإنجليزية', value: account.nameEn || '—' },
+                    { label: 'تصنيف القائمة', value: account.statementLineNameAr || STATEMENT_SECTION_LABELS[account.statementSection || ''] || '—' },
+                    { label: 'طبيعة الحساب', value: account.normalBalance === 'DEBIT' ? 'مدين' : 'دائن' },
+                    { label: 'قابلية الترحيل', value: account.isPosting ? 'تفصيلي قابل للترحيل' : 'رئيسي تجميعي' },
+                  ],
+                })
+              }
+              title="معاينة / طباعة بطاقة الحساب (A4)"
+            >
+              <Printer className="size-3" />
+            </button>
 
             <button
               type="button"
@@ -1662,7 +1720,64 @@ export function JournalDetailPage() {
             type="button"
             className="btn-secondary text-xs flex items-center gap-1.5"
             onClick={() =>
-              void ExportEngine.exportDetailPdf({
+              ExportEngine.openDetailPreview({
+                title: `سند قيد يومية محاسبي رقم ${e.entryNo ?? '(مسودة)'}`,
+                subtitle: e.description || 'سند قيد مزدوج معتمد بالأستاذ العام',
+                filename: `Journal-Entry-${e.entryNo || e.id}-${e.entryDate}`,
+                docNo: e.entryNo || '(مسودة)',
+                docDate: date(e.entryDate),
+                periodLabel: e.periodName || '—',
+                statusLabel: st.label,
+                statusTone: e.status === 'POSTED' ? 'green' : e.status === 'CANCELLED' ? 'red' : 'amber',
+                watermark: e.status === 'CANCELLED' ? 'CANCELLED' : e.status === 'DRAFT' ? 'DRAFT' : 'NONE',
+                kpis: [
+                  { label: 'إجمالي المدين', value: `${money(e.totalDebitBase)} SAR`, tone: 'emerald' },
+                  { label: 'إجمالي الدائن', value: `${money(e.totalCreditBase)} SAR`, tone: 'rose' },
+                  { label: 'عدد السطور', value: `${lines.length} سطر`, tone: 'indigo' },
+                  { label: 'الحالة', value: st.label, tone: e.status === 'POSTED' ? 'emerald' : 'amber' },
+                ],
+                metaFields: [
+                  { label: 'رقم القيد', value: e.entryNo ?? '(مسودة)' },
+                  { label: 'تاريخ القيد', value: date(e.entryDate) },
+                  { label: 'الفترة المالية', value: e.periodName || '—' },
+                  { label: 'نوع القيد', value: JOURNAL_TYPE[e.journalType] ?? e.journalType },
+                  { label: 'الدفتر', value: LEDGER[e.ledger] ?? e.ledger },
+                  { label: 'المرجع', value: e.reference ?? '—' },
+                  { label: 'الوحدة المصدر', value: `${SOURCE_MODULE_LABELS[e.sourceModule] || e.sourceModule || '—'} / ${SOURCE_TYPE_LABELS[e.sourceType] || e.sourceType || '—'}` },
+                  { label: 'تاريخ الترحيل', value: dateTime(e.postedAt) || '—' },
+                  { label: 'البيان العام', value: e.description || '—' },
+                ],
+                sections: [
+                  {
+                    title: 'تفاصيل سطور القيد المحاسبي المزدوج',
+                    columns: [
+                      { key: 'lineNo', header: '#', width: 6, type: 'number' },
+                      { key: 'accountCode', header: 'رمز الحساب', width: 13 },
+                      { key: 'accountNameAr', header: 'اسم الحساب', width: 26 },
+                      { key: 'debitBase', header: 'مدين (SAR)', width: 15, type: 'currency', isTotal: true },
+                      { key: 'creditBase', header: 'دائن (SAR)', width: 15, type: 'currency', isTotal: true },
+                      { key: 'dimensions', header: 'الأبعاد الإدارية', width: 20 },
+                      { key: 'description', header: 'البيان والتفاصيل', width: 28 },
+                    ],
+                    data: lines.map((l: any) => ({
+                      ...l,
+                      dimensions: [l.branchName, l.departmentName, l.costCenterName].filter(Boolean).join(' / ') || '—',
+                    })),
+                  },
+                ],
+                totalAmountForTafqeet: Number(e.totalDebitBase || 0),
+                signatureLabels: ['إعداد المحاسب المسؤول', 'مراجعة التدقيق الداخلي', 'اعتماد الإدارة المالية'],
+              })
+            }
+            title="معاينة سند القيد قبل الطباعة (A4)"
+          >
+            <Eye className="size-3.5" /> معاينة A4
+          </button>
+          <button
+            type="button"
+            className="btn-secondary text-xs flex items-center gap-1.5"
+            onClick={() =>
+              void ExportEngine.printDetail({
                 title: `سند قيد يومية محاسبي رقم ${e.entryNo ?? '(مسودة)'}`,
                 subtitle: e.description || 'سند قيد مزدوج معتمد بالأستاذ العام',
                 filename: `Journal-Entry-${e.entryNo || e.id}-${e.entryDate}`,
@@ -1713,7 +1828,64 @@ export function JournalDetailPage() {
             }
             title="طباعة سند القيد الملكي (A4)"
           >
-            <Printer className="size-3.5" /> طباعة السند الملكي (A4)
+            <Printer className="size-3.5" /> طباعة A4
+          </button>
+          <button
+            type="button"
+            className="btn-secondary text-xs flex items-center gap-1.5"
+            onClick={() =>
+              void ExportEngine.exportDetailPdf({
+                title: `سند قيد يومية محاسبي رقم ${e.entryNo ?? '(مسودة)'}`,
+                subtitle: e.description || 'سند قيد مزدوج معتمد بالأستاذ العام',
+                filename: `Journal-Entry-${e.entryNo || e.id}-${e.entryDate}`,
+                docNo: e.entryNo || '(مسودة)',
+                docDate: date(e.entryDate),
+                periodLabel: e.periodName || '—',
+                statusLabel: st.label,
+                statusTone: e.status === 'POSTED' ? 'green' : e.status === 'CANCELLED' ? 'red' : 'amber',
+                watermark: e.status === 'CANCELLED' ? 'CANCELLED' : e.status === 'DRAFT' ? 'DRAFT' : 'NONE',
+                kpis: [
+                  { label: 'إجمالي المدين', value: `${money(e.totalDebitBase)} SAR`, tone: 'emerald' },
+                  { label: 'إجمالي الدائن', value: `${money(e.totalCreditBase)} SAR`, tone: 'rose' },
+                  { label: 'عدد السطور', value: `${lines.length} سطر`, tone: 'indigo' },
+                  { label: 'الحالة', value: st.label, tone: e.status === 'POSTED' ? 'emerald' : 'amber' },
+                ],
+                metaFields: [
+                  { label: 'رقم القيد', value: e.entryNo ?? '(مسودة)' },
+                  { label: 'تاريخ القيد', value: date(e.entryDate) },
+                  { label: 'الفترة المالية', value: e.periodName || '—' },
+                  { label: 'نوع القيد', value: JOURNAL_TYPE[e.journalType] ?? e.journalType },
+                  { label: 'الدفتر', value: LEDGER[e.ledger] ?? e.ledger },
+                  { label: 'المرجع', value: e.reference ?? '—' },
+                  { label: 'الوحدة المصدر', value: `${SOURCE_MODULE_LABELS[e.sourceModule] || e.sourceModule || '—'} / ${SOURCE_TYPE_LABELS[e.sourceType] || e.sourceType || '—'}` },
+                  { label: 'تاريخ الترحيل', value: dateTime(e.postedAt) || '—' },
+                  { label: 'البيان العام', value: e.description || '—' },
+                ],
+                sections: [
+                  {
+                    title: 'تفاصيل سطور القيد المحاسبي المزدوج',
+                    columns: [
+                      { key: 'lineNo', header: '#', width: 6, type: 'number' },
+                      { key: 'accountCode', header: 'رمز الحساب', width: 13 },
+                      { key: 'accountNameAr', header: 'اسم الحساب', width: 26 },
+                      { key: 'debitBase', header: 'مدين (SAR)', width: 15, type: 'currency', isTotal: true },
+                      { key: 'creditBase', header: 'دائن (SAR)', width: 15, type: 'currency', isTotal: true },
+                      { key: 'dimensions', header: 'الأبعاد الإدارية', width: 20 },
+                      { key: 'description', header: 'البيان والتفاصيل', width: 28 },
+                    ],
+                    data: lines.map((l: any) => ({
+                      ...l,
+                      dimensions: [l.branchName, l.departmentName, l.costCenterName].filter(Boolean).join(' / ') || '—',
+                    })),
+                  },
+                ],
+                totalAmountForTafqeet: Number(e.totalDebitBase || 0),
+                signatureLabels: ['إعداد المحاسب المسؤول', 'مراجعة التدقيق الداخلي', 'اعتماد الإدارة المالية'],
+              })
+            }
+            title="تصدير PDF مباشر لسند القيد"
+          >
+            <Printer className="size-3.5" /> تصدير PDF مباشر
           </button>
           {e.status === 'DRAFT' && <>
             <Link className="btn-secondary" to={`/acc/journals/${e.id}/edit`}><Pencil className="size-4" /> تعديل</Link>

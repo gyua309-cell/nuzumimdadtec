@@ -230,6 +230,35 @@ export function resetSystemToZero() {
 }
 
 /**
+ * Executes a synchronous multi-entity localStorage operation atomically:
+ * snapshots all specified collections before running `fn()`, and rolls every
+ * modified collection back cleanly if any error is thrown mid-flight.
+ */
+export function runLocalAtomicTx<T>(entityKeys: string[], fn: () => T): T {
+  if (typeof localStorage === 'undefined') return fn();
+  const snapshots = new Map<string, string | null>();
+  const uniqueKeys = Array.from(new Set([...entityKeys, 'journal_entries', 'audit_logs']));
+  for (const key of uniqueKeys) {
+    snapshots.set(key, localStorage.getItem(`${STORAGE_PREFIX}${key}`));
+  }
+  try {
+    return fn();
+  } catch (err) {
+    for (const [key, prev] of snapshots.entries()) {
+      if (prev === null) localStorage.removeItem(`${STORAGE_PREFIX}${key}`);
+      else localStorage.setItem(`${STORAGE_PREFIX}${key}`, prev);
+      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+        try {
+          const parsed = prev ? JSON.parse(prev) : [];
+          window.dispatchEvent(new CustomEvent(`idham_${key}_updated`, { detail: parsed }));
+        } catch {}
+      }
+    }
+    throw err;
+  }
+}
+
+/**
  * Replaces an entire entity collection in storage and notifies subscribers/React Query.
  */
 export function replaceEntityList<T = any>(entityKey: string, items: T[]): T[] {

@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import {
   ChevronDown,
   Download,
+  Eye,
   FileDown,
   FileSpreadsheet,
   FileText,
@@ -38,6 +39,7 @@ export interface ExportMenuProps {
   onCustomPrint?: () => void;
   showQuickPdf?: boolean;
   showQuickExcel?: boolean;
+  showQuickPreview?: boolean;
   className?: string;
 }
 
@@ -69,6 +71,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   onCustomPrint,
   showQuickPdf = true,
   showQuickExcel = true,
+  showQuickPreview = true,
   className = '',
 }) => {
   const [open, setOpen] = useState(false);
@@ -151,18 +154,45 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   const activeColumns = columns.filter((c) => selectedColKeys.includes(c.key));
   const safeRows = Array.isArray(data) ? data : [];
 
+  const handlePreview = () => {
+    setOpen(false);
+    if (elementIdToPrint) {
+      ExportEngine.openElementPreview({
+        elementId: elementIdToPrint,
+        title,
+        subtitle,
+        filename,
+        pageSize: pageSize === 'A5' ? 'A5' : 'A4',
+        orientation,
+      });
+      return;
+    }
+    ExportEngine.openPreview({
+      title,
+      subtitle,
+      filename,
+      columns: activeColumns,
+      data: safeRows,
+      summaryKpis,
+      summaryRows,
+      periodLabel,
+      branchName,
+      currency,
+      orientation,
+    });
+  };
+
   const handleExportPdf = async () => {
     setLoadingType('pdf');
     setOpen(false);
     try {
-      if (elementIdToPrint) {
-        await PrintEngine.print({
-          elementId: elementIdToPrint,
-          title,
-          pageSize,
-          orientation,
-        });
-        toast.success(`تم فتح الطباعة الملكية / PDF (${title}) بنجاح`);
+      if (elementIdToPrint && typeof document !== 'undefined') {
+        const el = document.getElementById(elementIdToPrint);
+        const w = orientation === 'landscape' ? '1123px' : '794px';
+        const h = orientation === 'landscape' ? '794px' : '1123px';
+        const pageHtml = `<section class="idham-a4-page" data-page="1" style="direction:rtl;width:${w};min-height:${h};padding:20px 24px;background:#ffffff;color:#0f172a;box-sizing:border-box;">${el ? el.outerHTML : ''}</section>`;
+        await ExportEngine.downloadDirectPdfFromPages([pageHtml], { title, filename, orientation });
+        toast.success(`تم تنزيل مستند PDF (${title}) بنجاح`);
       } else {
         const ok = await ExportEngine.exportPdf({
           title,
@@ -175,9 +205,10 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           periodLabel,
           branchName,
           currency,
+          orientation,
         });
         if (ok) {
-          toast.success(`تم تجهيز مستند PDF الملكي (${title}) للطباعة والحفظ`);
+          toast.success(`تم تنزيل مستند PDF الملكي (${title}) بجودة عالية`);
         } else {
           toast.error('حدث خطأ أثناء تصدير مستند PDF الملكي');
         }
@@ -254,7 +285,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           orientation,
         });
       } else {
-        await ExportEngine.exportPdf({
+        await ExportEngine.printReport({
           title,
           subtitle,
           filename,
@@ -264,6 +295,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           periodLabel,
           branchName,
           currency,
+          orientation,
         });
       }
     } finally {
@@ -302,6 +334,26 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                 {safeRows.length} سجل
               </span>
             </div>
+
+            {/* 0. A4 Print Preview Modal */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-slate-800 dark:text-slate-100 hover:bg-indigo-50/75 dark:hover:bg-indigo-950/30 transition-colors text-start group"
+              onClick={handlePreview}
+            >
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 border border-indigo-500/30 group-hover:scale-105 transition-transform">
+                <Eye className="size-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>معاينة قبل الطباعة (A4)</span>
+                  <span className="text-[9.5px] bg-indigo-600 text-white px-1.5 rounded font-extrabold">ترقيم الصفحات</span>
+                </div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-snug">
+                  عرض A4 مطابق تماماً لملف PDF والطباعة
+                </div>
+              </div>
+            </button>
 
             {/* 1. Royal PDF Export */}
             <button
@@ -410,6 +462,20 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
 
   return (
     <div className={`inline-flex flex-wrap items-center gap-1.5 text-start ${className}`} ref={triggerWrapRef}>
+      {/* Direct 1-Click Print Preview Modal Button */}
+      {showQuickPreview && (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200/90 bg-gradient-to-b from-indigo-50 to-white px-2.5 py-2 text-xs font-extrabold text-indigo-700 shadow-2xs hover:border-indigo-400 hover:bg-indigo-50 hover:shadow-sm transition-all dark:border-indigo-800/80 dark:from-indigo-950/50 dark:to-slate-900 dark:text-indigo-300 dark:hover:border-indigo-600 disabled:opacity-50"
+          onClick={handlePreview}
+          disabled={loadingType !== null}
+          title={`معاينة قبل الطباعة بتنسيق A4 (${title})`}
+        >
+          <Eye className="size-3.5 text-indigo-600 dark:text-indigo-400" />
+          <span>معاينة</span>
+        </button>
+      )}
+
       {/* Direct 1-Click Royal PDF Button */}
       {showQuickPdf && (
         <button

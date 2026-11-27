@@ -17,6 +17,7 @@ export interface CompanyData {
   address: string;
   baseCurrency: string;
   fiscalYearStartMonth: number;
+  logoDataUrl?: string;
   rowVersion: number;
 }
 

@@ -5,7 +5,7 @@ import { activeCompanyId } from '../../../shared/http/request';
 import { ZodPipe } from '../../../shared/http/zod.pipe';
 import { RequirePermission } from '../../iam/presentation/decorators';
 import {
-  AutoInvoiceFromRevenue, CreditNoteCreate, DebitNoteCreate, InvoiceCreate, InvoicesService,
+  AutoInvoiceFromRevenue, CreditNoteCreate, DebitNoteCreate, InvoiceCreate, InvoiceUpdate, InvoicesService,
 } from '../application/invoices.service';
 import { ServicesCatalogService } from '../application/services-catalog.service';
 
@@ -33,6 +33,18 @@ export class InvoicesController {
   @RequirePermission('sal.invoice.create')
   create(@Body(new ZodPipe(InvoiceCreate)) body: z.infer<typeof InvoiceCreate>) {
     return this.svc.create(activeCompanyId(), body);
+  }
+
+  @Patch(':id')
+  @RequirePermission('sal.invoice.edit')
+  update(@Param('id', idPipe) id: string, @Body(new ZodPipe(InvoiceUpdate)) body: z.infer<typeof InvoiceUpdate>) {
+    return this.svc.update(activeCompanyId(), id, body);
+  }
+
+  @Delete(':id')
+  @RequirePermission('sal.invoice.delete')
+  remove(@Param('id', idPipe) id: string) {
+    return this.svc.remove(activeCompanyId(), id);
   }
 
   @Post('auto-generate')

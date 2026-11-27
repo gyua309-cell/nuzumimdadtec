@@ -1,5 +1,5 @@
 import { getStoredCompany } from './storage-company';
-import { getEntityList, saveEntityItem, uid } from './local-store';
+import { deleteEntityItem, getEntityList, runLocalAtomicTx, saveEntityItem, uid } from './local-store';
 import {
   assertPeriodOpen,
   computeAssignmentEconomics,
@@ -426,6 +426,7 @@ function buildInvoiceJournal(inv: any, isCredit = false): any {
     journalType: isCredit ? 'ADJUSTMENT' : 'SALES',
     sourceModule: 'SALES',
     sourceType: isCredit ? 'CREDIT_NOTE' : 'SALES_INVOICE',
+    sourceId: inv.id,
     postingEvent: isCredit ? 'CREDIT_NOTE_POSTED' : 'SALES_INVOICE_POSTED',
     reference: inv.invoiceNo,
     description: `${isCredit ? 'قيد إشعار دائن' : 'قيد استحقاق فاتورة مبيعات'} ${inv.invoiceNo} — العميل ${inv.clientName}`,
@@ -559,31 +560,159 @@ export function repairSalesInvoiceJournal(invId: string): any {
   return { ...inv, success: true };
 }
 
-export function cancelSalesInvoice(invId: string, reason?: string): any {
-  const invList = getEntityList<any>('invoices', []);
-  const inv = invList.find((i) => i.id === invId || i.invoiceNo === invId);
-  if (!inv) throw new Error('الفاتورة غير موجودة');
-
-  if (inv.status === 'POSTED') {
-    assertPeriodOpen(inv.fiscalPeriodId || inv.issueDate, `إلغاء الفاتورة ${inv.invoiceNo}`);
-    if (inv.journalEntryId) {
-      createReversalJournalEntry(inv.journalEntryId, reason || `إلغاء فاتورة المبيعات ${inv.invoiceNo}`);
+export function updateSalesInvoice(invId: string, body: any): any {
+  return runLocalAtomicTx(['invoices'], () => {
+    const invList = getEntityList<any>('invoices', []);
+    const existing = invList.find((i) => i.id === invId || i.invoiceNo === invId);
+    if (!existing) throw new Error('الفاتورة غير موجودة');
+    if (existing.status === 'CANCELLED') throw new Error('لا يمكن تعديل فاتورة ملغاة');
+    if (existing.zatcaStatus === 'CLEARED' || existing.zatcaStatus === 'REPORTED') {
+      throw new Error('لا يمكن تعديل فاتورة تم تخليصها أو الإبلاغ عنها لدى هيئة الزكاة (ZATCA)؛ أصدر إشعاراً دائناً أو مديناً بدلاً من ذلك');
     }
-  }
-  inv.status = 'CANCELLED';
-  inv.cancelReason = reason || 'إلغاء الفاتورة';
-  saveEntityItem('invoices', inv);
+    if (Number(existing.paidAmount || 0) > 0.01) {
+      throw new Error('لا يمكن تعديل فاتورة تم تحصيل دفعات لها؛ قم بعكس سندات القبض أو الشيكات المرتبطة أولاً');
+    }
 
-  recordAudit({
-    action: 'CANCEL_INVOICE',
-    schemaName: 'sales',
-    tableName: 'invoices',
-    entityId: inv.id,
-    newValues: { status: 'CANCELLED', reason: inv.cancelReason },
-    reason: inv.cancelReason,
+    const clients = getEntityList<any>('clients', []);
+    const projects = getEntityList<any>('projects', []);
+    const clientId = body.clientId ?? existing.clientId;
+    const projectId = body.projectId !== undefined ? body.projectId : existing.projectId;
+    const cli = clients.find((c) => c.id === clientId);
+    const prj = projects.find((p) => p.id === projectId);
+    const issueDate = (body.issueDate || existing.issueDate).slice(0, 10);
+    const resolvedPeriod = resolvePeriodByIdOrDate(body.fiscalPeriodId || existing.fiscalPeriodId, issueDate);
+    assertPeriodOpen(resolvedPeriod?.id || issueDate, `تعديل الفاتورة ${existing.invoiceNo}`);
+
+    const wasPosted = existing.status === 'POSTED';
+    if (wasPosted && existing.journalEntryId) {
+      createReversalJournalEntry(
+        existing.journalEntryId,
+        body?.reason || `تعديل الفاتورة ${existing.invoiceNo} وإعادة توليد القيد`,
+        issueDate,
+        { allowSourceSync: true },
+      );
+    }
+
+    const calc = Array.isArray(body.lines) && body.lines.length > 0
+      ? enrichInvoiceLines(body.lines)
+      : {
+          lines: existing.lines || [],
+          subtotal: Number(existing.subtotal || 0),
+          discountAmount: Number(existing.discountAmount || 0),
+          vatAmount: Number(existing.vatAmount || 0),
+          totalAmount: Number(existing.totalAmount || 0),
+        };
+    const currencyCode = body.currencyCode || existing.currencyCode || 'SAR';
+    const fxSub = convertToBase(calc.subtotal, currencyCode, issueDate).amountBase;
+    const fxVat = convertToBase(calc.vatAmount, currencyCode, issueDate).amountBase;
+    const fxTot = convertToBase(calc.totalAmount, currencyCode, issueDate).amountBase;
+
+    let nextInv: any = {
+      ...existing,
+      invoiceType: body.invoiceType || existing.invoiceType,
+      invoiceSubType: body.invoiceSubType || existing.invoiceSubType,
+      clientId,
+      clientName: cli?.nameAr || existing.clientName,
+      clientVatNumber: cli?.taxNumber || cli?.vatNumber || existing.clientVatNumber,
+      projectId: projectId || null,
+      projectName: prj?.nameAr || (projectId ? existing.projectName : ''),
+      costCenterId: body.costCenterId || prj?.costCenterId || existing.costCenterId,
+      branchId: body.branchId || prj?.branchId || existing.branchId,
+      fiscalPeriodId: resolvedPeriod?.id || existing.fiscalPeriodId,
+      issueDate,
+      dueDate: body.dueDate !== undefined ? body.dueDate : existing.dueDate,
+      currencyCode,
+      lines: calc.lines,
+      subtotal: calc.subtotal.toFixed(2),
+      discountAmount: calc.discountAmount.toFixed(2),
+      taxableAmount: calc.subtotal.toFixed(2),
+      vatAmount: calc.vatAmount.toFixed(2),
+      totalAmount: calc.totalAmount.toFixed(2),
+      subtotalBase: fxSub.toFixed(2),
+      vatAmountBase: fxVat.toFixed(2),
+      totalAmountBase: fxTot.toFixed(2),
+      notes: body.notes !== undefined ? body.notes : existing.notes,
+      journalEntryId: wasPosted ? null : existing.journalEntryId,
+      journalEntryNo: wasPosted ? null : existing.journalEntryNo,
+    };
+    nextInv = attachZatcaArtifacts(nextInv);
+    saveEntityItem('invoices', nextInv);
+
+    recordAudit({
+      action: 'UPDATE_INVOICE',
+      schemaName: 'sales',
+      tableName: 'invoices',
+      entityId: existing.id,
+      oldValues: { totalAmount: existing.totalAmount, clientId: existing.clientId },
+      newValues: { totalAmount: nextInv.totalAmount, clientId: nextInv.clientId },
+      reason: body?.reason || `تعديل بيانات الفاتورة ${existing.invoiceNo}`,
+    });
+
+    if (wasPosted) {
+      return postSalesInvoice(nextInv.id);
+    }
+    return nextInv;
   });
+}
 
-  return { ...inv, success: true };
+export function deleteSalesInvoice(invId: string): any {
+  return runLocalAtomicTx(['invoices'], () => {
+    const invList = getEntityList<any>('invoices', []);
+    const inv = invList.find((i) => i.id === invId || i.invoiceNo === invId);
+    if (!inv) throw new Error('الفاتورة غير موجودة');
+    if (inv.zatcaStatus === 'CLEARED' || inv.zatcaStatus === 'REPORTED') {
+      throw new Error('لا يمكن حذف فاتورة مرتبطة بهيئة الزكاة (ZATCA)');
+    }
+    if (inv.status !== 'DRAFT') {
+      throw new Error('لا يمكن الحذف النهائي لفاتورة مرحّلة؛ استخدم زر الإلغاء لعكس القيد وتوثيق السبب في سجل التدقيق');
+    }
+    deleteEntityItem('invoices', inv.id);
+    recordAudit({
+      action: 'DELETE_DRAFT_INVOICE',
+      schemaName: 'sales',
+      tableName: 'invoices',
+      entityId: inv.id,
+      oldValues: { invoiceNo: inv.invoiceNo, totalAmount: inv.totalAmount },
+      reason: `حذف مسودة الفاتورة ${inv.invoiceNo}`,
+    });
+    return { success: true, id: inv.id };
+  });
+}
+
+export function cancelSalesInvoice(invId: string, reason?: string): any {
+  return runLocalAtomicTx(['invoices'], () => {
+    const invList = getEntityList<any>('invoices', []);
+    const inv = invList.find((i) => i.id === invId || i.invoiceNo === invId);
+    if (!inv) throw new Error('الفاتورة غير موجودة');
+    if (inv.zatcaStatus === 'CLEARED' || inv.zatcaStatus === 'REPORTED') {
+      throw new Error('لا يمكن إلغاء أو تعديل فاتورة تم تخليصها أو الإبلاغ عنها لدى هيئة الزكاة (ZATCA)؛ أصدر إشعاراً دائناً إلكترونياً بدلاً من ذلك');
+    }
+    if (Number(inv.paidAmount || 0) > 0.01) {
+      throw new Error('لا يمكن إلغاء فاتورة تم تحصيل دفعات لها؛ قم بإلغاء سندات القبض أو ارتداد الشيكات المرتبطة أولاً');
+    }
+
+    if (inv.status === 'POSTED') {
+      assertPeriodOpen(inv.fiscalPeriodId || inv.issueDate, `إلغاء الفاتورة ${inv.invoiceNo}`);
+      if (inv.journalEntryId) {
+        createReversalJournalEntry(inv.journalEntryId, reason || `إلغاء فاتورة المبيعات ${inv.invoiceNo}`, undefined, { allowSourceSync: true });
+      }
+    }
+    inv.status = 'CANCELLED';
+    inv.cancelReason = reason || 'إلغاء الفاتورة';
+    saveEntityItem('invoices', inv);
+
+    recordAudit({
+      action: 'CANCEL_INVOICE',
+      schemaName: 'sales',
+      tableName: 'invoices',
+      entityId: inv.id,
+      oldValues: { status: inv.status, totalAmount: inv.totalAmount },
+      newValues: { status: 'CANCELLED', reason: inv.cancelReason },
+      reason: inv.cancelReason,
+    });
+
+    return { ...inv, success: true };
+  });
 }
 
 export function recordSalesInvoicePayment(invId: string, body: any): any {
@@ -1007,6 +1136,7 @@ export function postPurchaseInvoiceItem(invId: string): any {
     journalType: 'PURCHASE',
     sourceModule: 'PURCHASES',
     sourceType: 'PURCHASE_INVOICE',
+    sourceId: inv.id,
     postingEvent: 'PURCHASE_INVOICE_POSTED',
     reference: inv.invoiceNo,
     description: `ترحيل فاتورة مشتريات ${inv.invoiceNo} — المورد ${inv.vendorName}`,
@@ -1101,29 +1231,155 @@ export function payPurchaseInvoiceItem(invId: string, body: any): any {
   return { ...inv, payment: payRecord, success: true };
 }
 
-export function cancelPurchaseInvoiceItem(invId: string, reason?: string): any {
-  const list = getEntityList<any>('purchase_invoices', []);
-  const inv = list.find((i) => i.id === invId || i.invoiceNo === invId);
-  if (!inv) throw new Error('فاتورة المشتريات غير موجودة');
-
-  if (inv.status === 'POSTED') {
-    assertPeriodOpen(inv.fiscalPeriodId || inv.issueDate, `إلغاء فاتورة المشتريات ${inv.invoiceNo}`);
-    if (inv.journalEntryId) {
-      createReversalJournalEntry(inv.journalEntryId, reason || `إلغاء فاتورة المشتريات ${inv.invoiceNo}`);
+export function updatePurchaseInvoiceItem(invId: string, body: any): any {
+  return runLocalAtomicTx(['purchase_invoices'], () => {
+    const list = getEntityList<any>('purchase_invoices', []);
+    const existing = list.find((i) => i.id === invId || i.invoiceNo === invId);
+    if (!existing) throw new Error('فاتورة المشتريات غير موجودة');
+    if (existing.status === 'CANCELLED') throw new Error('لا يمكن تعديل فاتورة مشتريات ملغاة');
+    if (existing.paymentStatus !== 'UNPAID' || Number(existing.paidAmount || 0) > 0.01) {
+      throw new Error('لا يمكن تعديل فاتورة مشتريات مسددة كلياً أو جزئياً؛ قم بإلغاء سندات الصرف أو الشيكات المرتبطة أولاً');
     }
-  }
-  inv.status = 'CANCELLED';
-  inv.cancelReason = reason || 'إلغاء الفاتورة';
-  saveEntityItem('purchase_invoices', inv);
-  recordAudit({
-    action: 'CANCEL_PURCHASE_INVOICE',
-    schemaName: 'purchases',
-    tableName: 'purchase_invoices',
-    entityId: inv.id,
-    newValues: { status: 'CANCELLED', reason: inv.cancelReason },
-    reason: inv.cancelReason,
+
+    const accounts = getNormalizedAccounts();
+    const vendors = getEntityList<any>('vendors', []);
+    const projects = getEntityList<any>('projects', []);
+    const vendorId = body.vendorId ?? existing.vendorId;
+    const projectId = body.projectId !== undefined ? body.projectId : existing.projectId;
+    const v = vendors.find((x) => x.id === vendorId);
+    const p = projects.find((x) => x.id === projectId);
+    const issueDate = (body.issueDate || existing.issueDate).slice(0, 10);
+    const period = resolvePeriodByIdOrDate(body.fiscalPeriodId || existing.fiscalPeriodId, issueDate);
+    assertPeriodOpen(period?.id || issueDate, `تعديل فاتورة المشتريات ${existing.invoiceNo}`);
+
+    const wasPosted = existing.status === 'POSTED';
+    if (wasPosted && existing.journalEntryId) {
+      createReversalJournalEntry(
+        existing.journalEntryId,
+        body?.reason || `تعديل فاتورة المشتريات ${existing.invoiceNo} وإعادة توليد القيد`,
+        issueDate,
+        { allowSourceSync: true },
+      );
+    }
+
+    let st = 0;
+    let vt = 0;
+    const srcLines = Array.isArray(body.lines) && body.lines.length > 0 ? body.lines : existing.lines;
+    const lines = srcLines.map((l: any, idx: number) => {
+      const qty = Number(l.quantity ?? 1);
+      const price = Number(l.unitPrice ?? 0);
+      const disc = Number(l.discountAmount ?? 0);
+      const net = Math.max(0, qty * price - disc);
+      const vatR = Number(l.vatRate ?? 15);
+      const vat = net * (vatR / 100);
+      const acc = accounts.find((a) => a.id === l.expenseAccountId || a.code === l.expenseAccountId);
+      st += net;
+      vt += vat;
+      return {
+        ...l,
+        id: l.id || `pline-${idx + 1}`,
+        lineNo: idx + 1,
+        expenseAccountId: acc?.id || l.expenseAccountId,
+        expenseAccountCode: acc?.code || l.expenseAccountCode || '50401',
+        expenseAccountNameAr: acc?.nameAr || l.expenseAccountNameAr || 'مصروفات تشغيلية ومشتريات',
+        subtotal: net.toFixed(2),
+        vatAmount: vat.toFixed(2),
+        total: (net + vat).toFixed(2),
+      };
+    });
+    const tot = round2(st + vt);
+
+    const updated = saveEntityItem('purchase_invoices', {
+      ...existing,
+      vendorId,
+      vendorName: v?.nameAr || existing.vendorName,
+      vendorVatNumber: v?.taxNumber || v?.vatNumber || existing.vendorVatNumber,
+      vendorInvoiceNo: body.vendorInvoiceNo !== undefined ? body.vendorInvoiceNo : existing.vendorInvoiceNo,
+      projectId: projectId || null,
+      projectName: p?.nameAr || (projectId ? existing.projectName : null),
+      costCenterId: body.costCenterId || p?.costCenterId || existing.costCenterId,
+      branchId: body.branchId || p?.branchId || existing.branchId,
+      fiscalPeriodId: period?.id || existing.fiscalPeriodId,
+      issueDate,
+      dueDate: body.dueDate !== undefined ? body.dueDate : existing.dueDate,
+      currencyCode: body.currencyCode || existing.currencyCode,
+      lines,
+      subtotal: st.toFixed(2),
+      vatAmount: vt.toFixed(2),
+      totalAmount: tot.toFixed(2),
+      notes: body.notes !== undefined ? body.notes : existing.notes,
+      status: 'DRAFT',
+      journalEntryId: wasPosted ? null : existing.journalEntryId,
+      journalEntryNo: wasPosted ? null : existing.journalEntryNo,
+    });
+
+    recordAudit({
+      action: 'UPDATE_PURCHASE_INVOICE',
+      schemaName: 'purchases',
+      tableName: 'purchase_invoices',
+      entityId: existing.id,
+      oldValues: { totalAmount: existing.totalAmount, vendorId: existing.vendorId },
+      newValues: { totalAmount: updated.totalAmount, vendorId: updated.vendorId },
+      reason: body?.reason || `تعديل فاتورة المشتريات ${existing.invoiceNo}`,
+    });
+
+    if (wasPosted) {
+      return postPurchaseInvoiceItem(updated.id);
+    }
+    return updated;
   });
-  return { ...inv, success: true };
+}
+
+export function deletePurchaseInvoiceItem(invId: string): any {
+  return runLocalAtomicTx(['purchase_invoices'], () => {
+    const list = getEntityList<any>('purchase_invoices', []);
+    const inv = list.find((i) => i.id === invId || i.invoiceNo === invId);
+    if (!inv) throw new Error('فاتورة المشتريات غير موجودة');
+    if (inv.status !== 'DRAFT') {
+      throw new Error('لا يمكن الحذف النهائي لفاتورة مشتريات مرحّلة؛ استخدم خيار الإلغاء لعكس القيد وتوثيق السبب في سجل التدقيق');
+    }
+    deleteEntityItem('purchase_invoices', inv.id);
+    recordAudit({
+      action: 'DELETE_DRAFT_PURCHASE_INVOICE',
+      schemaName: 'purchases',
+      tableName: 'purchase_invoices',
+      entityId: inv.id,
+      oldValues: { invoiceNo: inv.invoiceNo, totalAmount: inv.totalAmount },
+      reason: `حذف مسودة فاتورة المشتريات ${inv.invoiceNo}`,
+    });
+    return { success: true, id: inv.id };
+  });
+}
+
+export function cancelPurchaseInvoiceItem(invId: string, reason?: string): any {
+  return runLocalAtomicTx(['purchase_invoices'], () => {
+    const list = getEntityList<any>('purchase_invoices', []);
+    const inv = list.find((i) => i.id === invId || i.invoiceNo === invId);
+    if (!inv) throw new Error('فاتورة المشتريات غير موجودة');
+    if (inv.paymentStatus !== 'UNPAID' || Number(inv.paidAmount || 0) > 0.01) {
+      throw new Error('لا يمكن إلغاء فاتورة مشتريات مسددة؛ قم بإلغاء سندات الصرف أو ارتداد الشيكات المرتبطة أولاً');
+    }
+
+    if (inv.status === 'POSTED') {
+      assertPeriodOpen(inv.fiscalPeriodId || inv.issueDate, `إلغاء فاتورة المشتريات ${inv.invoiceNo}`);
+      if (inv.journalEntryId) {
+        createReversalJournalEntry(inv.journalEntryId, reason || `إلغاء فاتورة المشتريات ${inv.invoiceNo}`, undefined, { allowSourceSync: true });
+      }
+    }
+    inv.status = 'CANCELLED';
+    inv.cancelReason = reason || 'إلغاء الفاتورة';
+    saveEntityItem('purchase_invoices', inv);
+    recordAudit({
+      action: 'CANCEL_PURCHASE_INVOICE',
+      schemaName: 'purchases',
+      tableName: 'purchase_invoices',
+      entityId: inv.id,
+      oldValues: { status: inv.status, totalAmount: inv.totalAmount },
+      newValues: { status: 'CANCELLED', reason: inv.cancelReason },
+      reason: inv.cancelReason,
+    });
+    return { ...inv, success: true };
+  });
 }
 
 export function createDebitNoteAndPost(body: any): any {
@@ -2683,12 +2939,14 @@ export function executeInterBankTransfer(body: any): any {
     );
   }
 
+  const transferId = uid('trf');
   const je = createAutoPostedJournalEntry({
     entryDate: transferDate,
     fiscalPeriodId: resolvePeriodByIdOrDate(undefined, transferDate)?.id,
     journalType: 'TRANSFER',
     sourceModule: 'TREASURY',
     sourceType: 'BANK_TRANSFER',
+    sourceId: transferId,
     postingEvent: 'BANK_TRANSFER_POSTED',
     reference,
     description: `سند تحويل وصرافة بنكية: ${sourceBank.name} ➔ ${targetBank.name} (${reference})`,
@@ -2696,7 +2954,7 @@ export function executeInterBankTransfer(body: any): any {
   });
 
   const record = saveEntityItem('bank_transfers', {
-    id: uid('trf'),
+    id: transferId,
     transferDate,
     sourceBankId: sourceBank.id,
     sourceBankName: sourceBank.name,
@@ -2726,6 +2984,36 @@ export function executeInterBankTransfer(body: any): any {
   });
 
   return record;
+}
+
+export function cancelInterBankTransfer(id: string, reason = 'إلغاء التحويل البنكي وعكس القيد'): any {
+  return runLocalAtomicTx(['bank_transfers'], () => {
+    const list = getEntityList<any>('bank_transfers', []);
+    const trf = list.find((t) => t.id === id);
+    if (!trf) throw new Error('التحويل البنكي غير موجود');
+    if (trf.status === 'CANCELLED') return trf;
+    assertPeriodOpen(trf.transferDate, reason);
+    let revJe: any = null;
+    if (trf.journalEntryId) {
+      revJe = createReversalJournalEntry(trf.journalEntryId, reason, undefined, { allowSourceSync: true });
+    }
+    const saved = saveEntityItem('bank_transfers', {
+      ...trf,
+      status: 'CANCELLED',
+      cancelReason: reason,
+      reversalJournalEntryId: revJe?.id || null,
+    });
+    recordAudit({
+      action: 'CANCEL_BANK_TRANSFER',
+      schemaName: 'treasury',
+      tableName: 'bank_transfers',
+      entityId: trf.id,
+      oldValues: { status: trf.status, sourceAmount: trf.sourceAmount },
+      newValues: { status: 'CANCELLED', reversalJournalEntryId: revJe?.id || null },
+      reason,
+    });
+    return saved;
+  });
 }
 
 export function payPayrollRunFromBank(runId: string, body: any = {}): any {

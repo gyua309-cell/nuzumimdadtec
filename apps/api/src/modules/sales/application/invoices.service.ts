@@ -39,6 +39,11 @@ export const InvoiceCreate = z.object({
   lines: z.array(InvoiceLineInput).min(1),
 });
 
+export const InvoiceUpdate = InvoiceCreate.partial().extend({
+  lines: z.array(InvoiceLineInput).min(1).optional(),
+  reason: z.string().trim().max(1000).optional(),
+});
+
 export const CreditNoteCreate = z.object({
   originalInvoiceId: z.string().uuid(),
   returnReason: z.string().trim().min(3).max(1000),
@@ -613,11 +618,213 @@ export class InvoicesService {
     });
   }
 
+  async update(companyId: string, id: string, body: z.infer<typeof InvoiceUpdate>) {
+    return this.db.tx(async () => {
+      const existing = await this.get(companyId, id);
+      if (existing.status === 'CANCELLED') {
+        throw new DomainError('INVOICE_CANCELLED', 'لا يمكن تعديل فاتورة ملغاة');
+      }
+      if (isLockedByZatca(existing.zatcaStatus)) {
+        throw new DomainError(
+          'ZATCA_INVOICE_LOCKED',
+          'لا يمكن تعديل فاتورة تم تخليصها أو الإبلاغ عنها لدى هيئة الزكاة (ZATCA)؛ أصدر إشعاراً دائناً أو مديناً بدلاً من التعديل',
+        );
+      }
+      if (Number(existing.paidAmount || 0) > 0.01 || existing.paymentStatus !== 'UNPAID') {
+        throw new DomainError(
+          'INVOICE_HAS_PAYMENTS',
+          'لا يمكن تعديل فاتورة تم تحصيل دفعات منها؛ يرجى عكس أو إلغاء سندات القبض/الشيكات المرتبطة أولاً',
+        );
+      }
+
+      const clientId = body.clientId ?? existing.clientId;
+      const client = await this.db.one<{ name_ar: string; vat_number: string; buyer_type?: string }>(
+        'SELECT name_ar, vat_number, buyer_type FROM prj.clients WHERE id = $1 AND company_id = $2',
+        [clientId, companyId],
+      );
+      if (!client) throw new NotFoundError('Client', clientId);
+
+      const company = await this.db.one<{ name_ar: string; legal_name: string; tax_number: string }>(
+        'SELECT name_ar, legal_name, tax_number FROM core.companies WHERE id = $1',
+        [companyId],
+      );
+
+      const rawType = body.invoiceType ?? existing.invoiceType;
+      const resolvedInvoiceType =
+        rawType === 'TAX_INVOICE' && client.buyer_type === 'B2C' && (!client.vat_number || !/^3\d{13}3$/.test(client.vat_number))
+          ? 'SIMPLIFIED'
+          : rawType;
+      const issueDate = body.issueDate ?? existing.issueDate;
+      const fiscalPeriodId = body.fiscalPeriodId ?? existing.fiscalPeriodId;
+      const currencyCode = body.currencyCode ?? existing.currencyCode;
+      const rate = D(body.exchangeRate ?? existing.exchangeRate ?? '1');
+      const sourceLines = body.lines ?? existing.lines.map((l: any) => ({
+        revenueLineId: l.revenueLineId ?? null,
+        employeeId: l.employeeId ?? null,
+        description: l.description,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        discountPct: l.discountPct ?? '0',
+        vatRate: l.vatRate ?? '15.00',
+        vatCategory: (l.vatCategory || 'S') as 'S' | 'Z' | 'E' | 'O',
+        vatExemptionReason: l.vatExemptionReason ?? null,
+      }));
+
+      let subtotal = D(0);
+      let discountTotal = D(0);
+      let vatTotal = D(0);
+      const processedLines = sourceLines.map((l: any, idx: number) => {
+        const qty = D(l.quantity);
+        const price = D(l.unitPrice);
+        const disc = D(l.discountPct ?? 0).div(100);
+        const lineGross = qty.times(price);
+        const lineDiscount = lineGross.times(disc);
+        const lineSubtotal = lineGross.minus(lineDiscount);
+        const lineVat = lineSubtotal.times(D(l.vatRate ?? 15).div(100));
+        const lineTotal = lineSubtotal.plus(lineVat);
+        subtotal = subtotal.plus(lineSubtotal);
+        discountTotal = discountTotal.plus(lineDiscount);
+        vatTotal = vatTotal.plus(lineVat);
+        return {
+          ...l,
+          lineNo: idx + 1,
+          quantity: qty.toFixed(4),
+          unitPrice: price.toFixed(4),
+          discountPct: D(l.discountPct ?? 0).toFixed(2),
+          subtotal: lineSubtotal.toFixed(4),
+          vatRate: D(l.vatRate ?? 15).toFixed(2),
+          vatAmount: lineVat.toFixed(4),
+          total: lineTotal.toFixed(4),
+          vatCategory: l.vatCategory || 'S',
+        };
+      });
+
+      const totalAmount = subtotal.plus(vatTotal);
+      const issueTime = new Date().toISOString();
+      const qrCode = generateZatcaTlv({
+        sellerName: company?.legal_name || company?.name_ar || 'IDHAM ERP',
+        vatNumber: company?.tax_number || '300000000000003',
+        issueDateTime: issueTime,
+        totalAmountWithVat: totalAmount.toFixed(2),
+        vatTotal: vatTotal.toFixed(2),
+      });
+      const zatcaHash = computeInvoiceHash({
+        uuid: existing.zatcaUuid || crypto.randomUUID(),
+        invoiceNo: existing.invoiceNo,
+        issueDateTime: issueTime,
+        clientVatNumber: client.vat_number,
+        totalAmount: totalAmount.toFixed(2),
+        vatAmount: vatTotal.toFixed(2),
+        previousInvoiceHash: existing.zatcaPih || '',
+      });
+      const compliance = validateZatcaCompliance({
+        sellerVatNumber: company?.tax_number,
+        sellerName: company?.name_ar,
+        invoiceType: resolvedInvoiceType,
+        clientName: client.name_ar,
+        clientVatNumber: client.vat_number,
+        subtotal: subtotal.toNumber(),
+        vatAmount: vatTotal.toNumber(),
+        totalAmount: totalAmount.toNumber(),
+        qrCode,
+      });
+
+      // If posted, reverse the existing JE inside the same atomic transaction before re-posting updated amounts
+      const wasPosted = existing.status === 'POSTED';
+      if (wasPosted && existing.journalEntryId) {
+        await this.journal.reverse(
+          companyId,
+          existing.journalEntryId,
+          body.reason || `تعديل الفاتورة ${existing.invoiceNo} وإعادة توليد القيد`,
+          issueDate,
+          { allowSourceSync: true },
+        );
+      }
+
+      await this.db.query(
+        `UPDATE sal.invoices
+            SET invoice_type = $3, invoice_sub_type = $4, client_id = $5, project_id = $6,
+                fiscal_period_id = $7, issue_date = $8, due_date = $9, currency_code = $10, exchange_rate = $11,
+                subtotal = $12, discount_amount = $13, taxable_amount = $12, vat_amount = $14, total_amount = $15,
+                subtotal_base = $16, vat_amount_base = $17, total_amount_base = $18, notes = $19,
+                zatca_hash = $20, zatca_qr_code = $21, zatca_compliance_status = $22,
+                journal_entry_id = CASE WHEN $23 THEN NULL ELSE journal_entry_id END,
+                updated_at = now(), updated_by = sys.current_user_id()
+          WHERE company_id = $1 AND id = $2`,
+        [
+          companyId, id, resolvedInvoiceType, body.invoiceSubType ?? existing.invoiceSubType ?? 'STANDARD',
+          clientId, body.projectId !== undefined ? body.projectId : (existing.projectId ?? null),
+          fiscalPeriodId, issueDate, body.dueDate !== undefined ? body.dueDate : (existing.dueDate ?? null),
+          currencyCode, rate.toFixed(10),
+          subtotal.toFixed(4), discountTotal.toFixed(4), vatTotal.toFixed(4), totalAmount.toFixed(4),
+          subtotal.times(rate).toFixed(4), vatTotal.times(rate).toFixed(4), totalAmount.times(rate).toFixed(4),
+          body.notes !== undefined ? body.notes : (existing.notes ?? null),
+          zatcaHash, qrCode, compliance.passed ? 'PASS' : 'WARNING', wasPosted,
+        ],
+      );
+
+      if (body.lines) {
+        await this.db.query(`DELETE FROM sal.invoice_lines WHERE invoice_id = $1`, [id]);
+        for (const l of processedLines) {
+          await this.db.query(
+            `INSERT INTO sal.invoice_lines
+               (invoice_id, line_no, revenue_line_id, employee_id, description, quantity,
+                unit_price, discount_pct, subtotal, vat_rate, vat_amount, total, vat_category, vat_exemption_reason)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+            [
+              id, l.lineNo, l.revenueLineId ?? null, l.employeeId ?? null, l.description,
+              l.quantity, l.unitPrice, l.discountPct, l.subtotal, l.vatRate, l.vatAmount, l.total,
+              l.vatCategory, l.vatExemptionReason ?? null,
+            ],
+          );
+        }
+      }
+
+      if (wasPosted) {
+        await this.postInternal(companyId, id, true);
+      }
+
+      const updated = await this.get(companyId, id);
+      await this.db.query(`SELECT audit.log_action('sal','invoices',$1,'UPDATE',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ subtotal: existing.subtotal, vatAmount: existing.vatAmount, totalAmount: existing.totalAmount, clientId: existing.clientId }),
+        JSON.stringify({ subtotal: updated.subtotal, vatAmount: updated.vatAmount, totalAmount: updated.totalAmount, clientId: updated.clientId }),
+        body.reason || `تعديل الفاتورة ${existing.invoiceNo}`,
+        existing.invoiceNo,
+      ]);
+      return updated;
+    });
+  }
+
+  async remove(companyId: string, id: string) {
+    return this.db.tx(async () => {
+      const inv = await this.get(companyId, id);
+      if (isLockedByZatca(inv.zatcaStatus)) {
+        throw new DomainError('ZATCA_INVOICE_LOCKED', 'لا يمكن حذف فاتورة مرتبطة بهيئة الزكاة (ZATCA)');
+      }
+      if (inv.status !== 'DRAFT') {
+        throw new DomainError(
+          'INVOICE_NOT_DRAFT',
+          'لا يمكن الحذف النهائي لفاتورة مرحّلة؛ استخدم خيار الإلغاء النظامي لعكس القيد المحاسبي وتوثيق السبب في سجل التدقيق',
+        );
+      }
+      await this.db.query(`DELETE FROM sal.invoice_lines WHERE invoice_id = $1`, [id]);
+      await this.db.query(`DELETE FROM sal.invoices WHERE company_id = $1 AND id = $2`, [companyId, id]);
+      await this.db.query(`SELECT audit.log_action('sal','invoices',$1,'DELETE',$2::jsonb,NULL,$3,$4)`, [
+        id,
+        JSON.stringify({ invoiceNo: inv.invoiceNo, totalAmount: inv.totalAmount }),
+        `حذف مسودة الفاتورة ${inv.invoiceNo}`,
+        inv.invoiceNo,
+      ]);
+      return { success: true, id };
+    });
+  }
+
   async cancel(companyId: string, id: string, reason: string) {
     return this.db.tx(async () => {
       const inv = await this.get(companyId, id);
       if (inv.status !== 'POSTED') {
-        throw new DomainError('NOT_POSTED', 'يمكن إلغاء الفواتير المرحّلة فقط');
+        throw new DomainError('NOT_POSTED', 'يمكن إلغاء الفواتير المرحّلة فقط؛ للمسودات استخدم خيار الحذف المباشر');
       }
 
       // ZATCA Phase 2 Immutability Guard: Once Cleared/Reported/Accepted by ZATCA, direct cancellation is prohibited!
@@ -628,12 +835,20 @@ export class InvoicesService {
         );
       }
 
+      if (Number(inv.paidAmount || 0) > 0.01) {
+        throw new DomainError(
+          'INVOICE_HAS_PAYMENTS',
+          'لا يمكن إلغاء فاتورة تم تحصيل دفعات لها؛ قم بإلغاء سندات القبض أو ارتداد الشيكات المرتبطة أولاً',
+        );
+      }
+
       if (inv.journalEntryId) {
         await this.journal.reverse(
           companyId,
           inv.journalEntryId,
           `إلغاء الفاتورة ${inv.invoiceNo}: ${reason}`,
           new Date().toISOString().slice(0, 10),
+          { allowSourceSync: true },
         );
       }
 
@@ -644,6 +859,14 @@ export class InvoicesService {
           WHERE id = $1`,
         [id, `سبب الإلغاء: ${reason}`],
       );
+
+      await this.db.query(`SELECT audit.log_action('sal','invoices',$1,'CANCEL',$2::jsonb,$3::jsonb,$4,$5)`, [
+        id,
+        JSON.stringify({ status: 'POSTED', totalAmount: inv.totalAmount }),
+        JSON.stringify({ status: 'CANCELLED', reason }),
+        reason,
+        inv.invoiceNo,
+      ]);
 
       return this.get(companyId, id);
     });

@@ -34,6 +34,7 @@ export interface ExportReportOptions {
   branchName?: string;
   currency?: string;
   periodLabel?: string;
+  orientation?: 'portrait' | 'landscape';
   columns: ExportColumnDef[];
   data: Array<Record<string, any>>;
   summaryKpis?: RoyalKpiItem[];
@@ -49,6 +50,30 @@ export interface ExportReportOptions {
     columns: ExportColumnDef[];
     data: Array<Record<string, any>>;
   }>;
+}
+
+export interface RoyalPreviewRequest {
+  kind: 'report' | 'detail' | 'element';
+  title: string;
+  subtitle?: string;
+  filename?: string;
+  docNo?: string;
+  currency?: string;
+  orientation?: 'portrait' | 'landscape';
+  reportOptions?: ExportReportOptions;
+  detailOptions?: RoyalDetailDocumentOptions;
+  elementId?: string;
+  pageSize?: 'A4' | 'A5';
+}
+
+type PreviewListener = (req: RoyalPreviewRequest) => void;
+const previewListeners = new Set<PreviewListener>();
+
+export function subscribePrintPreview(fn: PreviewListener): () => void {
+  previewListeners.add(fn);
+  return () => {
+    previewListeners.delete(fn);
+  };
 }
 
 export interface RoyalDetailSection {
@@ -111,6 +136,15 @@ function kpiAccentStyle(tone?: RoyalKpiItem['tone']): { border: string; text: st
   }
 }
 
+function renderCompanyLogoHtml(company: any): string {
+  if (company?.logoDataUrl) {
+    return `<img src="${escapeHtml(company.logoDataUrl)}" alt="logo" style="width:44px;height:44px;border-radius:11px;object-fit:contain;background:#ffffff;padding:3px;border:2px solid #fde68a;flex-shrink:0;" />`;
+  }
+  return `
+    <div style="width:44px;height:44px;border-radius:11px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#0b1224;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:21px;border:2px solid #fde68a;flex-shrink:0;">إ</div>
+  `;
+}
+
 function renderRoyalHeaderHtml(params: {
   company: any;
   title: string;
@@ -125,8 +159,29 @@ function renderRoyalHeaderHtml(params: {
   currency: string;
   recordCount?: number;
   nowFormatted: string;
+  compactContinuation?: boolean;
+  pageNo?: number;
+  totalPages?: number;
 }): string {
-  const { company, title, subtitle, docRef, docNo, docDate, statusLabel, statusTone, periodLabel, branchName, currency, recordCount, nowFormatted } = params;
+  const {
+    company, title, subtitle, docRef, docNo, docDate, statusLabel, statusTone,
+    periodLabel, branchName, currency, recordCount, nowFormatted, compactContinuation, pageNo, totalPages,
+  } = params;
+
+  if (compactContinuation) {
+    return `
+      <div style="border-radius:10px;overflow:hidden;border:1px solid #0f172a;margin-bottom:12px;">
+        <div style="height:4px;width:100%;background:linear-gradient(90deg,#b45309 0%,#f59e0b 50%,#4f46e5 100%);"></div>
+        <div style="background:#0f172a;color:#ffffff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;font-size:10.5px;">
+          <div style="font-weight:900;">${escapeHtml(company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية')} — ${escapeHtml(title)}</div>
+          <div style="font-family:monospace;color:#fde68a;font-weight:700;">
+            ${escapeHtml(docRef)}${pageNo && totalPages ? ` • صفحة ${pageNo} من ${totalPages}` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   const statusColors: Record<string, { bg: string; fg: string; bd: string }> = {
     green: { bg: '#059669', fg: '#ffffff', bd: '#34d399' },
     amber: { bg: '#d97706', fg: '#ffffff', bd: '#fbbf24' },
@@ -137,22 +192,22 @@ function renderRoyalHeaderHtml(params: {
   const stStyle = statusColors[statusTone || 'blue'] || statusColors.blue;
 
   return `
-    <div style="border-radius:14px;overflow:hidden;border:1.5px solid #0f172a;margin-bottom:16px;page-break-inside:avoid;">
+    <div style="border-radius:14px;overflow:hidden;border:1.5px solid #0f172a;margin-bottom:14px;page-break-inside:avoid;">
       <!-- Gold Royal Crown Bar -->
       <div style="height:6px;width:100%;background:linear-gradient(90deg,#b45309 0%,#f59e0b 35%,#4f46e5 70%,#0f172a 100%);"></div>
 
       <!-- Deep Midnight Navy Executive Banner -->
-      <div style="background:linear-gradient(135deg,#0b1224 0%,#17203d 55%,#0f172a 100%);color:#ffffff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:14px;">
+      <div style="background:linear-gradient(135deg,#0b1224 0%,#17203d 55%,#0f172a 100%);color:#ffffff;padding:13px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;">
         <!-- Right: Company Royal Identity -->
         <div style="max-width:42%;">
-          <div style="display:flex;align-items:center;gap:11px;">
-            <div style="width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#0b1224;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;border:2px solid #fde68a;flex-shrink:0;">إ</div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            ${renderCompanyLogoHtml(company)}
             <div>
-              <div style="font-size:15.5px;font-weight:900;color:#ffffff;line-height:1.25;">${escapeHtml(company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية')}</div>
-              <div style="font-size:10px;color:#cbd5e1;font-weight:700;letter-spacing:0.4px;margin-top:2px;">${escapeHtml(company.nameEn || 'MODERN SUPPLY SYSTEMS • IDHAM ERP PRO')}</div>
+              <div style="font-size:14.5px;font-weight:900;color:#ffffff;line-height:1.25;">${escapeHtml(company.nameAr || 'شركة نظم إمداد للتقنية والحلول الرقمية')}</div>
+              <div style="font-size:9.5px;color:#cbd5e1;font-weight:700;letter-spacing:0.35px;margin-top:2px;">${escapeHtml(company.nameEn || 'NUZUM IMDAD TECHNOLOGY CO. • IDHAM ERP PRO')}</div>
             </div>
           </div>
-          <div style="font-size:10px;color:#e2e8f0;margin-top:7px;line-height:1.5;font-weight:600;">
+          <div style="font-size:9.5px;color:#e2e8f0;margin-top:6px;line-height:1.45;font-weight:600;">
             الرقم الضريبي (VAT): <span style="font-family:monospace;font-weight:800;color:#fbbf24;">${escapeHtml(company.taxNumber || '310123456700003')}</span>
             ${company.commercialReg ? ` &nbsp;|&nbsp; س.ت: <span style="font-family:monospace;font-weight:700;color:#f8fafc;">${escapeHtml(company.commercialReg)}</span>` : ''}
           </div>
@@ -160,19 +215,19 @@ function renderRoyalHeaderHtml(params: {
 
         <!-- Center: Document Title & Royal Badge -->
         <div style="text-align:center;flex:1;">
-          <div style="display:inline-block;background:rgba(255,255,255,0.08);border:1.5px solid rgba(251,191,36,0.65);border-radius:11px;padding:7px 18px;">
-            <div style="font-size:14px;font-weight:900;color:#ffffff;line-height:1.3;">${escapeHtml(title)}</div>
-            ${subtitle ? `<div style="font-size:10px;color:#cbd5e1;font-weight:600;margin-top:2px;">${escapeHtml(subtitle)}</div>` : ''}
+          <div style="display:inline-block;background:rgba(255,255,255,0.08);border:1.5px solid rgba(251,191,36,0.65);border-radius:11px;padding:6px 16px;">
+            <div style="font-size:13.5px;font-weight:900;color:#ffffff;line-height:1.3;">${escapeHtml(title)}</div>
+            ${subtitle ? `<div style="font-size:9.5px;color:#cbd5e1;font-weight:600;margin-top:2px;">${escapeHtml(subtitle)}</div>` : ''}
           </div>
-          <div style="margin-top:6px;display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap;font-size:10px;color:#e2e8f0;font-weight:700;">
-            ${docNo ? `<span style="background:rgba(251,191,36,0.18);color:#fde68a;border:1px solid rgba(251,191,36,0.45);padding:2px 9px;border-radius:6px;font-family:monospace;">رقم المستند: ${escapeHtml(docNo)}</span>` : ''}
-            ${statusLabel ? `<span style="background:${stStyle.bg};color:${stStyle.fg};border:1px solid ${stStyle.bd};padding:2px 10px;border-radius:6px;font-weight:800;">${escapeHtml(statusLabel)}</span>` : ''}
+          <div style="margin-top:6px;display:flex;justify-content:center;align-items:center;gap:6px;flex-wrap:wrap;font-size:9.5px;color:#e2e8f0;font-weight:700;">
+            ${docNo ? `<span style="background:rgba(251,191,36,0.18);color:#fde68a;border:1px solid rgba(251,191,36,0.45);padding:2px 8px;border-radius:6px;font-family:monospace;">رقم المستند: ${escapeHtml(docNo)}</span>` : ''}
+            ${statusLabel ? `<span style="background:${stStyle.bg};color:${stStyle.fg};border:1px solid ${stStyle.bd};padding:2px 9px;border-radius:6px;font-weight:800;">${escapeHtml(statusLabel)}</span>` : ''}
             ${periodLabel ? `<span>الفترة: ${escapeHtml(periodLabel)}</span>` : ''}
           </div>
         </div>
 
         <!-- Left: Meta Control Box -->
-        <div style="background:rgba(255,255,255,0.07);border:1px solid rgba(148,163,184,0.3);border-radius:10px;padding:8px 12px;font-size:10px;color:#e2e8f0;line-height:1.65;min-width:165px;text-align:right;">
+        <div style="background:rgba(255,255,255,0.07);border:1px solid rgba(148,163,184,0.3);border-radius:10px;padding:7px 11px;font-size:9.5px;color:#e2e8f0;line-height:1.6;min-width:160px;text-align:right;">
           <div>المرجع: <span style="font-family:monospace;font-weight:800;color:#fbbf24;">${escapeHtml(docRef)}</span></div>
           <div>التاريخ: <span style="font-weight:800;color:#ffffff;">${escapeHtml(docDate || nowFormatted)}</span></div>
           <div>الفرع: <span style="font-weight:700;color:#ffffff;">${escapeHtml(branchName || 'المقر الرئيسي')}</span></div>
@@ -183,19 +238,28 @@ function renderRoyalHeaderHtml(params: {
   `;
 }
 
-function renderRoyalTableHtml(columns: ExportColumnDef[], data: Array<Record<string, any>>, currency: string): { html: string; totals: Record<string, number> } {
+function renderRoyalTableHtml(
+  columns: ExportColumnDef[],
+  data: Array<Record<string, any>>,
+  currency: string,
+  opts?: { showTotalsFooter?: boolean; overrideTotals?: Record<string, number>; totalCountLabel?: number },
+): { html: string; totals: Record<string, number> } {
   const totals: Record<string, number> = {};
-  columns.forEach((col) => {
-    if (col.isTotal || col.type === 'currency') {
-      let sum = 0;
-      data.forEach((row) => {
-        const rawVal = row[col.key];
-        const num = typeof rawVal === 'number' ? rawVal : Number(rawVal);
-        if (!isNaN(num)) sum += num;
-      });
-      totals[col.key] = sum;
-    }
-  });
+  if (opts?.overrideTotals) {
+    Object.assign(totals, opts.overrideTotals);
+  } else {
+    columns.forEach((col) => {
+      if (col.isTotal || col.type === 'currency') {
+        let sum = 0;
+        data.forEach((row) => {
+          const rawVal = row[col.key];
+          const num = typeof rawVal === 'number' ? rawVal : Number(rawVal);
+          if (!isNaN(num)) sum += num;
+        });
+        totals[col.key] = sum;
+      }
+    });
+  }
 
   const headersHtml = columns
     .map((col) => {
@@ -246,13 +310,15 @@ function renderRoyalTableHtml(columns: ExportColumnDef[], data: Array<Record<str
     })
     .join('');
 
-  const hasTotals = Object.keys(totals).length > 0 && data.length > 0;
+  const showFooter = opts?.showTotalsFooter !== false;
+  const hasTotals = showFooter && Object.keys(totals).length > 0 && (opts?.totalCountLabel ?? data.length) > 0;
   let footerHtml = '';
   if (hasTotals) {
+    const countShown = opts?.totalCountLabel ?? data.length;
     const footCells = columns
       .map((col, idx) => {
         if (idx === 0) {
-          return `<td style="padding:8.5px 9px;font-size:11px;font-weight:900;color:#0f172a;background:#fef3c7;border-top:2px solid #0f172a;border-bottom:3.5px double #0f172a;text-align:right;">الإجمالي الكلي (${data.length}):</td>`;
+          return `<td style="padding:8.5px 9px;font-size:11px;font-weight:900;color:#0f172a;background:#fef3c7;border-top:2px solid #0f172a;border-bottom:3.5px double #0f172a;text-align:right;">الإجمالي الكلي (${countShown}):</td>`;
         }
         if (totals[col.key] !== undefined) {
           const formatted = formatNum(totals[col.key], col.type === 'number' && Number.isInteger(totals[col.key]) ? 0 : 2);
@@ -277,6 +343,16 @@ function renderRoyalTableHtml(columns: ExportColumnDef[], data: Array<Record<str
   return { html, totals };
 }
 
+function renderRoyalPageBottomBar(company: any, docRef: string, pageNo: number, totalPages: number): string {
+  return `
+    <div style="margin-top:auto;padding-top:8px;border-top:1px solid #cbd5e1;display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#475569;">
+      <span style="font-weight:800;color:#0f172a;">${escapeHtml(company.nameAr || 'منظومة إدهام لإدارة الموارد والمحاسبة')} • VAT: ${escapeHtml(company.taxNumber || '310123456700003')}</span>
+      <span style="font-family:monospace;font-weight:800;color:#4f46e5;">REF: ${escapeHtml(docRef)}</span>
+      <span style="background:#0f172a;color:#fde68a;padding:2px 10px;border-radius:999px;font-weight:800;font-size:9.5px;">صفحة ${pageNo} من ${totalPages}</span>
+    </div>
+  `;
+}
+
 function renderRoyalFooterHtml(params: {
   company: any;
   docRef: string;
@@ -284,36 +360,32 @@ function renderRoyalFooterHtml(params: {
   tafqeetText?: string;
   signatureLabels?: [string, string, string];
 }): string {
-  const { company, docRef, notes, tafqeetText, signatureLabels } = params;
+  const { notes, tafqeetText, signatureLabels } = params;
   const sigs = signatureLabels || ['إعداد المحاسب / المختص', 'المراجعة والتدقيق المالي', 'اعتماد الإدارة والختم الرسمي'];
 
   return `
     ${tafqeetText ? `
-      <div style="margin-bottom:14px;padding:9px 14px;border-radius:10px;background:linear-gradient(90deg,#fffbeb,#fef3c7);border:1.5px solid #f59e0b;font-size:11px;font-weight:800;color:#78350f;page-break-inside:avoid;">
+      <div style="margin-bottom:12px;padding:8px 13px;border-radius:10px;background:linear-gradient(90deg,#fffbeb,#fef3c7);border:1.5px solid #f59e0b;font-size:10.5px;font-weight:800;color:#78350f;page-break-inside:avoid;">
         <span style="color:#b45309;">المبلغ بالحروف:</span> ${escapeHtml(tafqeetText)}
       </div>
     ` : ''}
     ${notes ? `
-      <div style="margin-bottom:14px;padding:9px 13px;border-radius:10px;background:#f8fafc;border:1px solid #cbd5e1;font-size:10.5px;color:#334155;line-height:1.55;page-break-inside:avoid;">
+      <div style="margin-bottom:12px;padding:8px 12px;border-radius:10px;background:#f8fafc;border:1px solid #cbd5e1;font-size:10px;color:#334155;line-height:1.5;page-break-inside:avoid;">
         <strong style="color:#0f172a;">ملاحظات وبيانات إضافية:</strong> ${escapeHtml(notes)}
       </div>
     ` : ''}
-    <div style="margin-top:22px;padding-top:14px;border-top:2px solid #0f172a;page-break-inside:avoid;">
-      <div style="display:flex;justify-content:space-between;text-align:center;font-size:11px;margin-bottom:18px;gap:14px;">
+    <div style="margin-top:16px;padding-top:12px;border-top:2px solid #0f172a;page-break-inside:avoid;">
+      <div style="display:flex;justify-content:space-between;text-align:center;font-size:10.5px;gap:12px;">
         ${sigs
           .map(
             (label) => `
-          <div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 8px 12px 8px;">
-            <div style="font-weight:900;color:#0f172a;font-size:11px;">${escapeHtml(label)}</div>
-            <div style="margin-top:30px;border-bottom:1.5px dashed #94a3b8;width:80%;margin-inline:auto;"></div>
-            <div style="margin-top:5px;font-size:9px;color:#64748b;font-weight:600;">الاسم والتوقيع والتاريخ</div>
+          <div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 8px 11px 8px;">
+            <div style="font-weight:900;color:#0f172a;font-size:10.5px;">${escapeHtml(label)}</div>
+            <div style="margin-top:26px;border-bottom:1.5px dashed #94a3b8;width:80%;margin-inline:auto;"></div>
+            <div style="margin-top:4px;font-size:9px;color:#64748b;font-weight:600;">الاسم والتوقيع والتاريخ</div>
           </div>`,
           )
           .join('')}
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:7px;">
-        <span style="font-weight:800;color:#0f172a;">${escapeHtml(company.nameAr || 'منظومة إدهام لإدارة الموارد والمحاسبة')} • IDHAM ERP PRO • مستند PDF ملكي رسمي معتمد</span>
-        <span style="font-family:monospace;font-weight:800;color:#4f46e5;">VERIFIED REF: ${escapeHtml(docRef)}</span>
       </div>
     </div>
   `;
@@ -637,78 +709,155 @@ export class ExportEngine {
     return ws;
   }
 
-  /**
-   * Generates an Executive Royal A4 PDF / Printout for any tabular report or module list
-   */
-  static async exportPdf(options: ExportReportOptions): Promise<boolean> {
-    const job = createJob({
-      type: 'EXPORT_PDF',
-      title: `تصدير PDF ملكي: ${options.title}`,
-      meta: { rowCount: options.data.length },
+  private static emitPreview(req: RoyalPreviewRequest) {
+    if (previewListeners.size === 0 && typeof document !== 'undefined') {
+      // Fallback to direct print if no global preview host mounted
+      if (req.kind === 'report' && req.reportOptions) void this.printReport(req.reportOptions);
+      else if (req.kind === 'detail' && req.detailOptions) void this.printDetail(req.detailOptions);
+      return;
+    }
+    previewListeners.forEach((fn) => fn(req));
+  }
+
+  static openPreview(options: ExportReportOptions) {
+    const orientation = options.orientation || (options.columns.length > 6 ? 'landscape' : 'portrait');
+    this.emitPreview({
+      kind: 'report',
+      title: options.title,
+      subtitle: options.subtitle,
+      filename: options.filename,
+      currency: options.currency,
+      orientation,
+      reportOptions: options,
     });
+  }
 
-    try {
-      updateJob(job.id, { status: 'running', progress: 30 });
-      const company = getStoredCompany();
-      const nowFormatted = new Date().toLocaleString('ar-SA');
-      const currency = options.currency || company.baseCurrency || 'SAR';
-      const docRef = `IDH-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+  static openDetailPreview(options: RoyalDetailDocumentOptions) {
+    const maxCols = Math.max(0, ...(options.sections || []).map((s) => s.columns.length));
+    this.emitPreview({
+      kind: 'detail',
+      title: options.title,
+      subtitle: options.subtitle,
+      filename: options.filename,
+      docNo: options.docNo,
+      currency: options.currency,
+      orientation: maxCols > 7 ? 'landscape' : 'portrait',
+      detailOptions: options,
+    });
+  }
 
-      const { html: tableHtml, totals } = renderRoyalTableHtml(options.columns, options.data, currency);
+  static openElementPreview(opts: { elementId: string; title: string; subtitle?: string; filename?: string; docNo?: string; pageSize?: 'A4' | 'A5'; orientation?: 'portrait' | 'landscape' }) {
+    this.emitPreview({
+      kind: 'element',
+      title: opts.title,
+      subtitle: opts.subtitle,
+      filename: opts.filename,
+      docNo: opts.docNo,
+      pageSize: opts.pageSize || 'A4',
+      orientation: opts.orientation || 'portrait',
+      elementId: opts.elementId,
+    });
+  }
 
-      // Auto-build Royal KPI strip if caller didn't supply explicit KPIs
-      const kpis: RoyalKpiItem[] =
-        options.summaryKpis && options.summaryKpis.length > 0
-          ? options.summaryKpis
-          : [
-              { label: 'إجمالي السجلات', value: `${options.data.length}`, tone: 'indigo' },
-              ...options.columns
-                .filter((c) => totals[c.key] !== undefined && (c.isTotal || c.type === 'currency'))
-                .slice(0, 3)
-                .map((c, idx) => ({
-                  label: c.header,
-                  value: `${formatNum(totals[c.key])}${c.type === 'currency' ? ` ${currency}` : ''}`,
-                  tone: (['emerald', 'sky', 'amber'] as const)[idx % 3],
-                })),
-            ];
+  /**
+   * Builds deterministic A4 paginated HTML pages shared identically by Preview, Printer, and Direct PDF.
+   */
+  static buildRoyalReportPages(options: ExportReportOptions): {
+    pagesHtml: string[];
+    combinedHtml: string;
+    orientation: 'portrait' | 'landscape';
+    docRef: string;
+    totalPages: number;
+  } {
+    const company = getStoredCompany();
+    const nowFormatted = new Date().toLocaleString('ar-SA');
+    const currency = options.currency || company.baseCurrency || 'SAR';
+    const docRef = `IDH-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+    const orientation: 'portrait' | 'landscape' = options.orientation || (options.columns.length > 6 ? 'landscape' : 'portrait');
 
-      const kpiStripHtml =
-        kpis.length > 0
-          ? `
-        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;page-break-inside:avoid;">
-          ${kpis
-            .map((k) => {
-              const st = kpiAccentStyle(k.tone);
-              return `
-              <div style="flex:1;min-width:120px;border-radius:10px;border:1px solid #e2e8f0;border-top:3px solid ${st.border};background:${st.bg};padding:8px 12px;">
-                <div style="font-size:9.5px;font-weight:800;color:#475569;">${escapeHtml(k.label)}</div>
-                <div style="font-size:14px;font-weight:900;color:${st.text};font-family:'Inter','Tajawal',monospace;margin-top:3px;">${escapeHtml(k.value)}</div>
-              </div>`;
-            })
-            .join('')}
-        </div>`
-          : '';
+    const firstPageCap = orientation === 'landscape' ? 11 : 16;
+    const nextPageCap = orientation === 'landscape' ? 16 : 22;
 
-      // Primary currency total for Arabic Tafqeet
-      const primaryCurrencyCol = [...options.columns].reverse().find((c) => c.type === 'currency' && totals[c.key] > 0);
-      const tafqeetText =
-        primaryCurrencyCol && totals[primaryCurrencyCol.key] > 0
-          ? tafqeetArabic(totals[primaryCurrencyCol.key], currency)
-          : undefined;
+    const { totals: grandTotals } = renderRoyalTableHtml(options.columns, options.data, currency);
 
-      const watermarkText =
-        options.watermark === 'DRAFT'
-          ? 'مسودة غير معتمدة'
-          : options.watermark === 'CANCELLED'
-            ? 'مستند ملغى'
-            : options.watermark === 'DUPLICATE'
-              ? 'نسخة طبق الأصل'
-              : null;
+    const kpis: RoyalKpiItem[] =
+      options.summaryKpis && options.summaryKpis.length > 0
+        ? options.summaryKpis
+        : [
+            { label: 'إجمالي السجلات', value: `${options.data.length}`, tone: 'indigo' },
+            ...options.columns
+              .filter((c) => grandTotals[c.key] !== undefined && (c.isTotal || c.type === 'currency'))
+              .slice(0, 3)
+              .map((c, idx) => ({
+                label: c.header,
+                value: `${formatNum(grandTotals[c.key])}${c.type === 'currency' ? ` ${currency}` : ''}`,
+                tone: (['emerald', 'sky', 'amber'] as const)[idx % 3],
+              })),
+          ];
 
-      const reportHtml = `
-        <div style="position:relative;direction:rtl;font-family:'Tajawal','Cairo','IBM Plex Sans Arabic',system-ui,Arial,sans-serif;padding:4px;color:#0f172a;background:#ffffff;">
-          ${watermarkText ? `<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0.07;transform:rotate(-28deg);font-size:64px;font-weight:900;color:#0f172a;z-index:0;">${watermarkText}</div>` : ''}
-          <div style="position:relative;z-index:1;">
+    const kpiStripHtml =
+      kpis.length > 0
+        ? `
+      <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;page-break-inside:avoid;">
+        ${kpis
+          .map((k) => {
+            const st = kpiAccentStyle(k.tone);
+            return `
+            <div style="flex:1;min-width:115px;border-radius:10px;border:1px solid #e2e8f0;border-top:3px solid ${st.border};background:${st.bg};padding:7px 11px;">
+              <div style="font-size:9px;font-weight:800;color:#475569;">${escapeHtml(k.label)}</div>
+              <div style="font-size:13.5px;font-weight:900;color:${st.text};font-family:'Inter','Tajawal',monospace;margin-top:2px;">${escapeHtml(k.value)}</div>
+            </div>`;
+          })
+          .join('')}
+      </div>`
+        : '';
+
+    const chunks: Array<Array<Record<string, any>>> = [];
+    if (options.data.length === 0) {
+      chunks.push([]);
+    } else {
+      chunks.push(options.data.slice(0, firstPageCap));
+      let cursor = firstPageCap;
+      while (cursor < options.data.length) {
+        chunks.push(options.data.slice(cursor, cursor + nextPageCap));
+        cursor += nextPageCap;
+      }
+    }
+
+    const totalPages = chunks.length;
+    const primaryCurrencyCol = [...options.columns].reverse().find((c) => c.type === 'currency' && grandTotals[c.key] > 0);
+    const tafqeetText =
+      primaryCurrencyCol && grandTotals[primaryCurrencyCol.key] > 0
+        ? tafqeetArabic(grandTotals[primaryCurrencyCol.key], currency)
+        : undefined;
+
+    const watermarkText =
+      options.watermark === 'DRAFT'
+        ? 'مسودة غير معتمدة'
+        : options.watermark === 'CANCELLED'
+          ? 'مستند ملغى'
+          : options.watermark === 'DUPLICATE'
+            ? 'نسخة طبق الأصل'
+            : null;
+
+    const sheetWidthPx = orientation === 'landscape' ? '1123px' : '794px';
+    const sheetMinHeightPx = orientation === 'landscape' ? '794px' : '1123px';
+
+    const pagesHtml = chunks.map((slice, idx) => {
+      const pageNo = idx + 1;
+      const isFirst = pageNo === 1;
+      const isLast = pageNo === totalPages;
+
+      const { html: tableHtml } = renderRoyalTableHtml(options.columns, slice, currency, {
+        showTotalsFooter: isLast,
+        overrideTotals: isLast ? grandTotals : undefined,
+        totalCountLabel: options.data.length,
+      });
+
+      return `
+        <section class="idham-a4-page" data-page="${pageNo}" style="position:relative;direction:rtl;font-family:'Tajawal','Cairo','IBM Plex Sans Arabic',system-ui,Arial,sans-serif;width:${sheetWidthPx};min-height:${sheetMinHeightPx};padding:26px 30px;color:#0f172a;background:#ffffff;display:flex;flex-direction:column;box-sizing:border-box;page-break-after:${isLast ? 'auto' : 'always'};">
+          ${watermarkText ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0.07;transform:rotate(-28deg);font-size:64px;font-weight:900;color:#0f172a;z-index:0;">${watermarkText}</div>` : ''}
+          <div style="position:relative;z-index:1;display:flex;flex-direction:column;flex:1;">
             ${renderRoyalHeaderHtml({
               company,
               title: options.title,
@@ -719,31 +868,329 @@ export class ExportEngine {
               currency,
               recordCount: options.data.length,
               nowFormatted,
+              compactContinuation: !isFirst,
+              pageNo,
+              totalPages,
             })}
-            ${kpiStripHtml}
-            ${tableHtml}
-            ${renderRoyalFooterHtml({
+            ${isFirst ? kpiStripHtml : ''}
+            <div style="flex:1;">
+              ${tableHtml}
+            </div>
+            ${isLast ? renderRoyalFooterHtml({
               company,
               docRef,
               notes: options.notes,
               tafqeetText,
               signatureLabels: options.signatureLabels,
-            })}
+            }) : ''}
+            ${renderRoyalPageBottomBar(company, docRef, pageNo, totalPages)}
           </div>
-        </div>
+        </section>
       `;
+    });
 
-      updateJob(job.id, { progress: 85 });
+    return {
+      pagesHtml,
+      combinedHtml: pagesHtml.join('\n'),
+      orientation,
+      docRef,
+      totalPages,
+    };
+  }
+
+  /**
+   * Builds deterministic A4 HTML page(s) for single documents (Invoices, Vouchers, Cheques, Journals, Profiles)
+   */
+  static buildRoyalDetailPages(options: RoyalDetailDocumentOptions): {
+    pagesHtml: string[];
+    combinedHtml: string;
+    orientation: 'portrait' | 'landscape';
+    docRef: string;
+    totalPages: number;
+  } {
+    const company = getStoredCompany();
+    const nowFormatted = new Date().toLocaleString('ar-SA');
+    const currency = options.currency || company.baseCurrency || 'SAR';
+    const docRef = options.docNo || `IDH-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+
+    const kpiHtml =
+      options.kpis && options.kpis.length > 0
+        ? `
+      <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;page-break-inside:avoid;">
+        ${options.kpis
+          .map((k) => {
+            const st = kpiAccentStyle(k.tone);
+            return `
+            <div style="flex:1;min-width:120px;border-radius:10px;border:1px solid #e2e8f0;border-top:3px solid ${st.border};background:${st.bg};padding:9px 12px;">
+              <div style="font-size:9.5px;font-weight:800;color:#475569;">${escapeHtml(k.label)}</div>
+              <div style="font-size:14.5px;font-weight:900;color:${st.text};font-family:'Inter','Tajawal',monospace;margin-top:3px;">${escapeHtml(k.value)}</div>
+            </div>`;
+          })
+          .join('')}
+      </div>`
+        : '';
+
+    const metaHtml =
+      options.metaFields && options.metaFields.length > 0
+        ? `
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:16px;page-break-inside:avoid;">
+        ${options.metaFields
+          .map(
+            (f) => `
+          <div style="border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;padding:7px 11px;">
+            <div style="font-size:9.5px;font-weight:700;color:#64748b;">${escapeHtml(f.label)}</div>
+            <div style="font-size:11.5px;font-weight:800;color:#0f172a;margin-top:2px;word-break:break-word;">${escapeHtml(f.value ?? '—')}</div>
+          </div>`,
+          )
+          .join('')}
+      </div>`
+        : '';
+
+    let maxCols = 0;
+    const sectionsHtml = (options.sections || [])
+      .map((sec) => {
+        maxCols = Math.max(maxCols, sec.columns.length);
+        const { html } = renderRoyalTableHtml(sec.columns, sec.data, currency);
+        return `
+          <div style="margin-bottom:14px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;page-break-after:avoid;">
+              <div style="width:4px;height:16px;border-radius:4px;background:linear-gradient(180deg,#4f46e5,#d97706);"></div>
+              <div style="font-size:12.5px;font-weight:900;color:#0f172a;">${escapeHtml(sec.title)} (${sec.data.length})</div>
+            </div>
+            ${html}
+          </div>`;
+      })
+      .join('');
+
+    const orientation: 'portrait' | 'landscape' = maxCols > 7 ? 'landscape' : 'portrait';
+    const tafqeetText =
+      options.totalAmountForTafqeet && options.totalAmountForTafqeet > 0
+        ? tafqeetArabic(options.totalAmountForTafqeet, currency)
+        : undefined;
+
+    const watermarkText =
+      options.watermark === 'DRAFT'
+        ? 'مسودة غير معتمدة'
+        : options.watermark === 'CANCELLED'
+          ? 'مستند ملغى'
+          : options.watermark === 'DUPLICATE'
+            ? 'نسخة طبق الأصل'
+            : null;
+
+    const sheetWidthPx = orientation === 'landscape' ? '1123px' : '794px';
+    const sheetMinHeightPx = orientation === 'landscape' ? '794px' : '1123px';
+
+    const pageHtml = `
+      <section class="idham-a4-page" data-page="1" style="position:relative;direction:rtl;font-family:'Tajawal','Cairo','IBM Plex Sans Arabic',system-ui,Arial,sans-serif;width:${sheetWidthPx};min-height:${sheetMinHeightPx};padding:26px 30px;color:#0f172a;background:#ffffff;display:flex;flex-direction:column;box-sizing:border-box;">
+        ${watermarkText ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0.07;transform:rotate(-28deg);font-size:64px;font-weight:900;color:#0f172a;z-index:0;">${watermarkText}</div>` : ''}
+        <div style="position:relative;z-index:1;display:flex;flex-direction:column;flex:1;">
+          ${renderRoyalHeaderHtml({
+            company,
+            title: options.title,
+            subtitle: options.subtitle,
+            docRef,
+            docNo: options.docNo,
+            docDate: options.docDate,
+            statusLabel: options.statusLabel,
+            statusTone: options.statusTone,
+            periodLabel: options.periodLabel,
+            branchName: options.branchName,
+            currency,
+            nowFormatted,
+            pageNo: 1,
+            totalPages: 1,
+          })}
+          ${kpiHtml}
+          ${metaHtml}
+          <div style="flex:1;">
+            ${sectionsHtml}
+          </div>
+          ${renderRoyalFooterHtml({
+            company,
+            docRef,
+            notes: options.notes,
+            tafqeetText,
+            signatureLabels: options.signatureLabels,
+          })}
+          ${renderRoyalPageBottomBar(company, docRef, 1, 1)}
+        </div>
+      </section>
+    `;
+
+    return {
+      pagesHtml: [pageHtml],
+      combinedHtml: pageHtml,
+      orientation,
+      docRef,
+      totalPages: 1,
+    };
+  }
+
+  /**
+   * Renders an array of `.idham-a4-page` HTML blocks (or arbitrary DOM element HTML)
+   * using high-DPI html2canvas-pro + jsPDF into a direct .pdf file download 100% matching preview.
+   */
+  static async downloadDirectPdfFromPages(
+    pagesHtml: string[],
+    opts: { title: string; filename?: string; orientation?: 'portrait' | 'landscape' },
+  ): Promise<boolean> {
+    if (typeof document === 'undefined' || pagesHtml.length === 0) return false;
+    const orientation = opts.orientation || 'portrait';
+    const cleanFilename = (opts.filename || `${opts.title}-${new Date().toISOString().slice(0, 10)}`).replace(/\.pdf$/i, '') + '.pdf';
+
+    let host: HTMLDivElement | null = null;
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import('html2canvas-pro'),
+        import('jspdf'),
+      ]);
+
+      const fontsReady = (document as any).fonts?.ready;
+      if (fontsReady && typeof fontsReady.then === 'function') {
+        await Promise.race([fontsReady, new Promise((r) => setTimeout(r, 900))]);
+      }
+
+      host = document.createElement('div');
+      host.setAttribute('dir', 'rtl');
+      host.style.position = 'fixed';
+      host.style.left = '-25000px';
+      host.style.top = '0';
+      host.style.background = '#ffffff';
+      host.style.zIndex = '-1';
+      host.style.fontFamily = "'Tajawal', 'Cairo', 'IBM Plex Sans Arabic', system-ui, sans-serif";
+      document.body.appendChild(host);
+
+      const pdf = new jsPDF({
+        orientation,
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+      const pdfPageW = pdf.internal.pageSize.getWidth();
+      const pdfPageH = pdf.internal.pageSize.getHeight();
+      let addedFirst = false;
+
+      for (let i = 0; i < pagesHtml.length; i++) {
+        host.innerHTML = pagesHtml[i];
+        const targetEl = (host.firstElementChild as HTMLElement) || host;
+        // Let layout & SVGs settle
+        await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+        const canvas = await html2canvas(targetEl, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          scrollX: 0,
+          scrollY: 0,
+        });
+        if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+          throw new Error('تعذر توليد لوحة الطباعة للصفحة');
+        }
+        const imgW = canvas.width;
+        const imgH = canvas.height;
+        const ratioW = pdfPageW / imgW;
+        const renderedHmm = imgH * ratioW;
+
+        if (renderedHmm <= pdfPageH + 1.5) {
+          if (addedFirst) pdf.addPage('a4', orientation);
+          addedFirst = true;
+          const imgData = canvas.toDataURL('image/png');
+          pdf.addImage(imgData, 'PNG', 0, 0, pdfPageW, Math.min(pdfPageH, renderedHmm), undefined, 'FAST');
+        } else {
+          // Slice taller pages (like custom DOM invoice captures) across clean A4 slices
+          const sliceHeightPx = Math.floor(pdfPageH / ratioW);
+          let offsetY = 0;
+          while (offsetY < imgH) {
+            const hSlice = Math.min(sliceHeightPx, imgH - offsetY);
+            const sliceCanvas = document.createElement('canvas');
+            sliceCanvas.width = imgW;
+            sliceCanvas.height = hSlice;
+            const ctx = sliceCanvas.getContext('2d');
+            if (ctx) {
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, imgW, hSlice);
+              ctx.drawImage(canvas, 0, offsetY, imgW, hSlice, 0, 0, imgW, hSlice);
+            }
+            if (addedFirst) pdf.addPage('a4', orientation);
+            addedFirst = true;
+            pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', 0, 0, pdfPageW, hSlice * ratioW, undefined, 'FAST');
+            offsetY += hSlice;
+          }
+        }
+      }
+
+      const blob = pdf.output('blob');
+      const adapter = getPlatformAdapter();
+      return await adapter.saveFile(blob, cleanFilename, {
+        mimeType: 'application/pdf',
+        filters: [{ name: 'PDF Document', extensions: ['pdf'] }],
+      });
+    } catch (err) {
+      console.warn('[ExportEngine] direct canvas PDF fallback to system print:', err);
       const adapter = getPlatformAdapter();
       await adapter.printDocument({
-        contentHtml: reportHtml,
-        title: `${options.title} - IDHAM ERP`,
+        contentHtml: pagesHtml.join('\n'),
+        title: `${opts.title} - IDHAM ERP`,
         pageSize: 'A4',
-        orientation: options.columns.length > 6 ? 'landscape' : 'portrait',
+        orientation,
       });
-
-      updateJob(job.id, { status: 'completed', progress: 100 });
       return true;
+    } finally {
+      if (host && host.parentNode) host.parentNode.removeChild(host);
+    }
+  }
+
+  /**
+   * Direct isolated A4 print dialog for tabular reports (exact match to Preview)
+   */
+  static async printReport(options: ExportReportOptions): Promise<boolean> {
+    const built = this.buildRoyalReportPages(options);
+    const adapter = getPlatformAdapter();
+    await adapter.printDocument({
+      contentHtml: built.combinedHtml,
+      title: `${options.title} - IDHAM ERP`,
+      pageSize: 'A4',
+      orientation: built.orientation,
+    });
+    return true;
+  }
+
+  /**
+   * Direct isolated A4 print dialog for single detail documents (exact match to Preview)
+   */
+  static async printDetail(options: RoyalDetailDocumentOptions): Promise<boolean> {
+    const built = this.buildRoyalDetailPages(options);
+    const adapter = getPlatformAdapter();
+    await adapter.printDocument({
+      contentHtml: built.combinedHtml,
+      title: `${options.title} - IDHAM ERP`,
+      pageSize: 'A4',
+      orientation: built.orientation,
+    });
+    return true;
+  }
+
+  /**
+   * Direct high-resolution A4 PDF download for any tabular report (100% pixel-identical to A4 Preview)
+   */
+  static async exportPdf(options: ExportReportOptions): Promise<boolean> {
+    const job = createJob({
+      type: 'EXPORT_PDF',
+      title: `تصدير PDF ملكي: ${options.title}`,
+      meta: { rowCount: options.data.length },
+    });
+
+    try {
+      updateJob(job.id, { status: 'running', progress: 30 });
+      const built = this.buildRoyalReportPages(options);
+      updateJob(job.id, { progress: 65 });
+      const ok = await this.downloadDirectPdfFromPages(built.pagesHtml, {
+        title: options.title,
+        filename: options.filename,
+        orientation: built.orientation,
+      });
+      updateJob(job.id, { status: ok ? 'completed' : 'failed', progress: 100 });
+      return ok;
     } catch (err: any) {
       console.error('[ExportEngine] exportPdf error', err);
       updateJob(job.id, { status: 'failed', error: err.message || 'فشل تصدير مستند PDF الملكي' });
@@ -752,131 +1199,29 @@ export class ExportEngine {
   }
 
   /**
-   * Generates a Royal Executive Single-Record / Voucher / Profile / Journal / Payroll Sheet PDF
+   * Direct high-resolution A4 PDF download for single document (Invoice, Voucher, Cheque, Journal, Profile)
    */
   static async exportDetailPdf(options: RoyalDetailDocumentOptions): Promise<boolean> {
     const job = createJob({
       type: 'EXPORT_PDF',
-      title: `طباعة ملكية: ${options.title}`,
+      title: `طباعة PDF ملكية: ${options.title}`,
       meta: { docNo: options.docNo },
     });
 
     try {
       updateJob(job.id, { status: 'running', progress: 30 });
-      const company = getStoredCompany();
-      const nowFormatted = new Date().toLocaleString('ar-SA');
-      const currency = options.currency || company.baseCurrency || 'SAR';
-      const docRef = options.docNo || `IDH-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
-
-      const kpiHtml =
-        options.kpis && options.kpis.length > 0
-          ? `
-        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;page-break-inside:avoid;">
-          ${options.kpis
-            .map((k) => {
-              const st = kpiAccentStyle(k.tone);
-              return `
-              <div style="flex:1;min-width:120px;border-radius:10px;border:1px solid #e2e8f0;border-top:3px solid ${st.border};background:${st.bg};padding:9px 12px;">
-                <div style="font-size:9.5px;font-weight:800;color:#475569;">${escapeHtml(k.label)}</div>
-                <div style="font-size:14.5px;font-weight:900;color:${st.text};font-family:'Inter','Tajawal',monospace;margin-top:3px;">${escapeHtml(k.value)}</div>
-              </div>`;
-            })
-            .join('')}
-        </div>`
-          : '';
-
-      const metaHtml =
-        options.metaFields && options.metaFields.length > 0
-          ? `
-        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:16px;page-break-inside:avoid;">
-          ${options.metaFields
-            .map(
-              (f) => `
-            <div style="border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;padding:7px 11px;">
-              <div style="font-size:9.5px;font-weight:700;color:#64748b;">${escapeHtml(f.label)}</div>
-              <div style="font-size:11.5px;font-weight:800;color:#0f172a;margin-top:2px;word-break:break-word;">${escapeHtml(f.value ?? '—')}</div>
-            </div>`,
-            )
-            .join('')}
-        </div>`
-          : '';
-
-      let maxCols = 0;
-      const sectionsHtml = (options.sections || [])
-        .map((sec) => {
-          maxCols = Math.max(maxCols, sec.columns.length);
-          const { html } = renderRoyalTableHtml(sec.columns, sec.data, currency);
-          return `
-            <div style="margin-bottom:14px;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;page-break-after:avoid;">
-                <div style="width:4px;height:16px;border-radius:4px;background:linear-gradient(180deg,#4f46e5,#d97706);"></div>
-                <div style="font-size:12.5px;font-weight:900;color:#0f172a;">${escapeHtml(sec.title)} (${sec.data.length})</div>
-              </div>
-              ${html}
-            </div>`;
-        })
-        .join('');
-
-      const tafqeetText =
-        options.totalAmountForTafqeet && options.totalAmountForTafqeet > 0
-          ? tafqeetArabic(options.totalAmountForTafqeet, currency)
-          : undefined;
-
-      const watermarkText =
-        options.watermark === 'DRAFT'
-          ? 'مسودة غير معتمدة'
-          : options.watermark === 'CANCELLED'
-            ? 'مستند ملغى'
-            : options.watermark === 'DUPLICATE'
-              ? 'نسخة طبق الأصل'
-              : null;
-
-      const html = `
-        <div style="position:relative;direction:rtl;font-family:'Tajawal','Cairo','IBM Plex Sans Arabic',system-ui,Arial,sans-serif;padding:4px;color:#0f172a;background:#ffffff;">
-          ${watermarkText ? `<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0.07;transform:rotate(-28deg);font-size:64px;font-weight:900;color:#0f172a;z-index:0;">${watermarkText}</div>` : ''}
-          <div style="position:relative;z-index:1;">
-            ${renderRoyalHeaderHtml({
-              company,
-              title: options.title,
-              subtitle: options.subtitle,
-              docRef,
-              docNo: options.docNo,
-              docDate: options.docDate,
-              statusLabel: options.statusLabel,
-              statusTone: options.statusTone,
-              periodLabel: options.periodLabel,
-              branchName: options.branchName,
-              currency,
-              nowFormatted,
-            })}
-            ${kpiHtml}
-            ${metaHtml}
-            ${sectionsHtml}
-            ${renderRoyalFooterHtml({
-              company,
-              docRef,
-              notes: options.notes,
-              tafqeetText,
-              signatureLabels: options.signatureLabels,
-            })}
-          </div>
-        </div>
-      `;
-
-      updateJob(job.id, { progress: 85 });
-      const adapter = getPlatformAdapter();
-      await adapter.printDocument({
-        contentHtml: html,
-        title: `${options.title} - IDHAM ERP`,
-        pageSize: 'A4',
-        orientation: maxCols > 7 ? 'landscape' : 'portrait',
+      const built = this.buildRoyalDetailPages(options);
+      updateJob(job.id, { progress: 65 });
+      const ok = await this.downloadDirectPdfFromPages(built.pagesHtml, {
+        title: options.title,
+        filename: options.filename || (options.docNo ? `${options.title}-${options.docNo}` : undefined),
+        orientation: built.orientation,
       });
-
-      updateJob(job.id, { status: 'completed', progress: 100 });
-      return true;
+      updateJob(job.id, { status: ok ? 'completed' : 'failed', progress: 100 });
+      return ok;
     } catch (err: any) {
       console.error('[ExportEngine] exportDetailPdf error', err);
-      updateJob(job.id, { status: 'failed', error: err.message || 'فشل توليد الطباعة الملكية' });
+      updateJob(job.id, { status: 'failed', error: err.message || 'فشل توليد مستند PDF الملكي' });
       return false;
     }
   }

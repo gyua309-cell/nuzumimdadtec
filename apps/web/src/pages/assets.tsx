@@ -248,12 +248,70 @@ export function AssetsPage() {
                         <ActionGroup>
                           <ActionButton
                             variant="view"
-                            title="معاينة الأصل"
+                            title="عرض بطاقة الأصل"
                             onClick={() => nav(`/assets/list/${a.id}`)}
                           />
                           <ActionButton
+                            variant="preview"
+                            title="معاينة بطاقة الأصل (A4)"
+                            onClick={() =>
+                              ExportEngine.openDetailPreview({
+                                title: `بطاقة أصل ثابت: ${a.name}`,
+                                subtitle: `${a.categoryName || 'أصل ثابت'} — ${a.assetNo}`,
+                                filename: `asset-${a.assetNo}-${today()}`,
+                                docNo: a.assetNo,
+                                docDate: date(a.purchaseDate),
+                                currency: base,
+                                statusLabel: ASSET_STATUS[a.status]?.label ?? a.status,
+                                statusTone: a.status === 'ACTIVE' ? 'green' : 'amber',
+                                kpis: [
+                                  { label: 'تكلفة الاقتناء', value: `${money(a.costBase)} ${base}`, tone: 'indigo' },
+                                  { label: 'مجمع الإهلاك', value: `${money(a.accumulatedBase)} ${base}`, tone: 'amber' },
+                                  { label: 'القيمة الدفترية', value: `${money(a.netBookValueBase)} ${base}`, tone: 'emerald' },
+                                ],
+                                metaFields: [
+                                  { label: 'رقم الأصل', value: a.assetNo },
+                                  { label: 'اسم الأصل', value: a.name },
+                                  { label: 'الفئة', value: a.categoryName || '—' },
+                                  { label: 'تاريخ الشراء', value: date(a.purchaseDate) },
+                                  { label: 'العهدة المسندة', value: a.custodianName || 'بدون عهدة' },
+                                  { label: 'رقم قيد الاقتناء', value: a.activationJournalEntryNo || '—' },
+                                ],
+                              })
+                            }
+                          />
+                          <ActionButton
+                            variant="pdf"
+                            title="تصدير PDF مباشر لبطاقة الأصل"
+                            onClick={() =>
+                              void ExportEngine.exportDetailPdf({
+                                title: `بطاقة أصل ثابت: ${a.name}`,
+                                subtitle: `${a.categoryName || 'أصل ثابت'} — ${a.assetNo}`,
+                                filename: `asset-${a.assetNo}-${today()}`,
+                                docNo: a.assetNo,
+                                docDate: date(a.purchaseDate),
+                                currency: base,
+                                statusLabel: ASSET_STATUS[a.status]?.label ?? a.status,
+                                statusTone: a.status === 'ACTIVE' ? 'green' : 'amber',
+                                kpis: [
+                                  { label: 'تكلفة الاقتناء', value: `${money(a.costBase)} ${base}`, tone: 'indigo' },
+                                  { label: 'مجمع الإهلاك', value: `${money(a.accumulatedBase)} ${base}`, tone: 'amber' },
+                                  { label: 'القيمة الدفترية', value: `${money(a.netBookValueBase)} ${base}`, tone: 'emerald' },
+                                ],
+                                metaFields: [
+                                  { label: 'رقم الأصل', value: a.assetNo },
+                                  { label: 'اسم الأصل', value: a.name },
+                                  { label: 'الفئة', value: a.categoryName || '—' },
+                                  { label: 'تاريخ الشراء', value: date(a.purchaseDate) },
+                                  { label: 'العهدة المسندة', value: a.custodianName || 'بدون عهدة' },
+                                  { label: 'رقم قيد الاقتناء', value: a.activationJournalEntryNo || '—' },
+                                ],
+                              })
+                            }
+                          />
+                          <ActionButton
                             variant="edit"
-                            title="تعديل الأصل"
+                            title="تعديل وإدارة الأصل"
                             onClick={() => nav(`/assets/list/${a.id}`)}
                           />
                           {a.status === 'DRAFT' && (

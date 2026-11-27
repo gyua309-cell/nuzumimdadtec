@@ -17,7 +17,8 @@ import { date, money, today } from '../lib/format';
 import { ExportMenu } from '../components/ExportMenu';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
 import { SearchableSelect } from '../components/SearchableSelect';
-import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Spinner, Stat, useToast } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, Stat, useToast } from '../components/ui';
+import { clearFormDraft, handleErpFormKeyDown, loadFormDraft, saveFormDraft } from '../lib/form-draft';
 
 export function CashboxesPage() {
   const base = useBaseCurrency();
@@ -253,6 +254,7 @@ export function CashboxesPage() {
 }
 
 function AddCashboxModal({
+  editingCashbox,
   defaultCurrency,
   employees,
   branches,
@@ -260,6 +262,7 @@ function AddCashboxModal({
   onClose,
   onSuccess,
 }: {
+  editingCashbox?: any | null;
   defaultCurrency: string;
   employees: any[];
   branches: any[];
@@ -268,22 +271,40 @@ function AddCashboxModal({
   onSuccess: () => void;
 }) {
   const toast = useToast();
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-  const [currencyCode, setCurrencyCode] = useState(defaultCurrency || 'SAR');
-  const [autoCreateGlAccount, setAutoCreateGlAccount] = useState(true);
-  const [glAccountId, setGlAccountId] = useState(() => glAccounts.find((a) => a.code === '10101')?.id || glAccounts[0]?.id || '');
-  const [treasurerEmployeeId, setTreasurerEmployeeId] = useState('');
-  const [branchId, setBranchId] = useState('');
+  const isEdit = Boolean(editingCashbox?.id);
+  const draft = !isEdit ? loadFormDraft<any>('cashbox-new') : null;
+
+  const [code, setCode] = useState(editingCashbox?.code ?? draft?.code ?? '');
+  const [name, setName] = useState(editingCashbox?.name ?? draft?.name ?? '');
+  const [currencyCode, setCurrencyCode] = useState(editingCashbox?.currencyCode ?? draft?.currencyCode ?? defaultCurrency ?? 'SAR');
+  const [autoCreateGlAccount, setAutoCreateGlAccount] = useState(!isEdit);
+  const [glAccountId, setGlAccountId] = useState(() => editingCashbox?.glAccountId || glAccounts.find((a) => a.code === '10101')?.id || glAccounts[0]?.id || '');
+  const [treasurerEmployeeId, setTreasurerEmployeeId] = useState(editingCashbox?.treasurerEmployeeId ?? draft?.treasurerEmployeeId ?? '');
+  const [branchId, setBranchId] = useState(editingCashbox?.branchId ?? draft?.branchId ?? '');
   const [openingBalance, setOpeningBalance] = useState('0');
   const [openingDate, setOpeningDate] = useState(today());
 
+  const persistDraft = (patch: Record<string, any>) => {
+    if (isEdit) return;
+    saveFormDraft('cashbox-new', {
+      code, name, currencyCode, treasurerEmployeeId, branchId, ...patch,
+    });
+  };
+
   const mut = useMutation({
-    mutationFn: () =>
-      api.post('/treasury/accounts', {
+    mutationFn: () => {
+      if (isEdit && editingCashbox) {
+        return api.patch(`/treasury/accounts/${editingCashbox.id}`, {
+          code: code || editingCashbox.code,
+          name: name.trim(),
+          treasurerEmployeeId: treasurerEmployeeId || null,
+          branchId: branchId || null,
+        });
+      }
+      return api.post('/treasury/accounts', {
         kind: 'CASH',
         code: code || `CSH-${Date.now().toString().slice(-4)}`,
-        name,
+        name: name.trim(),
         bankName: 'الخزينة النقدية',
         currencyCode,
         autoCreateGlAccount,
@@ -292,8 +313,12 @@ function AddCashboxModal({
         branchId: branchId || undefined,
         openingBalance: Number(openingBalance || 0),
         openingDate,
-      }),
-    onSuccess,
+      });
+    },
+    onSuccess: () => {
+      if (!isEdit) clearFormDraft('cashbox-new');
+      onSuccess();
+    },
     onError: (e) => toast.error(e),
   });
 
@@ -301,41 +326,54 @@ function AddCashboxModal({
     <Modal
       open
       onClose={onClose}
-      title="إضافة خزينة / صندوق نقدي جديد"
-      size="lg"
+      title={isEdit ? `تعديل الخزينة: ${editingCashbox?.name}` : 'إضافة خزينة / صندوق نقدي جديد'}
+      size="xl"
+      dirty={Boolean(code || name)}
       saving={mut.isPending}
+      onSaveShortcut={() => !mut.isPending && name.trim() && mut.mutate()}
       footer={
         <div className="flex items-center gap-2">
           <button type="button" className="btn-secondary text-xs" onClick={onClose}>إلغاء</button>
           <button type="button" className="btn-primary text-xs flex items-center gap-1.5" disabled={mut.isPending || !name.trim()} onClick={() => mut.mutate()}>
             {mut.isPending && <Spinner className="size-3.5" />}
-            حفظ الخزينة وإنشاء الربط المحاسبي
+            {isEdit ? 'حفظ تعديلات الخزينة' : 'حفظ الخزينة وإنشاء الربط المحاسبي'}
           </button>
         </div>
       }
     >
-      <div className="space-y-4 text-xs">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <form
+        data-erp-form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) mut.mutate();
+        }}
+        onKeyDown={(e) => handleErpFormKeyDown(e, { onSave: () => !mut.isPending && name.trim() && mut.mutate() })}
+        className="space-y-4 text-xs"
+      >
+        <FormSection title="بيانات الخزينة والربط التنظيمي" columns={3}>
           <Field label="كود الخزينة">
-            <input dir="ltr" className="input w-full font-mono" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="CSH-02" />
+            <input dir="ltr" className="input w-full font-mono" value={code} onChange={(e) => { const v = e.target.value.toUpperCase(); setCode(v); persistDraft({ code: v }); }} placeholder="CSH-02" />
           </Field>
-          <Field label="اسم الخزينة / الصندوق *" required className="md:col-span-2">
-            <input autoFocus className="input w-full font-bold" value={name} onChange={(e) => setName(e.target.value)} placeholder="مثال: خزينة الإدارة الرئيسية / خزينة المصروفات النثرية" />
+          <Field label="اسم الخزينة / الصندوق" required className="md:col-span-2">
+            <input autoFocus className="input w-full font-bold" value={name} onChange={(e) => { setName(e.target.value); persistDraft({ name: e.target.value }); }} placeholder="مثال: خزينة الإدارة الرئيسية / خزينة المصروفات النثرية" />
           </Field>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Field label="العملة">
-            <select className="input w-full font-mono font-bold" value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)}>
-              <option value="SAR">SAR — ريال سعودي</option>
-              <option value="EGP">EGP — جنيه مصري</option>
-              <option value="USD">USD — دولار أمريكي</option>
-            </select>
+          <Field label="العملة" required>
+            <SearchableSelect
+              clearable={false}
+              disabled={isEdit}
+              value={currencyCode}
+              onChange={(v) => { const c = v || 'SAR'; setCurrencyCode(c); persistDraft({ currencyCode: c }); }}
+              options={[
+                { value: 'SAR', label: 'SAR — ريال سعودي' },
+                { value: 'EGP', label: 'EGP — جنيه مصري' },
+                { value: 'USD', label: 'USD — دولار أمريكي' },
+              ]}
+            />
           </Field>
           <Field label="أمين الصندوق / الموظف المسؤول (مركز تكلفة)">
             <SearchableSelect
               value={treasurerEmployeeId}
-              onChange={setTreasurerEmployeeId}
+              onChange={(v) => { setTreasurerEmployeeId(v); persistDraft({ treasurerEmployeeId: v }); }}
               placeholder="— اختر الموظف أمين الصندوق —"
               options={employees.map((e) => ({ value: e.id, label: `${e.code} — ${e.fullNameAr}` }))}
             />
@@ -343,39 +381,43 @@ function AddCashboxModal({
           <Field label="الفرع">
             <SearchableSelect
               value={branchId}
-              onChange={setBranchId}
+              onChange={(v) => { setBranchId(v); persistDraft({ branchId: v }); }}
               placeholder="— كل الفروع / المركز الرئيسي —"
               options={branches.map((b) => ({ value: b.id, label: b.nameAr }))}
             />
           </Field>
-        </div>
+        </FormSection>
 
-        <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5 bg-slate-50/70 dark:bg-slate-900/50">
-          <label className="flex items-center gap-2 font-bold cursor-pointer">
-            <input type="checkbox" checked={autoCreateGlAccount} onChange={(e) => setAutoCreateGlAccount(e.target.checked)} />
-            إنشاء حساب أستاذ فرعي تلقائياً لهذه الخزينة داخل شجرة الحسابات (تحت 1101 النقدية والبنوك)
-          </label>
-          {!autoCreateGlAccount && (
-            <Field label="اختر حساب الأستاذ العام المرتبط">
-              <SearchableSelect
-                clearable={false}
-                value={glAccountId}
-                onChange={setGlAccountId}
-                options={glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
-              />
-            </Field>
-          )}
-        </div>
+        {!isEdit && (
+          <>
+            <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5 bg-slate-50/70 dark:bg-slate-900/50">
+              <label className="flex items-center gap-2 font-bold cursor-pointer">
+                <input type="checkbox" checked={autoCreateGlAccount} onChange={(e) => setAutoCreateGlAccount(e.target.checked)} />
+                إنشاء حساب أستاذ فرعي تلقائياً لهذه الخزينة داخل شجرة الحسابات (تحت 1101 النقدية والبنوك)
+              </label>
+              {!autoCreateGlAccount && (
+                <Field label="اختر حساب الأستاذ العام المرتبط">
+                  <SearchableSelect
+                    clearable={false}
+                    value={glAccountId}
+                    onChange={setGlAccountId}
+                    options={glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
+                  />
+                </Field>
+              )}
+            </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field label="الرصيد الافتتاحي (اختياري — يولد قيداً افتتاحياً متزناً)">
-            <input type="number" step="any" min="0" className="input w-full font-mono font-bold" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} />
-          </Field>
-          <Field label="تاريخ القيد الافتتاحي">
-            <input type="date" className="input w-full font-mono" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
-          </Field>
-        </div>
-      </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Field label="الرصيد الافتتاحي (اختياري — يولد قيداً افتتاحياً متزناً)">
+                <input type="number" step="any" min="0" className="input w-full font-mono font-bold" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} />
+              </Field>
+              <Field label="تاريخ القيد الافتتاحي">
+                <input type="date" className="input w-full font-mono" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
+              </Field>
+            </div>
+          </>
+        )}
+      </form>
     </Modal>
   );
 }
