@@ -16,11 +16,13 @@ import {
   StatementLineCreate,
   StatementLineUpdate,
 } from '../application/accounts.service';
+import { BankTransferCreate, BankTransfersService } from '../application/bank-transfers.service';
 import { ClosingService } from '../application/closing.service';
 import { JournalService } from '../application/journal.service';
 import { LedgerService } from '../application/ledger.service';
 import { PostingEngine } from '../application/posting-engine';
 import { PostingRulesService, RuleCreate, RuleUpdate } from '../application/posting-rules.service';
+import { SyncJournalsService } from '../application/sync-journals.service';
 
 const id = new ZodPipe(uuid);
 const optUuid = uuid.nullable().optional();
@@ -364,6 +366,42 @@ export class JournalController {
     const companyId = activeCompanyId();
     const revId = await this.journal.reverse(companyId, jid, body.reason, body.reversalDate);
     return this.journal.get(companyId, revId);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @RequirePermission('acc.journal.delete')
+  async remove(@Param('id', id) jid: string) {
+    await this.journal.removeDraft(activeCompanyId(), jid);
+  }
+}
+
+@Controller('bank-transfers')
+export class BankTransfersController {
+  constructor(private readonly transfers: BankTransfersService) {}
+
+  @Get()
+  @RequirePermission('acc.bank.view')
+  list() {
+    return this.transfers.list(activeCompanyId());
+  }
+
+  @Post()
+  @RequirePermission('acc.bank.create')
+  create(@Body(new ZodPipe(BankTransferCreate)) body: z.infer<typeof BankTransferCreate>) {
+    return this.transfers.create(activeCompanyId(), body);
+  }
+}
+
+@Controller('accounting')
+export class AccountingSyncController {
+  constructor(private readonly syncSvc: SyncJournalsService) {}
+
+  @Post('sync-all-journals')
+  @HttpCode(200)
+  @RequirePermission('acc.journal.post')
+  syncAll() {
+    return this.syncSvc.syncAllOperationalJournals(activeCompanyId());
   }
 }
 

@@ -7,6 +7,7 @@ import { RequirePermission } from '../../iam/presentation/decorators';
 import {
   ZakatCalcInput, ZakatReturnCreate, ZakatService, ZakatSettingsUpdate,
 } from '../application/zakat.service';
+import { VatSettleInput, VatSettlementService } from '../application/vat-settlement.service';
 import {
   DecodeQrInput,
   DeviceComplianceCsidInput,
@@ -260,5 +261,23 @@ export class ZatcaController {
   @RequirePermission('sal.zatca.view')
   decodeQr(@Body(new ZodPipe(DecodeQrInput)) body: z.infer<typeof DecodeQrInput>) {
     return this.svc.decodeQr(body);
+  }
+}
+
+@Controller('vat-return')
+export class VatReturnController {
+  constructor(private readonly vatSvc: VatSettlementService) {}
+
+  @Get('settlements')
+  @RequirePermission('rpt.tax.view')
+  listSettlements() {
+    return this.vatSvc.listSettlements(activeCompanyId());
+  }
+
+  @Post('settle')
+  @HttpCode(200)
+  @RequirePermission('acc.journal.create')
+  settle(@Body(new ZodPipe(VatSettleInput)) body: z.infer<typeof VatSettleInput>) {
+    return this.vatSvc.settlePeriod(activeCompanyId(), body);
   }
 }

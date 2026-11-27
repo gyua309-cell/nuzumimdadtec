@@ -11,6 +11,10 @@ async function bootstrap() {
       const res = await migrate(currentEnv.DATABASE_URL, (msg) => new Logger('Migrator').log(msg));
       new Logger('Bootstrap').log(`Database migrations ready: applied=${res.applied.length}, skipped=${res.skipped.length}`);
     } catch (err: any) {
+      if (currentEnv.NODE_ENV === 'production') {
+        new Logger('Bootstrap').error(`Fatal database migration error in production: ${err.message}`);
+        process.exit(1);
+      }
       new Logger('Bootstrap').error(`Database migration warning: ${err.message}`);
     }
   }

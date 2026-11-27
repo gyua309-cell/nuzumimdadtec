@@ -128,6 +128,27 @@ export class RevenueAdjustmentsController {
   createRetroactive(@Body(new ZodPipe(RetroactiveAdjustmentCreate)) body: z.infer<typeof RetroactiveAdjustmentCreate>) {
     return this.svc.createRetroactiveAdjustment(activeCompanyId(), body);
   }
+
+  @Post(':id/submit')
+  @HttpCode(200)
+  @RequirePermission('rev.adjustment.create')
+  submitRetroactive(@Param('id', idPipe) id: string) {
+    return this.svc.submitRetroactiveAdjustment(activeCompanyId(), id);
+  }
+
+  @Post(':id/approve')
+  @HttpCode(200)
+  @RequirePermission('rev.adjustment.approve')
+  approveRetroactive(@Param('id', idPipe) id: string) {
+    return this.svc.approveRetroactiveAdjustment(activeCompanyId(), id);
+  }
+
+  @Post(':id/reject')
+  @HttpCode(200)
+  @RequirePermission('rev.adjustment.approve')
+  rejectRetroactive(@Param('id', idPipe) id: string, @Body() body?: { reason?: string }) {
+    return this.svc.rejectRetroactiveAdjustment(activeCompanyId(), id, body?.reason);
+  }
 }
 
 @Controller('overhead-policy')

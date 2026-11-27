@@ -9,13 +9,13 @@
     "tools/*"
   ],
   "scripts": {
-    "db:start": "npm run start -w @idham/devdb",
-    "db:stop": "npm run stop -w @idham/devdb",
+    "db:start": "docker compose up -d",
+    "db:stop": "docker compose stop",
     "db:migrate": "npm run migrate -w @idham/api",
-    "seed": "node tools/seed_demo_data.js",
     "dev:api": "npm run start:dev -w @idham/api",
     "dev:web": "npm run dev -w @idham/web",
     "test": "npm run test -w @idham/api",
+    "test:unit": "npm run test:unit -w @idham/api",
     "build": "npm run build --workspaces --if-present"
   },
   "engines": {

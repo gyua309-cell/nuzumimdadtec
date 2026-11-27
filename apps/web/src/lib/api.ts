@@ -64,6 +64,17 @@ export function getApiBaseUrl(): string {
   return '/api/v1';
 }
 
+export function isDemoFallbackEnabled(): boolean {
+  const flag = String(import.meta.env.VITE_ENABLE_DEMO_FALLBACK ?? '').trim().toLowerCase();
+  if (flag === 'false' || flag === '0') return false;
+  if (flag === 'true' || flag === '1') return true;
+  // When VITE_API_URL is configured (live backend) and no explicit opt-in is set, disable offline demo fallback.
+  const envUrl = String(import.meta.env.VITE_API_URL ?? '').trim();
+  if (envUrl) return false;
+  if (typeof window !== 'undefined' && localStorage.getItem('idham.api_url')) return false;
+  return true;
+}
+
 const OFFLINE_COOLDOWN_MS = 60_000;
 const offlineBaseUntil = new Map<string, number>();
 
@@ -90,7 +101,8 @@ let refreshing: Promise<boolean> | null = null;
 
 export async function refreshToken(): Promise<boolean> {
   const base = getApiBaseUrl();
-  if ((offlineBaseUntil.get(base) || 0) > Date.now()) return false;
+  const demoAllowed = isDemoFallbackEnabled();
+  if (demoAllowed && (offlineBaseUntil.get(base) || 0) > Date.now()) return false;
   if (!refreshing) {
     refreshing = (async () => {
       try {
@@ -111,7 +123,7 @@ export async function refreshToken(): Promise<boolean> {
           clearTimeout(t);
         }
       } catch {
-        offlineBaseUntil.set(base, Date.now() + OFFLINE_COOLDOWN_MS);
+        if (demoAllowed) offlineBaseUntil.set(base, Date.now() + OFFLINE_COOLDOWN_MS);
         return false;
       } finally {
         setTimeout(() => (refreshing = null), 0);
@@ -134,7 +146,8 @@ export function qs(q?: Query): string {
 async function request<T>(method: string, path: string, body?: unknown, opts: { query?: Query; headers?: Record<string, string>; retry?: boolean; raw?: boolean } = {}): Promise<T> {
   const fullPath = `${path}${qs(opts.query)}`;
   const base = getApiBaseUrl();
-  if ((offlineBaseUntil.get(base) || 0) > Date.now()) {
+  const demoAllowed = isDemoFallbackEnabled();
+  if (demoAllowed && (offlineBaseUntil.get(base) || 0) > Date.now()) {
     const cachedFallback = getDemoFallback(fullPath, method, body);
     if (cachedFallback !== undefined) return cachedFallback as T;
   }
@@ -155,15 +168,17 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
   try {
     res = await fetch(`${base}${fullPath}`, { method, headers, body: payload, credentials: 'include', signal: ctrl.signal });
   } catch (err: any) {
-    offlineBaseUntil.set(base, Date.now() + OFFLINE_COOLDOWN_MS);
-    const fallback = getDemoFallback(fullPath, method, body);
-    if (fallback !== undefined) return fallback as T;
+    if (demoAllowed) {
+      offlineBaseUntil.set(base, Date.now() + OFFLINE_COOLDOWN_MS);
+      const fallback = getDemoFallback(fullPath, method, body);
+      if (fallback !== undefined) return fallback as T;
+    }
     throw err;
   } finally {
     clearTimeout(timer);
   }
-  // Catch offline gateway or static-host 404/405/500 responses and serve responsive local engine fallback
-  if (!res.ok && (res.status === 404 || res.status === 405 || res.status >= 500)) {
+  // Catch offline gateway or static-host 404/405/500 responses only when demo fallback is permitted
+  if (demoAllowed && !res.ok && (res.status === 404 || res.status === 405 || res.status >= 500)) {
     const contentType = res.headers.get('content-type') || '';
     const isStaticHost = res.status === 404 && !contentType.includes('application/json');
     if (isStaticHost || res.status === 405 || res.status === 502 || res.status === 503 || res.status === 504 || res.status === 530) {

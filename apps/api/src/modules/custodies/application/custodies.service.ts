@@ -1207,4 +1207,19 @@ export class CustodiesService {
       custodians,
     };
   }
+
+  async removeDraft(companyId: string, id: string): Promise<void> {
+    await this.db.tx(async () => {
+      const c = await this.db.one<{ status: string }>(
+        'SELECT status FROM fin.custodies WHERE company_id = $1 AND id = $2 FOR UPDATE',
+        [companyId, id],
+      );
+      if (!c) throw new NotFoundError('Custody', id);
+      if (c.status !== 'DRAFT') {
+        throw new DomainError('CUSTODY_NOT_DRAFT', 'يمكن حذف طلبات العهد المسودة فقط');
+      }
+      await this.db.query('DELETE FROM fin.custody_settlement_lines WHERE custody_id = $1', [id]);
+      await this.db.query('DELETE FROM fin.custodies WHERE company_id = $1 AND id = $2', [companyId, id]);
+    });
+  }
 }

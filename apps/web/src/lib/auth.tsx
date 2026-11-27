@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import { api, refreshToken, session } from './api';
+import { api, isDemoFallbackEnabled, refreshToken, session } from './api';
 import { getStoredCompany } from './storage-company';
 
 export interface Me {
@@ -94,8 +94,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus('authenticated');
         return;
       }
-    } catch {
-      // Fall through to getDemoUser()
+    } catch (err) {
+      if (!isDemoFallbackEnabled()) {
+        session.setToken(null);
+        setMe(null);
+        setStatus('anonymous');
+        throw err;
+      }
+    }
+    if (!isDemoFallbackEnabled()) {
+      session.setToken(null);
+      setMe(null);
+      setStatus('anonymous');
+      return;
     }
     const demo = getDemoUser(preferredUsername);
     setMe(demo);
@@ -107,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleCompanyUpdate = () => {
-      loadMe();
+      loadMe().catch(() => undefined);
     };
     window.addEventListener('azm_company_updated', handleCompanyUpdate);
     return () => window.removeEventListener('azm_company_updated', handleCompanyUpdate);
@@ -128,17 +139,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await loadMe();
           return;
         }
-        const savedUser = getSavedLocalUsername();
-        if (savedUser) {
-          await loadMe(savedUser);
-          return;
+        if (isDemoFallbackEnabled()) {
+          const savedUser = getSavedLocalUsername();
+          if (savedUser) {
+            await loadMe(savedUser);
+            return;
+          }
         }
         setStatus('anonymous');
       } catch {
-        const savedUser = getSavedLocalUsername();
-        if (savedUser) {
-          await loadMe(savedUser);
-          return;
+        if (isDemoFallbackEnabled()) {
+          const savedUser = getSavedLocalUsername();
+          if (savedUser) {
+            await loadMe(savedUser).catch(() => setStatus('anonymous'));
+            return;
+          }
         }
         setStatus('anonymous');
       }
@@ -151,10 +166,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     companyId,
     company: me?.companies.find((c) => c.id === companyId) ?? null,
     login: async (username, password, remember = true) => {
-      saveLocalUsername(username, remember);
-      if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
-        await loadMe(username);
-        return;
+      if (isDemoFallbackEnabled()) {
+        saveLocalUsername(username, remember);
+        if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+          await loadMe(username);
+          return;
+        }
       }
       try {
         const t = await api.post<{ accessToken: string }>('/auth/login', { username, password });
@@ -163,8 +180,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await loadMe();
           return;
         }
-      } catch {
-        // Fall through to local/demo session
+        if (!isDemoFallbackEnabled()) {
+          throw new Error('بيانات الدخول غير صحيحة أو الخادم غير متصل');
+        }
+      } catch (err) {
+        if (!isDemoFallbackEnabled()) {
+          saveLocalUsername(null);
+          session.setToken(null);
+          throw err;
+        }
       }
 
       await loadMe(username);

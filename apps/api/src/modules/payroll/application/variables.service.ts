@@ -311,6 +311,25 @@ export class VariablesService {
     });
   }
 
+  async approveAllForPeriod(companyId: string, periodId?: string) {
+    return this.db.tx(async () => {
+      const params: unknown[] = [companyId];
+      let periodSql = '';
+      if (periodId) {
+        params.push(periodId);
+        periodSql = ` AND fiscal_period_id = $${params.length}`;
+      }
+      const rows = await this.db.query<{ id: string }>(
+        `UPDATE pay.monthly_variables
+            SET status = 'APPROVED', approved_by = sys.current_user_id(), approved_at = now(), updated_by = sys.current_user_id()
+          WHERE company_id = $1 AND status = 'DRAFT'${periodSql}
+          RETURNING id`,
+        params,
+      );
+      return { approvedCount: rows.length };
+    });
+  }
+
   async deleteMonthlyVariable(companyId: string, id: string) {
     const mv = await this.db.one<{ status: string }>('SELECT status FROM pay.monthly_variables WHERE company_id = $1 AND id = $2', [companyId, id]);
     if (!mv) throw new NotFoundError('MonthlyVariable', id);

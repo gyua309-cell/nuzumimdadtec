@@ -11,7 +11,7 @@ import { PostponeInstallment, CancelLoan, LoanCreate, LoansService } from '../ap
 const InstallmentPostpone = PostponeInstallment;
 const LoanCancel = CancelLoan;
 import { PayrollRunCancel, PayrollRunCreate, PayrollService } from '../application/payroll.service';
-import { EosbCalculationInput, EosbService } from '../application/eosb.service';
+import { EosbCalculationInput, EosbPostJournalInput, EosbService } from '../application/eosb.service';
 
 const idPipe = new ZodPipe(uuid);
 const listPipe = new ZodPipe(listQuery.passthrough());
@@ -94,6 +94,13 @@ export class VariablesController {
     return this.svc.approveMonthlyVariable(activeCompanyId(), id);
   }
 
+  @Post('approve-all')
+  @HttpCode(200)
+  @RequirePermission('pay.variable.approve')
+  approveAll(@Body() body?: { periodId?: string }) {
+    return this.svc.approveAllForPeriod(activeCompanyId(), body?.periodId);
+  }
+
   @Delete(':id')
   @HttpCode(204)
   @RequirePermission('pay.variable.delete')
@@ -146,6 +153,13 @@ export class LoansController {
   postpone(@Param('id', idPipe) id: string, @Body(new ZodPipe(InstallmentPostpone)) body: z.infer<typeof InstallmentPostpone>) {
     return this.svc.postponeInstallment(activeCompanyId(), id, body);
   }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @RequirePermission('pay.loan.delete')
+  async remove(@Param('id', idPipe) id: string) {
+    await this.svc.remove(activeCompanyId(), id);
+  }
 }
 
 // ---------------------------------------------------------------- payroll runs
@@ -184,6 +198,13 @@ export class PayrollController {
   cancel(@Param('id', idPipe) id: string, @Body(new ZodPipe(PayrollRunCancel)) body: z.infer<typeof PayrollRunCancel>) {
     return this.svc.cancel(activeCompanyId(), id, body);
   }
+
+  @Post(':id/pay')
+  @HttpCode(200)
+  @RequirePermission('pay.payment.create')
+  pay(@Param('id', idPipe) id: string, @Body() body?: { paymentDate?: string; bankAccountId?: string; reference?: string }) {
+    return this.svc.payRun(activeCompanyId(), id, body ?? {});
+  }
 }
 
 // ---------------------------------------------------------------- eosb (end of service benefits)
@@ -196,5 +217,12 @@ export class EosbController {
   @RequirePermission('pay.run.view')
   calculate(@Body(new ZodPipe(EosbCalculationInput)) body: z.infer<typeof EosbCalculationInput>) {
     return this.svc.calculateEosb(activeCompanyId(), body);
+  }
+
+  @Post('post-journal')
+  @HttpCode(200)
+  @RequirePermission('pay.run.post')
+  postJournal(@Body(new ZodPipe(EosbPostJournalInput)) body: z.infer<typeof EosbPostJournalInput>) {
+    return this.svc.postSettlementJournal(activeCompanyId(), body);
   }
 }

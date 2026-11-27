@@ -434,6 +434,31 @@ export class RevenueService {
     });
   }
 
+  private async getRetroactiveAdjustmentById(companyId: string, id: string) {
+    const row = await this.db.one(
+      `SELECT rl.id, rl.fiscal_period_id AS "fiscalPeriodId", fp.name AS "periodName",
+              rl.original_period_id AS "originalPeriodId", ofp.name AS "originalPeriodName",
+              rl.employee_id AS "employeeId", e.full_name_ar AS "employeeName", e.code AS "employeeCode",
+              rl.project_id AS "projectId", p.name_ar AS "projectName", p.code AS "projectCode",
+              c.name_ar AS "clientName",
+              rl.pricing_basis AS "pricingBasis", rl.unit_price::text AS "unitPrice",
+              rl.currency_code AS "currencyCode", rl.units::text, rl.gross_revenue::text AS "grossRevenue",
+              rl.gross_revenue_base::text AS "grossRevenueBase", rl.revenue_type AS "revenueType",
+              rl.adjustment_reason AS "adjustmentReason", rl.rejection_reason AS "rejectionReason",
+              rl.notes, rl.status, rl.created_at AS "createdAt"
+         FROM rev.revenue_lines rl
+         JOIN hr.employees e ON e.id = rl.employee_id
+         JOIN prj.projects p ON p.id = rl.project_id
+         JOIN prj.clients c ON c.id = p.client_id
+         JOIN core.fiscal_periods fp ON fp.id = rl.fiscal_period_id
+         LEFT JOIN core.fiscal_periods ofp ON ofp.id = rl.original_period_id
+        WHERE rl.company_id = $1 AND rl.id = $2`,
+      [companyId, id],
+    );
+    if (!row) throw new NotFoundError('RetroactiveAdjustment', id);
+    return row;
+  }
+
   async listRetroactiveAdjustments(companyId: string, periodId?: string) {
     const where = ['rl.company_id = $1', "rl.revenue_type = 'RETROACTIVE'"];
     const params: unknown[] = [companyId];
@@ -450,7 +475,8 @@ export class RevenueService {
               rl.pricing_basis AS "pricingBasis", rl.unit_price::text AS "unitPrice",
               rl.currency_code AS "currencyCode", rl.units::text, rl.gross_revenue::text AS "grossRevenue",
               rl.gross_revenue_base::text AS "grossRevenueBase", rl.revenue_type AS "revenueType",
-              rl.adjustment_reason AS "adjustmentReason", rl.notes, rl.status, rl.created_at AS "createdAt"
+              rl.adjustment_reason AS "adjustmentReason", rl.rejection_reason AS "rejectionReason",
+              rl.notes, rl.status, rl.created_at AS "createdAt"
        FROM rev.revenue_lines rl
        JOIN hr.employees e ON e.id = rl.employee_id
        JOIN prj.projects p ON p.id = rl.project_id
@@ -461,6 +487,63 @@ export class RevenueService {
        ORDER BY rl.created_at DESC`,
       params,
     );
+  }
+
+  async submitRetroactiveAdjustment(companyId: string, id: string) {
+    return this.db.tx(async () => {
+      const cur = await this.db.one<{ status: string }>(
+        `SELECT status FROM rev.revenue_lines WHERE company_id = $1 AND id = $2 AND revenue_type = 'RETROACTIVE' FOR UPDATE`,
+        [companyId, id],
+      );
+      if (!cur) throw new NotFoundError('RetroactiveAdjustment', id);
+      if (cur.status !== 'DRAFT') throw new DomainError('ADJUSTMENT_NOT_DRAFT', 'يمكن إرسال التسويات المسودة فقط للاعتماد');
+      await this.db.query(
+        `UPDATE rev.revenue_lines SET status = 'PENDING_APPROVAL', updated_at = now(), updated_by = sys.current_user_id() WHERE id = $1`,
+        [id],
+      );
+      return this.getRetroactiveAdjustmentById(companyId, id);
+    });
+  }
+
+  async approveRetroactiveAdjustment(companyId: string, id: string) {
+    return this.db.tx(async () => {
+      const cur = await this.db.one<{ status: string }>(
+        `SELECT status FROM rev.revenue_lines WHERE company_id = $1 AND id = $2 AND revenue_type = 'RETROACTIVE' FOR UPDATE`,
+        [companyId, id],
+      );
+      if (!cur) throw new NotFoundError('RetroactiveAdjustment', id);
+      if (cur.status !== 'DRAFT' && cur.status !== 'PENDING_APPROVAL') {
+        throw new DomainError('ADJUSTMENT_CANNOT_APPROVE', 'لا يمكن اعتماد تسوية في هذه الحالة');
+      }
+      await this.db.query(
+        `UPDATE rev.revenue_lines
+            SET status = 'POSTED', approved_by = sys.current_user_id(), approved_at = now(),
+                updated_at = now(), updated_by = sys.current_user_id()
+          WHERE id = $1`,
+        [id],
+      );
+      return this.getRetroactiveAdjustmentById(companyId, id);
+    });
+  }
+
+  async rejectRetroactiveAdjustment(companyId: string, id: string, reason?: string) {
+    return this.db.tx(async () => {
+      const cur = await this.db.one<{ status: string }>(
+        `SELECT status FROM rev.revenue_lines WHERE company_id = $1 AND id = $2 AND revenue_type = 'RETROACTIVE' FOR UPDATE`,
+        [companyId, id],
+      );
+      if (!cur) throw new NotFoundError('RetroactiveAdjustment', id);
+      if (cur.status === 'CANCELLED' || cur.status === 'REVERSED') {
+        throw new DomainError('ADJUSTMENT_ALREADY_CLOSED', 'التسوية ملغاة بالفعل');
+      }
+      await this.db.query(
+        `UPDATE rev.revenue_lines
+            SET status = 'CANCELLED', rejection_reason = $2, updated_at = now(), updated_by = sys.current_user_id()
+          WHERE id = $1`,
+        [id, reason ?? 'رفض التسوية بعد المراجعة'],
+      );
+      return this.getRetroactiveAdjustmentById(companyId, id);
+    });
   }
 
   // ==========================================================================

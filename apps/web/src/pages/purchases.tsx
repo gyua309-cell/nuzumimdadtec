@@ -1646,7 +1646,7 @@ export function PurchaseDebitNotesPage() {
                         title="إلغاء الفاتورة"
                         onClick={() => {
                           if (confirm(`إلغاء فاتورة المشتريات ${d.invoiceNo}؟`)) {
-                            api.post(`/pur/invoices/${d.id}/cancel`, { reason: 'إلغاء بناءً على طلب المستخدم' })
+                            api.post(`/purchase-invoices/${d.id}/cancel`, { reason: 'إلغاء بناءً على طلب المستخدم' })
                               .then(() => {
                                 toast.success('تم إلغاء الفاتورة');
                                 qc.invalidateQueries({ queryKey: ['/purchase-invoices'] });

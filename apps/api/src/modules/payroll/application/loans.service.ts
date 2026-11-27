@@ -196,6 +196,26 @@ export class LoansService {
     return this.get(companyId, id);
   }
 
+  /** Deletes a loan only when no installments have been deducted/paid. */
+  async remove(companyId: string, id: string) {
+    return this.db.tx(async () => {
+      const loan = await this.db.one<{ status: string }>(
+        'SELECT status FROM pay.loans WHERE company_id = $1 AND id = $2 FOR UPDATE',
+        [companyId, id],
+      );
+      if (!loan) throw new NotFoundError('Loan', id);
+      const deducted = await this.db.one<{ n: string }>(
+        `SELECT count(*) AS n FROM pay.loan_installments WHERE loan_id = $1 AND status = 'DEDUCTED'`,
+        [id],
+      );
+      if (Number(deducted?.n ?? 0) > 0) {
+        throw new DomainError('LOAN_HAS_DEDUCTIONS', 'لا يمكن حذف سلفة تم استقطاع أقساط منها؛ يمكنك إلغاؤها بدلاً من ذلك');
+      }
+      await this.db.query('DELETE FROM pay.loan_installments WHERE loan_id = $1', [id]);
+      await this.db.query('DELETE FROM pay.loans WHERE company_id = $1 AND id = $2', [companyId, id]);
+    });
+  }
+
   /** Returns all pending installments for a period (used by payroll run). */
   async pendingInstallmentsForPeriod(companyId: string, periodId: string) {
     return this.db.query<{ id: string; loanId: string; employeeId: string; dueAmount: string }>(

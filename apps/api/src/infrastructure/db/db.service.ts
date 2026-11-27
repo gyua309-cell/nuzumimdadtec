@@ -33,7 +33,7 @@ export class DbService implements OnModuleDestroy {
       connectionString: connStr,
       max: env().DB_POOL_MAX,
       application_name: 'idham-api',
-      ssl: isLocal ? false : { rejectUnauthorized: false },
+      ssl: isLocal ? false : { rejectUnauthorized: env().DB_SSL_REJECT_UNAUTHORIZED },
     });
     this.pool.on('error', (e) => this.logger.error(`pool error: ${e.message}`));
   }

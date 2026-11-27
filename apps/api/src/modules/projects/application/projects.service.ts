@@ -287,6 +287,32 @@ export class ProjectsService {
     });
   }
 
+  async removeProject(companyId: string, id: string): Promise<void> {
+    await this.db.tx(async () => {
+      const p = await this.db.one<{ status: string }>(
+        'SELECT status FROM prj.projects WHERE company_id = $1 AND id = $2 FOR UPDATE',
+        [companyId, id],
+      );
+      if (!p) throw new NotFoundError('Project', id);
+      if (p.status !== 'DRAFT' && p.status !== 'CANCELLED') {
+        throw new DomainError('PROJECT_IN_USE', 'لا يمكن حذف مشروع نشط؛ قم بإلغائه أو إغلاقه أولاً');
+      }
+      const linked = await this.db.one<{ n: string }>(
+        `SELECT (
+           (SELECT count(*) FROM prj.assignments WHERE project_id = $1) +
+           (SELECT count(*) FROM sal.invoices WHERE project_id = $1) +
+           (SELECT count(*) FROM rev.revenue_lines WHERE project_id = $1)
+         )::text AS n`,
+        [id],
+      );
+      if (Number(linked?.n ?? 0) > 0) {
+        throw new DomainError('PROJECT_HAS_TRANSACTIONS', 'لا يمكن حذف مشروع مرتبط بتخصيصات أو فواتير أو إيرادات');
+      }
+      await this.db.query('DELETE FROM prj.project_status_history WHERE project_id = $1', [id]);
+      await this.db.query('DELETE FROM prj.projects WHERE company_id = $1 AND id = $2', [companyId, id]);
+    });
+  }
+
   /**
    * Ends every assignment of the project at `endDate`. Assignments that would
    * start after that date are removed; touching a CLOSED period is refused by

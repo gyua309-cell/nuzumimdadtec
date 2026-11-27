@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: idham-erp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: idham_owner
+      POSTGRES_PASSWORD: idham_dev_only_password
+      POSTGRES_DB: idham
+    ports:
+      - "54329:5432"
+    volumes:
+      - idham_pgdata:/var/lib/postgresql/data
+      - ./docker/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U idham_owner -d idham"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  idham_pgdata:

@@ -1,15 +1,19 @@
 import { Global, Module } from '@nestjs/common';
 import { AccountsService } from './application/accounts.service';
+import { BankTransfersService } from './application/bank-transfers.service';
 import { CloseCheckRegistry, ClosingService } from './application/closing.service';
 import { CostCentersReportService } from './application/cost-centers-report.service';
 import { JournalService } from './application/journal.service';
 import { LedgerService } from './application/ledger.service';
 import { AccountResolverRegistry, PostingEngine } from './application/posting-engine';
 import { PostingRulesService } from './application/posting-rules.service';
+import { SyncJournalsService } from './application/sync-journals.service';
 import {
+  AccountingSyncController,
   AccountsController,
   AuditController,
   BankAccountsController,
+  BankTransfersController,
   bankAccountRepoProvider,
   ClosingController,
   JournalController,
@@ -29,6 +33,8 @@ import { ReportsController } from './presentation/reports.controller';
     AccountsController,
     StatementLinesController,
     BankAccountsController,
+    BankTransfersController,
+    AccountingSyncController,
     PostingRulesController,
     JournalController,
     LedgerController,
@@ -38,7 +44,9 @@ import { ReportsController } from './presentation/reports.controller';
   ],
   providers: [
     AccountsService,
+    BankTransfersService,
     JournalService,
+    SyncJournalsService,
     PostingRulesService,
     AccountResolverRegistry,
     PostingEngine,
@@ -48,6 +56,6 @@ import { ReportsController } from './presentation/reports.controller';
     ClosingService,
     bankAccountRepoProvider,
   ],
-  exports: [AccountsService, JournalService, PostingRulesService, AccountResolverRegistry, PostingEngine, LedgerService, CostCentersReportService, CloseCheckRegistry, ClosingService],
+  exports: [AccountsService, BankTransfersService, JournalService, SyncJournalsService, PostingRulesService, AccountResolverRegistry, PostingEngine, LedgerService, CostCentersReportService, CloseCheckRegistry, ClosingService],
 })
 export class AccountingModule {}

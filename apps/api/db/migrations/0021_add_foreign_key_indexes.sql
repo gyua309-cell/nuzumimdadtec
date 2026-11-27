@@ -19,7 +19,6 @@ CREATE INDEX IF NOT EXISTS ix_journal_entries_company_status ON acc.journal_entr
 CREATE INDEX IF NOT EXISTS ix_invoices_client_id ON sal.invoices(client_id);
 CREATE INDEX IF NOT EXISTS ix_invoices_project_id ON sal.invoices(project_id);
 CREATE INDEX IF NOT EXISTS ix_invoices_period_id ON sal.invoices(fiscal_period_id);
-CREATE INDEX IF NOT EXISTS ix_invoices_branch_id ON sal.invoices(branch_id);
 CREATE INDEX IF NOT EXISTS ix_invoice_lines_invoice_id ON sal.invoice_lines(invoice_id);
 CREATE INDEX IF NOT EXISTS ix_invoice_lines_employee_id ON sal.invoice_lines(employee_id);
 
@@ -28,26 +27,25 @@ CREATE INDEX IF NOT EXISTS ix_projects_client_id ON prj.projects(client_id);
 CREATE INDEX IF NOT EXISTS ix_projects_branch_id ON prj.projects(branch_id);
 CREATE INDEX IF NOT EXISTS ix_assignments_project_id ON prj.assignments(project_id);
 CREATE INDEX IF NOT EXISTS ix_assignments_employee_id ON prj.assignments(employee_id);
-CREATE INDEX IF NOT EXISTS ix_assignments_period_id ON prj.assignments(fiscal_period_id);
+CREATE INDEX IF NOT EXISTS ix_assignments_dates ON prj.assignments(company_id, effective_from, effective_to);
 
 -- HR & Placement
-CREATE INDEX IF NOT EXISTS ix_employees_branch_id ON hr.employees(branch_id);
-CREATE INDEX IF NOT EXISTS ix_employees_department_id ON hr.employees(department_id);
-CREATE INDEX IF NOT EXISTS ix_employees_position_id ON hr.employees(position_id);
-CREATE INDEX IF NOT EXISTS ix_employee_contracts_employee_id ON hr.employee_contracts(employee_id);
-CREATE INDEX IF NOT EXISTS ix_cost_profile_lines_profile_id ON hr.cost_profile_lines(cost_profile_id);
+CREATE INDEX IF NOT EXISTS ix_job_assignments_emp ON hr.employee_job_assignments(employee_id);
+CREATE INDEX IF NOT EXISTS ix_job_assignments_branch ON hr.employee_job_assignments(branch_id);
+CREATE INDEX IF NOT EXISTS ix_job_assignments_dept ON hr.employee_job_assignments(department_id);
+CREATE INDEX IF NOT EXISTS ix_job_assignments_pos ON hr.employee_job_assignments(position_id);
+CREATE INDEX IF NOT EXISTS ix_employee_compensations_emp ON hr.employee_compensations(employee_id);
+CREATE INDEX IF NOT EXISTS ix_cost_profile_components_profile ON hr.cost_profile_components(profile_id);
 
 -- Custodies & Petty Cash
 CREATE INDEX IF NOT EXISTS ix_custodies_employee_id ON fin.custodies(employee_id);
-CREATE INDEX IF NOT EXISTS ix_custodies_branch_id ON fin.custodies(branch_id);
 CREATE INDEX IF NOT EXISTS ix_custody_settlement_lines_custody_id ON fin.custody_settlement_lines(custody_id);
 CREATE INDEX IF NOT EXISTS ix_custody_settlement_lines_account_id ON fin.custody_settlement_lines(expense_account_id);
-CREATE INDEX IF NOT EXISTS ix_bank_transfers_custody_id ON fin.bank_transfers(custody_id);
+CREATE INDEX IF NOT EXISTS ix_custody_transfers_custody_id ON fin.custody_transfers(custody_id);
 
 -- Purchases & Payables
 CREATE INDEX IF NOT EXISTS ix_purchase_invoices_vendor_id ON pur.purchase_invoices(vendor_id);
-CREATE INDEX IF NOT EXISTS ix_purchase_invoices_branch_id ON pur.purchase_invoices(branch_id);
-CREATE INDEX IF NOT EXISTS ix_purchase_invoice_lines_invoice_id ON pur.purchase_invoice_lines(invoice_id);
+CREATE INDEX IF NOT EXISTS ix_purchase_invoice_lines_invoice_id ON pur.purchase_invoice_lines(purchase_invoice_id);
 
 -- Payroll
 CREATE INDEX IF NOT EXISTS ix_payroll_runs_period_id ON pay.payroll_runs(fiscal_period_id);

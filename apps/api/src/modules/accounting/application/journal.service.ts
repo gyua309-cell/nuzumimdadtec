@@ -354,6 +354,17 @@ export class JournalService {
     }, { reason });
   }
 
+  async removeDraft(companyId: string, id: string): Promise<void> {
+    await this.db.tx(async () => {
+      const e = await this.lockEntry(companyId, id);
+      if (e.status !== 'DRAFT') {
+        throw new DomainError('JE_NOT_DRAFT', 'يمكن حذف مسودات القيود اليومية فقط');
+      }
+      await this.db.query('DELETE FROM acc.journal_lines WHERE entry_id = $1', [id]);
+      await this.db.query('DELETE FROM acc.journal_entries WHERE company_id = $1 AND id = $2', [companyId, id]);
+    });
+  }
+
   // ------------------------------------------------------------------ queries
   async get(companyId: string, id: string) {
     const header = await this.db.one(

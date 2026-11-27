@@ -35,6 +35,11 @@ const EnvSchema = z.object({
     .string()
     .default('true')
     .transform((v) => v === 'true'),
+  DB_SSL_REJECT_UNAUTHORIZED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  ZATCA_ENCRYPTION_KEY: z.string().optional(),
   DB_POOL_MAX: z.coerce.number().int().positive().default(20),
 });
 
@@ -56,6 +61,10 @@ export function env(): AppEnv {
     }
     if (!parsed.data.COOKIE_SECURE) {
       throw new Error('COOKIE_SECURE must be true in production');
+    }
+    const zatcaKey = (parsed.data.ZATCA_ENCRYPTION_KEY || '').trim();
+    if (zatcaKey.length < 32 || zatcaKey.includes('change-me')) {
+      throw new Error('ZATCA_ENCRYPTION_KEY (minimum 32 characters) is required in production');
     }
   }
   cached = parsed.data;

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { listQuery, uuid } from '../../../shared/http/common';
 import { activeCompanyId } from '../../../shared/http/request';
@@ -105,5 +105,12 @@ export class CustodiesController {
   @RequirePermission('fin.custody.close')
   close(@Param('id', idPipe) id: string, @Body(new ZodPipe(CustodyClose)) body: z.infer<typeof CustodyClose>) {
     return this.svc.closeCustody(activeCompanyId(), id, body);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @RequirePermission('fin.custody.cancel')
+  async remove(@Param('id', idPipe) id: string) {
+    await this.svc.removeDraft(activeCompanyId(), id);
   }
 }

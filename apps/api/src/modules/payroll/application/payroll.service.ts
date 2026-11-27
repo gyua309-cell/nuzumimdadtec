@@ -405,10 +405,15 @@ export class PayrollService {
               COALESCE(r.total_payout_egp, 0) AS "totalPayoutEgp",
               r.journal_entry_id AS "journalEntryId",
               je.entry_no AS "journalEntryNo", r.posted_at AS "postedAt",
+              COALESCE(r.payment_status, 'UNPAID') AS "paymentStatus",
+              r.payment_date::text AS "paymentDate",
+              r.payment_journal_entry_id AS "paymentJournalEntryId",
+              pje.entry_no AS "paymentJournalEntryNo",
               r.notes, r.created_at AS "createdAt", r.row_version AS "rowVersion"
          FROM pay.payroll_runs r
          JOIN core.fiscal_periods fp ON fp.id = r.fiscal_period_id
          LEFT JOIN acc.journal_entries je ON je.id = r.journal_entry_id
+         LEFT JOIN acc.journal_entries pje ON pje.id = r.payment_journal_entry_id
         WHERE r.company_id = $1
         ORDER BY ${orderBy(q.sort, { runNo: 'r.run_no', createdAt: 'r.created_at' }, 'r.run_no DESC')}
         LIMIT ${q.pageSize} OFFSET ${offset(q)}`,
@@ -428,11 +433,16 @@ export class PayrollService {
               COALESCE(r.total_payout_egp, 0) AS "totalPayoutEgp",
               r.journal_entry_id AS "journalEntryId",
               je.entry_no AS "journalEntryNo", r.posted_at AS "postedAt",
+              COALESCE(r.payment_status, 'UNPAID') AS "paymentStatus",
+              r.payment_date::text AS "paymentDate",
+              r.payment_journal_entry_id AS "paymentJournalEntryId",
+              pje.entry_no AS "paymentJournalEntryNo",
               r.cancel_reason AS "cancelReason", r.notes, r.created_at AS "createdAt",
               r.updated_at AS "updatedAt", r.row_version AS "rowVersion"
          FROM pay.payroll_runs r
          JOIN core.fiscal_periods fp ON fp.id = r.fiscal_period_id
          LEFT JOIN acc.journal_entries je ON je.id = r.journal_entry_id
+         LEFT JOIN acc.journal_entries pje ON pje.id = r.payment_journal_entry_id
         WHERE r.company_id = $1 AND r.id = $2`,
       [companyId, id],
     );
@@ -516,5 +526,92 @@ export class PayrollService {
       },
       { reason: input.reason },
     );
+  }
+
+  async payRun(companyId: string, runId: string, input: { paymentDate?: string; bankAccountId?: string; reference?: string }) {
+    return this.db.tx(async () => {
+      const run = await this.db.one<{
+        id: string; run_no: string; status: string; payment_status: string;
+        payment_journal_entry_id: string | null; net_payable_base: string; fiscal_period_id: string;
+      }>(
+        `SELECT id, run_no, status, COALESCE(payment_status, 'UNPAID') AS payment_status,
+                payment_journal_entry_id, net_payable_base::text, fiscal_period_id
+           FROM pay.payroll_runs
+          WHERE company_id = $1 AND id = $2 FOR UPDATE`,
+        [companyId, runId],
+      );
+      if (!run) throw new NotFoundError('PayrollRun', runId);
+      if (run.status !== 'POSTED') {
+        throw new DomainError('PAYROLL_RUN_NOT_POSTED', 'يجب اعتماد وترحيل مسير الرواتب أولاً قبل صرفه');
+      }
+      if (run.payment_status === 'PAID' && run.payment_journal_entry_id) {
+        return this.get(companyId, runId);
+      }
+
+      const netAmt = D(run.net_payable_base || 0);
+      if (netAmt.lte(0)) {
+        throw new DomainError('PAYROLL_ZERO_NET', 'صافي الرواتب المستحقة يساوي صفر');
+      }
+
+      const payDate = input.paymentDate || new Date().toISOString().slice(0, 10);
+      const bank = input.bankAccountId
+        ? await this.db.one<{ gl_account_id: string; currency_code: string; name: string }>(
+            `SELECT gl_account_id, currency_code, name FROM acc.bank_accounts WHERE company_id = $1 AND id = $2`,
+            [companyId, input.bankAccountId],
+          )
+        : await this.db.one<{ gl_account_id: string; currency_code: string; name: string }>(
+            `SELECT b.gl_account_id, b.currency_code, b.name
+               FROM acc.bank_accounts b
+               JOIN core.companies c ON c.id = b.company_id
+              WHERE b.company_id = $1 AND b.is_active
+              ORDER BY (b.currency_code = c.base_currency_code) DESC, b.code ASC LIMIT 1`,
+            [companyId],
+          );
+
+      let bankGlId = bank?.gl_account_id;
+      if (!bankGlId) {
+        const acc = await this.db.one<{ id: string }>(
+          `SELECT id FROM acc.accounts WHERE company_id = $1 AND is_posting AND is_active
+              AND (code IN ('10201','1110','1120') OR subtype IN ('BANK','CASH'))
+            ORDER BY code ASC LIMIT 1`,
+          [companyId],
+        );
+        bankGlId = acc?.id;
+      }
+      if (!bankGlId) throw new DomainError('BANK_ACCOUNT_MISSING', 'لم يتم العثور على حساب بنكي/نقدي للصرف');
+
+      const liabAcc = await this.db.one<{ id: string }>(
+        `SELECT id FROM acc.accounts WHERE company_id = $1 AND is_posting AND is_active
+            AND (code IN ('20401','2200') OR subtype = 'PAYROLL_LIABILITY')
+          ORDER BY (code = '20401') DESC, code ASC LIMIT 1`,
+        [companyId],
+      );
+      if (!liabAcc) throw new DomainError('PAYROLL_LIABILITY_MISSING', 'لم يتم العثور على حساب رواتب وأجور مستحقة (20401)');
+
+      const base = await this.fx.baseCurrency(companyId);
+      const entryId = await this.journal.createAndPost(companyId, {
+        entryDate: payDate,
+        journalType: 'PAYMENT',
+        sourceModule: 'payroll',
+        sourceType: 'PAYROLL_PAYMENT',
+        sourceId: run.id,
+        reference: input.reference || `WPS-${run.run_no}`,
+        currencyCode: base.code,
+        description: `صرف وتحويل صافي الرواتب البنكية (WPS) — مسير ${run.run_no}`,
+        lines: [
+          { accountId: liabAcc.id, debit: netAmt.toFixed(2), description: `إقفال التزام الرواتب المستحقة — مسير ${run.run_no}` },
+          { accountId: bankGlId, credit: netAmt.toFixed(2), description: `تحويل رواتب الموظفين من البنك — مسير ${run.run_no}` },
+        ],
+      });
+
+      await this.db.query(
+        `UPDATE pay.payroll_runs
+            SET payment_status = 'PAID', payment_date = $2::date, payment_journal_entry_id = $3,
+                updated_by = sys.current_user_id()
+          WHERE id = $1`,
+        [run.id, payDate, entryId],
+      );
+      return this.get(companyId, runId);
+    });
   }
 }

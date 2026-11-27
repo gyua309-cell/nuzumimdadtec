@@ -86,6 +86,13 @@ export class ProjectsController {
   status(@Param('id', id) pid: string, @Body(new ZodPipe(ProjectStatusChange)) body: z.infer<typeof ProjectStatusChange>) {
     return this.svc.changeStatus(activeCompanyId(), pid, body);
   }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @RequirePermission('prj.project.delete')
+  async remove(@Param('id', id) pid: string) {
+    await this.svc.removeProject(activeCompanyId(), pid);
+  }
 }
 
 // ------------------------------------------------------------------ assignments
