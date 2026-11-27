@@ -122,6 +122,11 @@ const CashFlowReportPage = lazyNamed(() => import('./pages/cash-flow-report'), '
 const EquityChangesReportPage = lazyNamed(() => import('./pages/equity-changes-report'), 'EquityChangesReportPage');
 const EmployeeWorkloadCardsPage = lazyNamed(() => import('./pages/employee-workload-cards'), 'EmployeeWorkloadCardsPage');
 const BanksHubPage = lazyNamed(() => import('./pages/banks-hub'), 'BanksHubPage');
+const TreasuryHubPage = lazyNamed(() => import('./pages/treasury-hub'), 'TreasuryHubPage');
+const CashboxesPage = lazyNamed(() => import('./pages/cashboxes'), 'CashboxesPage');
+const ReceiptVouchersPage = lazyNamed(() => import('./pages/vouchers'), 'ReceiptVouchersPage');
+const PaymentVouchersPage = lazyNamed(() => import('./pages/vouchers'), 'PaymentVouchersPage');
+const ChequesPage = lazyNamed(() => import('./pages/cheques'), 'ChequesPage');
 const AccountsReceivableAgingReportPage = lazyNamed(() => import('./pages/ar-aging-report'), 'AccountsReceivableAgingReportPage');
 const EmployeeProfitabilityReportPage = lazyNamed(() => import('./pages/employee-profitability-report'), 'EmployeeProfitabilityReportPage');
 
@@ -216,6 +221,12 @@ function Root() {
           <Route path="pur/invoices/:id" element={<PurchaseInvoiceDetailPage />} />
           <Route path="pur/debit-notes" element={<PurchaseDebitNotesPage />} />
           <Route path="fin/custodies" element={<CustodiesPage />} />
+          <Route path="treasury/hub" element={<TreasuryHubPage />} />
+          <Route path="treasury/banks" element={<BanksHubPage />} />
+          <Route path="treasury/cashboxes" element={<CashboxesPage />} />
+          <Route path="treasury/receipts" element={<ReceiptVouchersPage />} />
+          <Route path="treasury/payments" element={<PaymentVouchersPage />} />
+          <Route path="treasury/cheques" element={<ChequesPage />} />
           <Route path="acc/accounts" element={<AccountsPage />} />
           <Route path="acc/banks" element={<BanksHubPage />} />
           <Route path="acc/posting-rules" element={<PostingRulesPage />} />

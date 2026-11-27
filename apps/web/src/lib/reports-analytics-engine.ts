@@ -534,11 +534,21 @@ export function computeDynamicCostCentersReport(
     })
     .sort((a, b) => Number(b.totalCost) - Number(a.totalCost));
 
+  const allVouchers = getEntityList<any>('treasury_vouchers', []).filter(
+    (v) => v.status === 'POSTED' && (!win.from || String(v.voucherDate) >= win.from) && (!win.to || String(v.voucherDate) <= win.to),
+  );
+  const allCheques = getEntityList<any>('cheques', []).filter(
+    (c) => c.status !== 'CANCELLED' && c.status !== 'BOUNCED' && (!win.from || String(c.issueDate) >= win.from) && (!win.to || String(c.issueDate) <= win.to),
+  );
+
   const byEmployee = Array.from(ccEmpMap.values())
     .map((x) => {
       const totalCost = x.payrollAndDirectCost + x.otherExpense;
       const net = x.revenueGenerated - totalCost;
       const marginPct = x.revenueGenerated > 0.005 ? ((net / x.revenueGenerated) * 100).toFixed(1) : '0.0';
+      const empReceipts = allVouchers.filter((v) => v.employeeId === x.employeeId && v.voucherType === 'RECEIPT');
+      const empPayments = allVouchers.filter((v) => v.employeeId === x.employeeId && v.voucherType === 'PAYMENT');
+      const empCheques = allCheques.filter((c) => c.employeeId === x.employeeId);
       return {
         costCenterId: x.costCenterId,
         costCenterCode: x.costCenterCode,
@@ -554,6 +564,12 @@ export function computeDynamicCostCentersReport(
         marginPct,
         projectNames: Array.from(x.projects),
         txCount: x.txCount,
+        receiptsCount: empReceipts.length,
+        receiptsTotal: empReceipts.reduce((s, v) => s + Number(v.amountBase || 0), 0).toFixed(2),
+        paymentsCount: empPayments.length,
+        paymentsTotal: empPayments.reduce((s, v) => s + Number(v.amountBase || 0), 0).toFixed(2),
+        chequesCount: empCheques.length,
+        chequesTotal: empCheques.reduce((s, c) => s + Number(c.amountBase || 0), 0).toFixed(2),
       };
     })
     .sort((a, b) => Number(b.totalCost) - Number(a.totalCost));

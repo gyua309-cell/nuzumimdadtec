@@ -9,7 +9,6 @@ import {
   defaultCostProfilesList,
   defaultVariableTypesList,
   defaultFiscalPeriodsList,
-  defaultBankAccountsList,
   defaultAssetCategoriesList,
   getOverheadPolicy,
   saveOverheadPolicy,
@@ -117,6 +116,24 @@ import {
   updateZatcaSettingsV2,
   validateInvoiceLocal,
 } from './zatca-local-engine';
+import {
+  bounceCheque,
+  cancelTreasuryVoucher,
+  cascadeDeleteEmployeeTreasury,
+  collectCheque,
+  createCheque,
+  createTreasuryAccount,
+  createTreasuryVoucher,
+  depositCheque,
+  ensureSyncedEmployeeCostCenter,
+  getEnrichedTreasuryAccounts,
+  getTreasuryOverview,
+  listBankReconciliations,
+  listCheques,
+  listTreasuryVouchers,
+  postTreasuryVoucher,
+  reconcileBankAccount,
+} from './treasury-engine';
 
 function round2Val(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -395,6 +412,8 @@ function cascadeDeleteEmployee(delEmp: any): void {
       if (zNext.length !== zList.length) replaceEntityList(zKey, zNext);
     }
   }
+
+  cascadeDeleteEmployeeTreasury(delEmp, (row) => belongsToEmployeeStrict(row, delEmp), removedJeIds);
 
   // 6. Journal entries: remove linked doc journals & non-manual entries whose lines belong exclusively to delEmp
   let jesChanged = modifiedJes.size > 0;
@@ -2160,20 +2179,41 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       return settleVatReturnPeriod(body);
     }
 
-    // --- Bank Accounts & Inter-Bank Transfers ---
-    if ((cleanActionPath === '/bank-accounts' || cleanActionPath === '/banks') && method === 'POST') {
-      getEntityList('bank_accounts', defaultBankAccountsList);
-      const gl = getNormalizedAccounts().find((a) => a.id === body?.glAccountId || a.code === body?.glAccountId);
-      return saveEntityItem('bank_accounts', {
-        id: body?.id || uid('bnk'),
-        isActive: true,
-        ...body,
-        glAccountCode: gl?.code || body?.glAccountCode || '10201',
-        glAccountNameAr: gl?.nameAr || body?.glAccountNameAr || 'النقدية بالبنوك',
-      });
+    // --- Treasury, Cashboxes, Banks, Receipt & Payment Vouchers, Cheques & Bank Reconciliation ---
+    if ((cleanActionPath === '/bank-accounts' || cleanActionPath === '/banks' || cleanActionPath === '/treasury/accounts') && method === 'POST') {
+      return createTreasuryAccount(body);
     }
     if (cleanActionPath === '/bank-transfers' && method === 'POST') {
       return executeInterBankTransfer(body);
+    }
+    if (cleanActionPath === '/treasury/vouchers' && method === 'POST') {
+      return createTreasuryVoucher(body);
+    }
+    if (cleanActionPath.startsWith('/treasury/vouchers/') && cleanActionPath.endsWith('/post') && method === 'POST') {
+      const id = cleanActionPath.split('/')[3];
+      return postTreasuryVoucher(id);
+    }
+    if (cleanActionPath.startsWith('/treasury/vouchers/') && cleanActionPath.endsWith('/cancel') && method === 'POST') {
+      const id = cleanActionPath.split('/')[3];
+      return cancelTreasuryVoucher(id, body?.reason);
+    }
+    if (cleanActionPath === '/treasury/cheques' && method === 'POST') {
+      return createCheque(body);
+    }
+    if (cleanActionPath.startsWith('/treasury/cheques/') && cleanActionPath.endsWith('/deposit') && method === 'POST') {
+      const id = cleanActionPath.split('/')[3];
+      return depositCheque(id, body);
+    }
+    if (cleanActionPath.startsWith('/treasury/cheques/') && cleanActionPath.endsWith('/collect') && method === 'POST') {
+      const id = cleanActionPath.split('/')[3];
+      return collectCheque(id, body);
+    }
+    if (cleanActionPath.startsWith('/treasury/cheques/') && cleanActionPath.endsWith('/bounce') && method === 'POST') {
+      const id = cleanActionPath.split('/')[3];
+      return bounceCheque(id, body);
+    }
+    if (cleanActionPath === '/treasury/reconciliations' && method === 'POST') {
+      return reconcileBankAccount(body);
     }
 
     if (targetKey) {
@@ -2225,6 +2265,11 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           if (!body.id) {
             body.id = uid('emp');
           }
+          if (!body.costCenterId && !body.placement?.costCenterId) {
+            body.costCenterId = ensureSyncedEmployeeCostCenter(body);
+          } else {
+            body.costCenterId = body.costCenterId || body.placement?.costCenterId;
+          }
           // Populate initial placement & compensation histories
           body.placements = [
             {
@@ -2234,6 +2279,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
               departmentId: body.departmentId || body.placement?.departmentId || null,
               positionId: body.positionId || body.placement?.positionId || null,
               branchId: body.branchId || body.placement?.branchId || null,
+              costCenterId: body.costCenterId || null,
               departmentName: body.departmentName,
               positionTitle: body.positionTitle,
               branchName: body.branchName,
@@ -3754,6 +3800,45 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(lines);
   }
 
+  if (path.includes('/treasury/overview')) {
+    return getTreasuryOverview();
+  }
+
+  if (path.includes('/treasury/accounts')) {
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const kindParam = q.get('kind');
+    return getEnrichedTreasuryAccounts(kindParam === 'BANK' || kindParam === 'CASH' ? kindParam : undefined);
+  }
+
+  if (path.includes('/treasury/vouchers')) {
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return listTreasuryVouchers({
+      voucherType: q.get('voucherType') || undefined,
+      employeeId: q.get('employeeId') || undefined,
+      treasuryAccountId: q.get('treasuryAccountId') || undefined,
+      paymentMethod: q.get('paymentMethod') || undefined,
+      status: q.get('status') || undefined,
+      from: q.get('from') || undefined,
+      to: q.get('to') || undefined,
+      search: q.get('search') || undefined,
+    });
+  }
+
+  if (path.includes('/treasury/cheques')) {
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return listCheques({
+      direction: q.get('direction') || undefined,
+      status: q.get('status') || undefined,
+      employeeId: q.get('employeeId') || undefined,
+      search: q.get('search') || undefined,
+    });
+  }
+
+  if (path.includes('/treasury/reconciliations')) {
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    return listBankReconciliations(q.get('bankAccountId') || undefined);
+  }
+
   if (path.includes('/accounts/suggest-code')) {
     const p = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
     const parentId = p.get('parentId') || null;
@@ -3795,16 +3880,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/bank-accounts') || path.includes('/banks')) {
-    const accounts = getNormalizedAccounts();
-    const accMap = new Map(accounts.map((a) => [a.id, a]));
-    const banks = getEntityList('bank_accounts', defaultBankAccountsList).map((b: any) => {
-      const gl = accMap.get(b.glAccountId) || accounts.find((a) => a.code === b.glAccountCode);
-      return {
-        ...b,
-        glAccountCode: gl?.code || b.glAccountCode || '10201',
-        glAccountNameAr: gl?.nameAr || b.glAccountNameAr || 'النقدية بالبنوك',
-      };
-    });
+    const banks = getEnrichedTreasuryAccounts();
     const cleanB = path.split('?')[0].replace(/\/$/, '');
     const singleB = banks.find((b: any) => cleanB.endsWith(`/${b.id}`));
     if (singleB) return singleB;

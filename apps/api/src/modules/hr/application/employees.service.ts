@@ -240,7 +240,12 @@ export class EmployeesService {
          VALUES ($1, $2, NULL, 'ACTIVE', $3, 'HIRED', sys.current_user_id())`,
         [companyId, id, input.hireDate],
       );
-      await this.insertPlacement(companyId, id, input.placement, input.hireDate, 'HIRED');
+      let placementInput = { ...input.placement };
+      if (!placementInput.costCenterId) {
+        const ccEmp = await this.ensureEmployeeCostCenter(companyId, input.code, input.fullNameAr);
+        placementInput.costCenterId = ccEmp;
+      }
+      await this.insertPlacement(companyId, id, placementInput, input.hireDate, 'HIRED');
       if (input.compensation) await this.insertCompensation(companyId, id, input.compensation, input.hireDate, 'HIRED');
       if (input.costProfileId) {
         await supersede(this.db, { table: 'hr.employee_cost_profiles', companyId, keys: { employee_id: id } }, input.hireDate, {
@@ -249,6 +254,33 @@ export class EmployeesService {
       }
       return this.get(companyId, id);
     });
+  }
+
+  private async ensureEmployeeCostCenter(companyId: string, empCode: string, empNameAr: string): Promise<string | null> {
+    let parent = await this.db.one<{ id: string }>(
+      `SELECT id FROM core.cost_centers WHERE company_id = $1 AND code = 'CC-EMP'`,
+      [companyId],
+    );
+    if (!parent) {
+      parent = await this.db.one<{ id: string }>(
+        `INSERT INTO core.cost_centers (company_id, code, name_ar, name_en, cc_type, is_posting, is_active)
+         VALUES ($1,'CC-EMP','مراكز تكلفة الموظفين والكوادر','Employee Cost Centers','DIRECT',false,true)
+         ON CONFLICT (company_id, code) DO UPDATE SET is_active = true RETURNING id`,
+        [companyId],
+      );
+    }
+    const ccCode = `CC-${empCode}`.slice(0, 30);
+    const existing = await this.db.one<{ id: string }>(
+      `SELECT id FROM core.cost_centers WHERE company_id = $1 AND code = $2`,
+      [companyId, ccCode],
+    );
+    if (existing) return existing.id;
+    const created = await this.db.one<{ id: string }>(
+      `INSERT INTO core.cost_centers (company_id, parent_id, code, name_ar, cc_type, is_posting, is_active)
+       VALUES ($1,$2,$3,$4,'DIRECT',true,true) RETURNING id`,
+      [companyId, parent?.id ?? null, ccCode, `مركز تكلفة: ${empNameAr}`],
+    );
+    return created?.id ?? null;
   }
 
   private async insertPlacement(companyId: string, employeeId: string, p: z.infer<typeof PlacementInput>, from: string, reason: string) {

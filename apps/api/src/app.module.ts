@@ -15,6 +15,7 @@ import { CustodiesModule } from './modules/custodies/custodies.module';
 import { RevenueModule } from './modules/revenue/revenue.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { TaxModule } from './modules/tax/tax.module';
+import { TreasuryModule } from './modules/treasury/treasury.module';
 import { contextMiddleware } from './shared/http/context.middleware';
 
 @Controller('health')
@@ -44,6 +45,7 @@ class HealthController {
     SalesModule,
     PurchasesModule,
     CustodiesModule,
+    TreasuryModule,
     TaxModule,
   ],
   controllers: [HealthController],

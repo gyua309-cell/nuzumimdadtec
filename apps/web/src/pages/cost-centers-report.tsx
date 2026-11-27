@@ -717,11 +717,13 @@ export function CostCentersReportPage() {
                     <thead>
                       <tr>
                         <th>مركز التكلفة</th>
-                        <th>الموظف / الكادر</th>
+                        <th>الموظف / الكادر (مركز تكلفة)</th>
                         <th>المشاريع المرتبطة</th>
                         <th className="num">الإيراد المحقق</th>
                         <th className="num">تكلفة الرواتب المباشرة</th>
                         <th className="num">مصروفات أخرى</th>
+                        <th className="num">سندات قبض / صرف</th>
+                        <th className="num">شيكات</th>
                         <th className="num">إجمالي التكلفة</th>
                         <th className="num">صافي المساهمة</th>
                         <th className="num">الهامش %</th>
@@ -748,6 +750,10 @@ export function CostCentersReportPage() {
                             <td className="num text-emerald-700 dark:text-emerald-400 font-semibold">{money(r.revenueGenerated)}</td>
                             <td className="num">{money(r.payrollAndDirectCost)}</td>
                             <td className="num">{money(r.otherExpense)}</td>
+                            <td className="num text-xs font-mono">
+                              <span className="text-emerald-600">+{money(r.receiptsTotal || 0)}</span> / <span className="text-rose-600">-{money(r.paymentsTotal || 0)}</span>
+                            </td>
+                            <td className="num text-xs font-mono">{money(r.chequesTotal || 0)}</td>
                             <td className="num font-bold text-rose-700 dark:text-rose-400">{money(r.totalCost)}</td>
                             <td className={`num font-extrabold ${net >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
                               {money(r.netContribution)}

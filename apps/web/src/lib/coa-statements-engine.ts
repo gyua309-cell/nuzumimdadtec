@@ -117,6 +117,7 @@ export function createLineDimResolver() {
   const clients = getEntityList<any>('clients', []);
 
   const ccById = new Map(centers.map((c: any) => [c.id, c]));
+  const ccByCode = new Map(centers.map((c: any) => [String(c.code || '').toUpperCase(), c]));
   const prjById = new Map(prjs.map((p: any) => [p.id, p]));
   const prjByCode = new Map(prjs.map((p: any) => [p.code, p]));
   const empById = new Map(emps.map((e: any) => [e.id, e]));
@@ -129,7 +130,8 @@ export function createLineDimResolver() {
     const emp = (l.employeeId && (empById.get(l.employeeId) || empByCode.get(l.employeeId))) || null;
     const departmentId = l.departmentId || emp?.departmentId || emp?.placement?.departmentId || null;
     const dept = departmentId ? deptById.get(departmentId) : null;
-    const costCenterId = l.costCenterId || prj?.costCenterId || emp?.costCenterId || emp?.placement?.costCenterId || dept?.defaultCostCenterId || null;
+    const empAutoCc = emp ? (ccById.get(`cc-emp-${emp.id}`) || ccByCode.get(`CC-${String(emp.code || '').toUpperCase()}`)) : null;
+    const costCenterId = l.costCenterId || prj?.costCenterId || emp?.costCenterId || emp?.placement?.costCenterId || empAutoCc?.id || dept?.defaultCostCenterId || null;
     const cc = costCenterId ? ccById.get(costCenterId) : null;
     const clientId = l.clientId || prj?.clientId || null;
     const cli = clientId ? cliById.get(clientId) : null;
@@ -282,9 +284,11 @@ export const DEFAULT_POSTING_ACCOUNT_META: Record<
   }
 > = {
   '10101': { parentId: 'acc-h-1101', subtype: 'CASH', statementSection: 'CURRENT_ASSETS', statementLineId: 'sl-bs-ca', cashFlowCategory: 'CASH' },
+  '10102': { parentId: 'acc-h-1101', subtype: 'CASH', statementSection: 'CURRENT_ASSETS', statementLineId: 'sl-bs-ca', cashFlowCategory: 'CASH' },
   '10201': { parentId: 'acc-h-1101', subtype: 'BANK', statementSection: 'CURRENT_ASSETS', statementLineId: 'sl-bs-ca', cashFlowCategory: 'CASH' },
   '10202': { parentId: 'acc-h-1101', subtype: 'BANK', statementSection: 'CURRENT_ASSETS', statementLineId: 'sl-bs-ca', cashFlowCategory: 'CASH' },
   '10301': { parentId: 'acc-h-1102', subtype: 'RECEIVABLE', statementSection: 'CURRENT_ASSETS', statementLineId: 'sl-bs-ca', cashFlowCategory: 'OPERATING' },
+  '10305': { parentId: 'acc-h-1102', subtype: 'RECEIVABLE', statementSection: 'CURRENT_ASSETS', statementLineId: 'sl-bs-ca', cashFlowCategory: 'OPERATING' },
   '110301': { parentId: 'acc-h-1102', subtype: 'RECEIVABLE', statementSection: 'CURRENT_ASSETS', statementLineId: 'sl-bs-ca', cashFlowCategory: 'OPERATING' },
   '10401': { parentId: 'acc-h-1103', subtype: 'EMPLOYEE_RECEIVABLE', statementSection: 'CURRENT_ASSETS', statementLineId: 'sl-bs-ca', cashFlowCategory: 'OPERATING' },
   '1250': { parentId: 'acc-h-1103', subtype: 'TAX', statementSection: 'CURRENT_ASSETS', statementLineId: 'sl-bs-ca', cashFlowCategory: 'OPERATING' },
@@ -293,6 +297,7 @@ export const DEFAULT_POSTING_ACCOUNT_META: Record<
   '10501': { parentId: 'acc-h-1201', subtype: 'FIXED_ASSET', statementSection: 'NON_CURRENT_ASSETS', statementLineId: 'sl-bs-nca', cashFlowCategory: 'INVESTING' },
   '10502': { parentId: 'acc-h-1201', subtype: 'ACCUMULATED_DEPRECIATION', statementSection: 'NON_CURRENT_ASSETS', statementLineId: 'sl-bs-nca', cashFlowCategory: 'NON_CASH', isContra: true },
   '20101': { parentId: 'acc-h-2101', subtype: 'PAYABLE', statementSection: 'CURRENT_LIABILITIES', statementLineId: 'sl-bs-cl', cashFlowCategory: 'OPERATING' },
+  '20105': { parentId: 'acc-h-2101', subtype: 'PAYABLE', statementSection: 'CURRENT_LIABILITIES', statementLineId: 'sl-bs-cl', cashFlowCategory: 'OPERATING' },
   '20201': { parentId: 'acc-h-2102', subtype: 'TAX', statementSection: 'CURRENT_LIABILITIES', statementLineId: 'sl-bs-cl', cashFlowCategory: 'OPERATING' },
   '20301': { parentId: 'acc-h-2102', subtype: 'PAYROLL_LIABILITY', statementSection: 'CURRENT_LIABILITIES', statementLineId: 'sl-bs-cl', cashFlowCategory: 'OPERATING' },
   '20401': { parentId: 'acc-h-2102', subtype: 'PAYROLL_LIABILITY', statementSection: 'CURRENT_LIABILITIES', statementLineId: 'sl-bs-cl', cashFlowCategory: 'OPERATING' },

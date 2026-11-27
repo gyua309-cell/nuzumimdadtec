@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { ExportMenu } from '../components/ExportMenu';
 import { ExportEngine } from '../engine/export-engine';
-import { useAuth } from '../lib/auth';
+import { useAuth, useBaseCurrency } from '../lib/auth';
 import { date, money, today } from '../lib/format';
 import { Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Spinner, useToast } from '../components/ui';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
@@ -94,33 +94,30 @@ export function BanksHubPage() {
     },
   });
 
+  const base = useBaseCurrency();
+
   const stats = useMemo(() => {
-    let sarBalance = 0;
-    let egpBalance = 0;
-    let nbeBalance = 0;
-    let cashBalance = 0;
-
-    for (const b of bankAccounts) {
-      const bal = Number(b.balance || 0);
-      if (b.currencyCode === 'SAR') {
-        sarBalance += bal;
-      } else if (b.kind === 'CASH') {
-        cashBalance += bal;
-      } else if (b.code?.includes('NBE') || b.name?.includes('الأهلي')) {
-        nbeBalance += bal;
-      } else {
-        egpBalance += bal;
-      }
-    }
-
-    return { sarBalance, egpBalance, nbeBalance, cashBalance };
+    const banksOnly = bankAccounts.filter((b: any) => b.kind === 'BANK');
+    const cashOnly = bankAccounts.filter((b: any) => b.kind === 'CASH');
+    const bankBalance = banksOnly.reduce((s: number, b: any) => s + Number(b.balance || 0), 0);
+    const cashBalance = cashOnly.reduce((s: number, b: any) => s + Number(b.balance || 0), 0);
+    const totalInflows = bankAccounts.reduce((s: number, b: any) => s + Number(b.totalInflows || 0), 0);
+    const totalOutflows = bankAccounts.reduce((s: number, b: any) => s + Number(b.totalOutflows || 0), 0);
+    return {
+      bankCount: banksOnly.length,
+      cashCount: cashOnly.length,
+      bankBalance,
+      cashBalance,
+      totalInflows,
+      totalOutflows,
+    };
   }, [bankAccounts]);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="الحسابات البنكية والخزينة وصرافة العملات (Bank Accounts & Treasury)"
-        subtitle="إدارة الحسابات البنكية في بنوك الرياض والقاهرة، الخزائن النقدية، التحويلات بين البنوك، صرافة العملات، وتوليد القيود المحاسبية الآلية"
+        title="الحسابات البنكية والتحويلات وصرافة العملات (Banks & Transfers)"
+        subtitle="إدارة الحسابات البنكية الفعلية المربوطة بالأستاذ العام، التحويلات بين البنوك والخزائن، صرافة العملات، وتوليد القيود الآلية"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -143,6 +140,9 @@ export function BanksHubPage() {
               ]}
               data={bankAccounts}
             />
+            <Link to="/treasury/hub" className="btn btn-secondary text-xs">لوحة الخزينة</Link>
+            <Link to="/treasury/cashboxes" className="btn btn-secondary text-xs">الخزائن النقدية</Link>
+            <Link to="/treasury/cheques" className="btn btn-secondary text-xs">الشيكات</Link>
             <button
               onClick={() => setNewBankModalOpen(true)}
               className="btn btn-secondary text-xs flex items-center gap-1.5"
@@ -161,88 +161,72 @@ export function BanksHubPage() {
         }
       />
 
-      {/* 4 Executive Bank Account Cards */}
+      {/* 4 Live Dynamic Bank & Treasury Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Al-Rajhi SAR */}
         <div className="card cyber-card-blue p-5">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">مصرف الراجحي / الرياض (SAR)</span>
+            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">أرصدة الحسابات البنكية</span>
             <span className="p-2 bg-blue-500/12 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/25 rounded-xl">
               <Landmark className="size-4" />
             </span>
           </div>
           <div className="mt-3">
             <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
-              {money(stats.sarBalance)} <span className="text-xs font-bold text-slate-500">SAR</span>
-            </div>
-            <div className="text-xs text-blue-700 dark:text-blue-400 font-bold mt-1">
-              معادل: {money(stats.sarBalance * 13.15)} EGP
+              {money(stats.bankBalance)} <span className="text-xs font-bold text-slate-500">{base}</span>
             </div>
             <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-              حساب بنكي رئيسي (الريال السعودي)
+              {stats.bankCount} حسابات بنكية مربوطة بدفتر الأستاذ
             </div>
           </div>
         </div>
 
-        {/* Card 2: CIB EGP */}
         <div className="card cyber-card-emerald p-5">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">البنك التجاري الدولي CIB (EGP)</span>
+            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">أرصدة الخزائن والصناديق</span>
             <span className="p-2 bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/25 rounded-xl">
-              <Building className="size-4" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
-              {money(stats.egpBalance)} <span className="text-xs font-bold text-slate-500">EGP</span>
-            </div>
-            <div className="text-xs text-emerald-700 dark:text-emerald-400 font-bold mt-1">
-              حساب العمليات التشغيلية والرواتب (فرع مصر)
-            </div>
-            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-              حساب بنكي جاري (الجنيه المصري)
-            </div>
-          </div>
-        </div>
-
-        {/* Card 3: NBE EGP */}
-        <div className="card cyber-card-cyan p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">البنك الأهلي المصري NBE (EGP)</span>
-            <span className="p-2 bg-cyan-500/12 text-cyan-600 dark:text-cyan-400 ring-1 ring-cyan-500/25 rounded-xl">
-              <Landmark className="size-4" />
-            </span>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
-              {money(stats.nbeBalance)} <span className="text-xs font-bold text-slate-500">EGP</span>
-            </div>
-            <div className="text-xs text-cyan-700 dark:text-cyan-400 font-bold mt-1">
-              حساب الودائع والاحتياطي التشغيلي
-            </div>
-            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-              حساب فرعي احتياطي
-            </div>
-          </div>
-        </div>
-
-        {/* Card 4: Main Cash Drawer & Custody Pool */}
-        <div className="card cyber-card-amber p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">الخزينة النقدية وصناديق العهد</span>
-            <span className="p-2 bg-amber-500/12 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/25 rounded-xl">
               <Wallet className="size-4" />
             </span>
           </div>
           <div className="mt-3">
             <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
-              {money(stats.cashBalance)} <span className="text-xs font-bold text-slate-500">EGP</span>
-            </div>
-            <div className="text-xs text-amber-700 dark:text-amber-400 font-bold mt-1">
-              سيولة الخزائن النقدية وعهد الفروع
+              {money(stats.cashBalance)} <span className="text-xs font-bold text-slate-500">{base}</span>
             </div>
             <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-              النقدية في الصندوق
+              {stats.cashCount} خزائن نقدية متصلة
+            </div>
+          </div>
+        </div>
+
+        <div className="card cyber-card-cyan p-5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">إجمالي المقبوضات والإيداعات</span>
+            <span className="p-2 bg-cyan-500/12 text-cyan-600 dark:text-cyan-400 ring-1 ring-cyan-500/25 rounded-xl">
+              <Building className="size-4" />
+            </span>
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
+              {money(stats.totalInflows)} <span className="text-xs font-bold text-slate-500">{base}</span>
+            </div>
+            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+              مجموع الحركات المدينة المرحلة للبنوك والخزائن
+            </div>
+          </div>
+        </div>
+
+        <div className="card cyber-card-amber p-5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">إجمالي المدفوعات والسحوبات</span>
+            <span className="p-2 bg-amber-500/12 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/25 rounded-xl">
+              <ArrowLeftRight className="size-4" />
+            </span>
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight font-mono">
+              {money(stats.totalOutflows)} <span className="text-xs font-bold text-slate-500">{base}</span>
+            </div>
+            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+              مجموع الحركات الدائنة والتحويلات الصادرة
             </div>
           </div>
         </div>
@@ -686,26 +670,31 @@ function AddNewBankAccountModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const base = useBaseCurrency();
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'BANK' | 'CASH'>('BANK');
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [iban, setIban] = useState('');
-  const [currencyCode, setCurrencyCode] = useState('EGP');
+  const [currencyCode, setCurrencyCode] = useState(base || 'SAR');
+  const [autoCreateGlAccount, setAutoCreateGlAccount] = useState(true);
   const [glAccountId, setGlAccountId] = useState(glAccounts[0]?.id || '');
+  const [openingBalance, setOpeningBalance] = useState('0');
 
   const createMut = useMutation({
     mutationFn: () => {
-      return api.post('/bank-accounts', {
-        code,
+      return api.post('/treasury/accounts', {
+        code: code || `${kind === 'CASH' ? 'CSH' : 'BNK'}-${Date.now().toString().slice(-4)}`,
         name,
         kind,
         bankName: kind === 'BANK' ? bankName : 'خزينة نقدية',
         accountNumber: accountNumber || null,
         iban: iban || null,
         currencyCode,
-        glAccountId,
+        autoCreateGlAccount,
+        glAccountId: autoCreateGlAccount ? undefined : glAccountId,
+        openingBalance: Number(openingBalance || 0),
         isActive: true,
       });
     },
@@ -783,7 +772,7 @@ function AddNewBankAccountModal({
           </Field>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="عملة الحساب *">
             <select
               className="input w-full font-mono font-bold"
@@ -796,14 +785,33 @@ function AddNewBankAccountModal({
             </select>
           </Field>
 
-          <Field label="حساب الأستاذ العام المرتبط (GL Account)" required>
-            <SearchableSelect
-              clearable={false}
-              value={glAccountId}
-              onChange={setGlAccountId}
-              options={glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
+          <Field label="الرصيد الافتتاحي (يولد قيداً افتتاحياً)">
+            <input
+              type="number"
+              step="any"
+              min="0"
+              className="input w-full font-mono font-bold"
+              value={openingBalance}
+              onChange={(e) => setOpeningBalance(e.target.value)}
             />
           </Field>
+        </div>
+
+        <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5 bg-slate-50/70 dark:bg-slate-900/50">
+          <label className="flex items-center gap-2 font-bold cursor-pointer">
+            <input type="checkbox" checked={autoCreateGlAccount} onChange={(e) => setAutoCreateGlAccount(e.target.checked)} />
+            إنشاء حساب أستاذ فرعي تلقائياً لهذا الحساب في شجرة الحسابات (تحت 1101)
+          </label>
+          {!autoCreateGlAccount && (
+            <Field label="حساب الأستاذ العام المرتبط (GL Account)" required>
+              <SearchableSelect
+                clearable={false}
+                value={glAccountId}
+                onChange={setGlAccountId}
+                options={glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
+              />
+            </Field>
+          )}
         </div>
 
         {kind === 'BANK' && (

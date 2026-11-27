@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Activity, AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, CheckCircle2, ChevronDown, ChevronLeft,
-  Cloud, Coins, Command, Contrast, Database, FileText, Globe, Landmark, LayoutDashboard, Loader2, LogOut, Menu, Moon, Package,
-  PanelRightClose, Plus, Search, Server, Settings, ShieldCheck, ShoppingCart, Sun, Users, Wallet, X, Zap,
+  Activity, AlertTriangle, ArrowDownCircle, ArrowUpCircle, Banknote, BarChart3, BookOpen, Briefcase, Building2, CheckCircle2, ChevronDown, ChevronLeft,
+  Cloud, Coins, Command, Contrast, Database, FileCheck2, FileText, Globe, Landmark, LayoutDashboard, Loader2, LogOut, Menu, Moon, Package,
+  PanelRightClose, Plus, Search, Server, Settings, ShieldCheck, ShoppingCart, Sun, Users, Vault, Wallet, X, Zap,
   GitBranch,
   PieChart,
 } from 'lucide-react';
@@ -154,23 +154,25 @@ export const PINNED_FAVORITES: Array<{
   color: string;
 }> = [
   { label: 'الأتمتة والقيود', path: '/automation/hub', icon: Zap, color: 'text-amber-500' },
+  { label: 'الخزينة والبنوك', path: '/treasury/hub', icon: Vault, color: 'text-emerald-500' },
+  { label: 'سندات القبض', path: '/treasury/receipts', icon: ArrowDownCircle, color: 'text-teal-500' },
+  { label: 'سندات الصرف', path: '/treasury/payments', icon: ArrowUpCircle, color: 'text-rose-500' },
+  { label: 'حافظة الشيكات', path: '/treasury/cheques', icon: FileCheck2, color: 'text-purple-500' },
   { label: 'الموظفون', path: '/hr/employees', icon: Users, color: 'text-indigo-500' },
   { label: 'المشاريع', path: '/prj/projects', icon: Briefcase, color: 'text-sky-500' },
   { label: 'الفواتير', path: '/sal/invoices', icon: FileText, color: 'text-emerald-500' },
-  { label: 'العهد والبنوك', path: '/fin/custodies', icon: Coins, color: 'text-teal-500' },
   { label: 'شجرة الحسابات', path: '/acc/accounts', icon: BookOpen, color: 'text-violet-500' },
   { label: 'قيود اليومية', path: '/acc/journals', icon: Landmark, color: 'text-cyan-500' },
-  { label: 'ميزان المراجعة', path: '/reports/trial-balance', icon: BarChart3, color: 'text-amber-500' },
   { label: 'مراكز التكلفة', path: '/reports/cost-centers', icon: GitBranch, color: 'text-indigo-500' },
   { label: 'التقارير الموحدة', path: '/reports/hub', icon: PieChart, color: 'text-emerald-500' },
-  { label: 'منصة زاتكا', path: '/zatca/hub', icon: ShieldCheck, color: 'text-rose-500' },
 ];
 
-type SidebarDomainKey = 'ALL' | 'workforce' | 'commercial' | 'finance' | 'settings';
+type SidebarDomainKey = 'ALL' | 'workforce' | 'treasury' | 'commercial' | 'finance' | 'settings';
 
 const SIDEBAR_DOMAINS: Array<{ key: SidebarDomainKey; label: string }> = [
   { key: 'ALL', label: 'الكل' },
   { key: 'workforce', label: 'الكوادر' },
+  { key: 'treasury', label: 'الخزينة' },
   { key: 'commercial', label: 'التجاري' },
   { key: 'finance', label: 'المالية' },
   { key: 'settings', label: 'الإعدادات' },
@@ -234,8 +236,21 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    key: 'treasury',
+    label: 'الخزينة والبنوك والشيكات',
+    sections: [
+      { key: 'tr_hub', label: 'لوحة الخزينة والسيولة', icon: Vault, to: '/treasury/hub', color: 'emerald', badge: 'حي' },
+      { key: 'tr_banks', label: 'البنوك والتحويلات', icon: Landmark, to: '/treasury/banks', color: 'blue' },
+      { key: 'tr_cash', label: 'الخزائن والصناديق النقدية', icon: Coins, to: '/treasury/cashboxes', color: 'amber' },
+      { key: 'tr_rec', label: 'سندات القبض', icon: ArrowDownCircle, to: '/treasury/receipts', color: 'teal' },
+      { key: 'tr_pay', label: 'سندات الصرف', icon: ArrowUpCircle, to: '/treasury/payments', color: 'rose' },
+      { key: 'tr_chq', label: 'حافظة الشيكات', icon: FileCheck2, to: '/treasury/cheques', color: 'purple' },
+      { key: 'fin', label: 'العهد النقدية للموظفين', icon: Banknote, to: '/fin/custodies', color: 'cyan' },
+    ],
+  },
+  {
     key: 'commercial',
-    label: 'التجاري والخزينة والأصول',
+    label: 'المبيعات والمشتريات والأصول',
     sections: [
       {
         key: 'sal',
@@ -257,13 +272,6 @@ export const NAV_GROUPS: NavGroup[] = [
           { to: '/pur/vendors', label: 'دليل الموردين' },
           { to: '/pur/debit-notes', label: 'إشعارات مدينة' },
         ],
-      },
-      {
-        key: 'fin',
-        label: 'العهد النقدية',
-        icon: Coins,
-        to: '/fin/custodies',
-        color: 'cyan',
       },
       {
         key: 'ast',
@@ -291,24 +299,23 @@ export const NAV_GROUPS: NavGroup[] = [
           { to: '/acc/accounts', label: 'شجرة الحسابات' },
           { to: '/acc/journals', label: 'قيود اليومية' },
           { to: '/acc/journals/new', label: 'سند قيد جديد' },
-          { to: '/acc/banks', label: 'البنوك والتحويلات' },
           { to: '/acc/posting-rules', label: 'قواعد الترحيل' },
           { to: '/closing', label: 'إقفال الفترات' },
         ],
       },
       {
         key: 'zatca_main',
-        label: 'الفوترة الإلكترونية – هيئة الزكاة',
+        label: 'الفوترة الإلكترونية (ZATCA)',
         icon: ShieldCheck,
         color: 'emerald',
         badge: 'Phase 2',
         items: [
           { to: '/zatca/hub', label: 'لوحة التحكم ومؤشرات الامتثال' },
-          { to: '/zatca/settings', label: 'إعدادات المنشأة وأجهزة EGS والبيئات' },
+          { to: '/zatca/settings', label: 'إعدادات المنشأة وأجهزة EGS' },
           { to: '/zatca/onboarding', label: 'معالج الربط والشهادات (7 خطوات)' },
           { to: '/zatca/invoices', label: 'الفواتير الإلكترونية وسجل العمليات' },
-          { to: '/zatca/reports', label: 'تقارير الفوترة الإلكترونية (14 تقريراً)' },
-          { to: '/zatca/qr-validator', label: 'فاحص ومفسر الرمز (QR 9-Tags)' },
+          { to: '/zatca/reports', label: 'تقارير الفوترة الإلكترونية' },
+          { to: '/zatca/qr-validator', label: 'فاحص ومفسر الرمز (QR)' },
           { to: '/reports/zakat', label: 'إقرار الزكاة الشرعية والدخل' },
           { to: '/reports/vat-return', label: 'إقرار ضريبة القيمة المضافة 15%' },
         ],
@@ -334,8 +341,8 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: BarChart3,
         color: 'purple',
         items: [
-          { to: '/reports/hub', label: 'مركز التقارير الموحد (كل المستويات)' },
-          { to: '/reports/cost-centers', label: 'تقرير مراكز التكلفة' },
+          { to: '/reports/hub', label: 'مركز التقارير الموحد' },
+          { to: '/reports/cost-centers', label: 'مراكز التكلفة والموظفين' },
           { to: '/reports/executive-intelligence', label: 'الرقابة والذكاء المالي' },
           { to: '/reports/employee-profitability', label: 'ربحية الكوادر' },
           { to: '/rev/profitability', label: 'ربحية المشاريع' },
@@ -493,7 +500,7 @@ function Section({
     : SIDEBAR_ICON_LIGHT_TINT[s.color || 'indigo'];
 
   const base =
-    'group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13.5px] font-bold transition-all duration-150 cursor-pointer';
+    'group relative flex min-h-[38px] w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-bold transition-all duration-150 cursor-pointer';
 
   if (s.to) {
     return (
@@ -538,10 +545,10 @@ function Section({
             </div>
             {!collapsed && (
               <>
-                <span className={`flex-1 min-w-0 text-start text-[13.5px] leading-snug whitespace-normal ${isActive ? 'font-extrabold' : 'font-bold'}`}>{s.label}</span>
+                <span className={`flex-1 min-w-0 truncate text-start text-[13px] leading-snug ${isActive ? 'font-extrabold' : 'font-bold'}`}>{s.label}</span>
                 {s.badge && (
                   <span
-                    className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] font-bold ${
+                    className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-black leading-none ${
                       isActive
                         ? darkSidebar
                           ? 'bg-amber-400/25 text-amber-200'
@@ -600,8 +607,18 @@ function Section({
         </div>
         {!collapsed && (
           <>
-            <span className={`flex-1 min-w-0 text-start text-[13.5px] leading-snug whitespace-normal ${active ? 'font-extrabold' : 'font-bold'}`}>{s.label}</span>
-            {s.badge && <span className="text-[11px] shrink-0">{s.badge}</span>}
+            <span className={`flex-1 min-w-0 truncate text-start text-[13px] leading-snug ${active ? 'font-extrabold' : 'font-bold'}`}>{s.label}</span>
+            {s.badge && (
+              <span
+                className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-black leading-none ${
+                  darkSidebar
+                    ? 'bg-emerald-400/18 text-emerald-300 border border-emerald-400/30'
+                    : 'bg-emerald-500/12 text-emerald-700 border border-emerald-500/25'
+                }`}
+              >
+                {s.badge}
+              </span>
+            )}
             <ChevronDown
               className={`size-4 shrink-0 transition-transform duration-200 ${
                 isExpanded
@@ -831,8 +848,12 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const cmdMatches = useMemo(() => {
     const quickActions = [
       { label: '⚡ مركز الأتمتة الشاملة والترحيل الذكي', sectionLabel: 'إجراء سريع', groupLabel: 'الأتمتة والربط', to: '/automation/hub', icon: Zap, color: 'indigo' as SectionColor },
-      { label: '➕ تعيين موظف جديد', sectionLabel: 'إجراء سريع', groupLabel: 'الموارد البشرية', to: '/hr/employees', icon: Users, color: 'blue' as SectionColor },
-      { label: '➕ إنشاء فاتورة مبيعات ضريبية', sectionLabel: 'إجراء سريع', groupLabel: 'المبيعات والفوترة', to: '/sal/invoices/new', icon: FileText, color: 'emerald' as SectionColor },
+      { label: '💰 لوحة الخزينة والبنوك والشيكات', sectionLabel: 'إجراء سريع', groupLabel: 'الخزينة والبنوك', to: '/treasury/hub', icon: Vault, color: 'emerald' as SectionColor },
+      { label: '➕ سند قبض مالي جديد', sectionLabel: 'إجراء سريع', groupLabel: 'الخزينة والبنوك', to: '/treasury/receipts', icon: ArrowDownCircle, color: 'teal' as SectionColor },
+      { label: '➕ سند صرف (موظف / مورد / مصروف)', sectionLabel: 'إجراء سريع', groupLabel: 'الخزينة والبنوك', to: '/treasury/payments', icon: ArrowUpCircle, color: 'rose' as SectionColor },
+      { label: '🧾 حافظة الشيكات (أوراق قبض ودفع)', sectionLabel: 'إجراء سريع', groupLabel: 'الخزينة والبنوك', to: '/treasury/cheques', icon: FileCheck2, color: 'purple' as SectionColor },
+      { label: '➕ تعيين موظف جديد (مركز تكلفة)', sectionLabel: 'إجراء سريع', groupLabel: 'الموارد البشرية', to: '/hr/employees', icon: Users, color: 'blue' as SectionColor },
+      { label: '➕ إنشاء فاتورة مبيعات ضريبية', sectionLabel: 'إجراء سريع', groupLabel: 'المبيعات والفوترة', to: '/sal/invoices', icon: FileText, color: 'emerald' as SectionColor },
       { label: '➕ قيد يومية محاسبي جديد', sectionLabel: 'إجراء سريع', groupLabel: 'المحاسبة العامة', to: '/acc/journals/new', icon: BookOpen, color: 'sky' as any },
     ].map((x) => ({ ...x, color: (COLOR_CLASSES[x.color as SectionColor] ? x.color : 'indigo') as SectionColor }));
 
@@ -1121,9 +1142,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
               )}
             </div>
 
-            {/* 5-Domain Workspace Pill Bar (Instant Department Focus — Full Uncut Labels) */}
+            {/* 6-Domain Workspace Grid Bar (Balanced 2x3 Symmetrical Grid — Zero Overflow) */}
             <div
-              className={`flex items-center justify-between gap-0.5 rounded-xl p-1 text-[11.5px] font-bold ${
+              className={`grid grid-cols-3 gap-1 rounded-xl p-1 text-[11px] font-bold ${
                 darkSidebarPref
                   ? 'bg-white/[0.06] border border-white/[0.08]'
                   : 'bg-slate-200/70 border border-slate-300/60 dark:bg-slate-900/90 dark:border-slate-800'
@@ -1139,7 +1160,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
                       setActiveDomain(dom.key);
                       setNavFilter('');
                     }}
-                    className={`rounded-lg px-2 py-1 text-center transition-all cursor-pointer whitespace-nowrap ${
+                    className={`rounded-lg px-1.5 py-1.5 text-center transition-all cursor-pointer truncate ${
                       isSelected
                         ? darkSidebarPref
                           ? 'bg-indigo-600 text-white font-extrabold shadow-xs'
@@ -1430,7 +1451,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             {/* Unified Segmented Quick Shortcuts Bar (الخزينة | القيود | الحسابات) */}
             <div className="hidden md:flex h-9 shrink-0 items-center rounded-xl border border-slate-200/95 bg-slate-100/80 p-0.5 shadow-2xs dark:border-slate-800 dark:bg-slate-900/90">
               <NavLink
-                to="/fin/custodies"
+                to="/treasury/hub"
                 className={({ isActive }) =>
                   `flex h-full items-center gap-1 whitespace-nowrap rounded-lg px-2 text-xs font-bold transition-all ${
                     isActive
@@ -1438,9 +1459,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
                       : 'text-slate-800 hover:text-indigo-700 hover:bg-white/80 dark:text-slate-200 dark:hover:text-white dark:hover:bg-slate-800/60'
                   }`
                 }
-                title="الخزينة والعهد النقدية"
+                title="لوحة الخزينة والبنوك وسندات القبض والصرف والشيكات"
               >
-                <Coins className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <Vault className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span className="whitespace-nowrap">الخزينة</span>
               </NavLink>
               <span className="h-4 w-px bg-slate-300/80 dark:bg-slate-800" />
