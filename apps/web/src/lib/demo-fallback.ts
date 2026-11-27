@@ -533,6 +533,310 @@ function filterInvoicesByQuery(items: any[], path: string, opts?: { isZatca?: bo
   return result;
 }
 
+function collectInvoiceLinkedJeIds(inv: any, deadJeIds: Set<string>): void {
+  if (!inv) return;
+  if (inv.journalEntryId) deadJeIds.add(String(inv.journalEntryId));
+  if (inv.reversalJournalEntryId) deadJeIds.add(String(inv.reversalJournalEntryId));
+  if (inv.paymentJournalEntryId) deadJeIds.add(String(inv.paymentJournalEntryId));
+  if (Array.isArray(inv.payments)) {
+    for (const pay of inv.payments) {
+      if (pay?.journalEntryId) deadJeIds.add(String(pay.journalEntryId));
+      if (pay?.reversalJournalEntryId) deadJeIds.add(String(pay.reversalJournalEntryId));
+    }
+  }
+}
+
+function cascadeCleanupJournalEntriesAndZatca(
+  deadInvIds: Set<string>,
+  deadJeIds: Set<string>,
+  deadSourceIds: Set<string>,
+): void {
+  if (deadInvIds.size > 0) {
+    for (const zKey of ['zatca_submissions', 'zatca_retry_queue', 'zatca_status_history', 'zatca_notifications']) {
+      const zList = getEntityList<any>(zKey, []);
+      if (zList.length === 0) continue;
+      const zNext = zList.filter((z) => !z?.invoiceId || !deadInvIds.has(String(z.invoiceId)));
+      if (zNext.length !== zList.length) replaceEntityList(zKey, zNext);
+    }
+
+    const vouchers = getEntityList<any>('treasury_vouchers', []);
+    if (vouchers.length > 0) {
+      const keptVouchers = vouchers.filter((v) => {
+        const hit =
+          (v?.invoiceId && deadInvIds.has(String(v.invoiceId))) ||
+          (v?.sourceId && deadSourceIds.has(String(v.sourceId)));
+        if (hit) {
+          if (v.journalEntryId) deadJeIds.add(String(v.journalEntryId));
+          if (v.reversalJournalEntryId) deadJeIds.add(String(v.reversalJournalEntryId));
+          return false;
+        }
+        return true;
+      });
+      if (keptVouchers.length !== vouchers.length) replaceEntityList('treasury_vouchers', keptVouchers);
+    }
+  }
+
+  const jes = getEntityList<any>('journal_entries', []);
+  if (jes.length === 0) return;
+
+  for (const je of jes) {
+    if (
+      (je?.sourceId && deadSourceIds.has(String(je.sourceId))) ||
+      (je?.referenceId && deadSourceIds.has(String(je.referenceId))) ||
+      (je?.invoiceId && deadInvIds.has(String(je.invoiceId)))
+    ) {
+      deadJeIds.add(String(je.id));
+    }
+  }
+
+  // Expand transitively across reversalOfId <-> reversedById links so no dangling half-pairs remain
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const je of jes) {
+      const id = String(je?.id || '');
+      const revBy = je?.reversedById ? String(je.reversedById) : '';
+      const revOf = je?.reversalOfId ? String(je.reversalOfId) : '';
+      if (id && (deadJeIds.has(id) || (revBy && deadJeIds.has(revBy)) || (revOf && deadJeIds.has(revOf)))) {
+        if (!deadJeIds.has(id)) {
+          deadJeIds.add(id);
+          grew = true;
+        }
+        if (revBy && !deadJeIds.has(revBy)) {
+          deadJeIds.add(revBy);
+          grew = true;
+        }
+        if (revOf && !deadJeIds.has(revOf)) {
+          deadJeIds.add(revOf);
+          grew = true;
+        }
+      }
+    }
+  }
+
+  const nextJes = jes.filter((je) => !deadJeIds.has(String(je?.id || '')));
+  if (nextJes.length !== jes.length) {
+    replaceEntityList('journal_entries', nextJes);
+  }
+}
+
+function cascadeDeleteProject(delPrj: any): void {
+  if (!delPrj) return;
+  const matchesPrj = (row: any) =>
+    Boolean(
+      row &&
+      ((row.projectId && (row.projectId === delPrj.id || (delPrj.code && row.projectId === delPrj.code))) ||
+        (row.projectCode && delPrj.code && row.projectCode === delPrj.code)),
+    );
+
+  const deadInvIds = new Set<string>();
+  const deadJeIds = new Set<string>();
+  const deadSourceIds = new Set<string>(delPrj.id ? [String(delPrj.id)] : []);
+
+  for (const key of ['assignments', 'service_prices', 'revenue_lines']) {
+    const list = getEntityList<any>(key, []);
+    const next = list.filter((row) => !matchesPrj(row));
+    if (next.length !== list.length) replaceEntityList(key, next);
+  }
+
+  const revRuns = getEntityList<any>('revenue_runs', []);
+  if (revRuns.length > 0) {
+    let changed = false;
+    const nextRuns: any[] = [];
+    for (const run of revRuns) {
+      if (matchesPrj(run)) {
+        changed = true;
+        if (run?.id) deadSourceIds.add(String(run.id));
+        if (run?.journalEntryId) deadJeIds.add(String(run.journalEntryId));
+        if (run?.reversalJournalEntryId) deadJeIds.add(String(run.reversalJournalEntryId));
+        continue;
+      }
+      if (Array.isArray(run?.lines) && run.lines.some((l: any) => matchesPrj(l))) {
+        changed = true;
+        const keptLines = run.lines.filter((l: any) => !matchesPrj(l));
+        if (keptLines.length === 0) {
+          if (run?.id) deadSourceIds.add(String(run.id));
+          if (run?.journalEntryId) deadJeIds.add(String(run.journalEntryId));
+          if (run?.reversalJournalEntryId) deadJeIds.add(String(run.reversalJournalEntryId));
+          continue;
+        }
+        const totalRevenue = keptLines.reduce((s: number, l: any) => s + Number(l.grossRevenue || l.revenue || 0), 0);
+        const totalDirectCost = keptLines.reduce((s: number, l: any) => s + Number(l.directCost || 0), 0);
+        nextRuns.push({
+          ...run,
+          lines: keptLines,
+          totalRevenue: Number(totalRevenue.toFixed(2)),
+          totalDirectCost: Number(totalDirectCost.toFixed(2)),
+        });
+        continue;
+      }
+      nextRuns.push(run);
+    }
+    if (changed) replaceEntityList('revenue_runs', nextRuns);
+  }
+
+  const invoices = getEntityList<any>('invoices', []);
+  if (invoices.length > 0) {
+    const keptPass1 = invoices.filter((inv) => {
+      const ownedByProject =
+        matchesPrj(inv) ||
+        (Array.isArray(inv?.lines) && inv.lines.length > 0 && inv.lines.every((l: any) => matchesPrj(l)));
+      if (ownedByProject) {
+        if (inv?.id) {
+          deadInvIds.add(String(inv.id));
+          deadSourceIds.add(String(inv.id));
+        }
+        collectInvoiceLinkedJeIds(inv, deadJeIds);
+        return false;
+      }
+      return true;
+    });
+    const finalInvoices = keptPass1.filter((inv) => {
+      if (inv?.originalInvoiceId && deadInvIds.has(String(inv.originalInvoiceId))) {
+        if (inv?.id) {
+          deadInvIds.add(String(inv.id));
+          deadSourceIds.add(String(inv.id));
+        }
+        collectInvoiceLinkedJeIds(inv, deadJeIds);
+        return false;
+      }
+      return true;
+    });
+    if (finalInvoices.length !== invoices.length) {
+      replaceEntityList('invoices', finalInvoices);
+    }
+  }
+
+  // Detach removed projectId on external vendor AP purchase invoices so vendor liabilities stay accurate
+  const pinvs = getEntityList<any>('purchase_invoices', []);
+  if (pinvs.length > 0) {
+    let pChanged = false;
+    const nextPinvs = pinvs.map((pi) => {
+      if (matchesPrj(pi)) {
+        pChanged = true;
+        return { ...pi, projectId: null, projectName: '' };
+      }
+      return pi;
+    });
+    if (pChanged) replaceEntityList('purchase_invoices', nextPinvs);
+  }
+
+  cascadeCleanupJournalEntriesAndZatca(deadInvIds, deadJeIds, deadSourceIds);
+}
+
+/**
+ * Removes leftover domain records (e.g. pre-fix deleted-project invoices,
+ * deleted-employee payroll runs) without touching standalone invoices or valid data.
+ */
+export function cleanupOrphanedDomainRecords(): void {
+  if (typeof localStorage === 'undefined') return;
+  const projects = getEntityList<any>('projects', []);
+  const validPrjKeys = new Set<string>();
+  for (const p of projects) {
+    if (p?.id) validPrjKeys.add(String(p.id));
+    if (p?.code) validPrjKeys.add(String(p.code));
+  }
+  const isOrphanProjectRef = (pid: any): boolean =>
+    Boolean(pid && String(pid).trim() && !validPrjKeys.has(String(pid)));
+
+  const employees = getEntityList<any>('employees', []);
+  const validEmpKeys = new Set<string>();
+  for (const e of employees) {
+    if (e?.id) validEmpKeys.add(String(e.id));
+    if (e?.code) validEmpKeys.add(String(e.code));
+  }
+  const isOrphanEmpRef = (eid: any): boolean =>
+    Boolean(eid && String(eid).trim() && !validEmpKeys.has(String(eid)));
+
+  const deadInvIds = new Set<string>();
+  const deadJeIds = new Set<string>();
+  const deadSourceIds = new Set<string>();
+
+  for (const key of ['assignments', 'service_prices', 'revenue_lines']) {
+    const list = getEntityList<any>(key, []);
+    if (list.length === 0) continue;
+    const next = list.filter((row) => !isOrphanProjectRef(row?.projectId) && !isOrphanEmpRef(row?.employeeId));
+    if (next.length !== list.length) replaceEntityList(key, next);
+  }
+
+  const invoices = getEntityList<any>('invoices', []);
+  if (invoices.length > 0) {
+    const keptPass1 = invoices.filter((inv) => {
+      if (isOrphanProjectRef(inv?.projectId)) {
+        if (inv?.id) {
+          deadInvIds.add(String(inv.id));
+          deadSourceIds.add(String(inv.id));
+        }
+        collectInvoiceLinkedJeIds(inv, deadJeIds);
+        return false;
+      }
+      return true;
+    });
+    const finalInvoices = keptPass1.filter((inv) => {
+      if (inv?.originalInvoiceId && deadInvIds.has(String(inv.originalInvoiceId))) {
+        if (inv?.id) {
+          deadInvIds.add(String(inv.id));
+          deadSourceIds.add(String(inv.id));
+        }
+        collectInvoiceLinkedJeIds(inv, deadJeIds);
+        return false;
+      }
+      return true;
+    });
+    if (finalInvoices.length !== invoices.length) {
+      replaceEntityList('invoices', finalInvoices);
+    }
+  }
+
+  const revRuns = getEntityList<any>('revenue_runs', []);
+  if (revRuns.length > 0) {
+    const keptRevRuns = revRuns.filter((run) => {
+      const lines = Array.isArray(run?.lines) ? run.lines : [];
+      const orphanedByLines =
+        lines.length > 0 &&
+        lines.every((l: any) => isOrphanProjectRef(l?.projectId) || isOrphanEmpRef(l?.employeeId));
+      if (orphanedByLines) {
+        if (run?.id) deadSourceIds.add(String(run.id));
+        if (run?.journalEntryId) deadJeIds.add(String(run.journalEntryId));
+        if (run?.reversalJournalEntryId) deadJeIds.add(String(run.reversalJournalEntryId));
+        return false;
+      }
+      return true;
+    });
+    if (keptRevRuns.length !== revRuns.length) replaceEntityList('revenue_runs', keptRevRuns);
+  }
+
+  const payRuns = getEntityList<any>('payroll_runs', []);
+  if (payRuns.length > 0) {
+    const keptPayRuns = payRuns.filter((run) => {
+      const lines = Array.isArray(run?.lines) ? run.lines : [];
+      const orphanedByEmployees =
+        lines.length > 0 &&
+        lines.every((l: any) => isOrphanEmpRef(l?.employeeId || l?.employeeCode));
+      if (orphanedByEmployees) {
+        if (run?.id) deadSourceIds.add(String(run.id));
+        if (run?.journalEntryId) deadJeIds.add(String(run.journalEntryId));
+        if (run?.paymentJournalEntryId) deadJeIds.add(String(run.paymentJournalEntryId));
+        if (run?.reversalJournalEntryId) deadJeIds.add(String(run.reversalJournalEntryId));
+        return false;
+      }
+      return true;
+    });
+    if (keptPayRuns.length !== payRuns.length) replaceEntityList('payroll_runs', keptPayRuns);
+  }
+
+  if (deadInvIds.size > 0 || deadJeIds.size > 0 || deadSourceIds.size > 0) {
+    cascadeCleanupJournalEntriesAndZatca(deadInvIds, deadJeIds, deadSourceIds);
+  }
+}
+
+let _orphanDomainSanitizedOnce = false;
+function ensureOrphanDomainSanitized(): void {
+  if (_orphanDomainSanitizedOnce) return;
+  _orphanDomainSanitizedOnce = true;
+  cleanupOrphanedDomainRecords();
+}
+
 /**
  * Clean Production In-Browser Engine (GitHub Pages)
  * Zero hardcoded fake/demo data.
@@ -600,6 +904,7 @@ export const defaultClients = [
 ];
 
 export function getDemoFallback(path: string, method = 'GET', body?: any): any {
+  ensureOrphanDomainSanitized();
   // Handle mutations (POST/PATCH/PUT/DELETE) for all entities
   const recomputeEmployeeOverAllocation = (targetEmpIdOrCode?: string) => {
     const allAsg = getEntityList<any>('assignments', []);
@@ -864,15 +1169,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
       if (method === 'DELETE' && !subAction) {
         if (prjIndex >= 0) {
-          deleteEntityItem('projects', prjs[prjIndex].id);
-          const allAsg = getEntityList('assignments', []);
-          const remainingAsg = allAsg.filter((a: any) => a.projectId !== prjs[prjIndex].id && a.projectId !== prjs[prjIndex].code);
-          if (remainingAsg.length !== allAsg.length) {
-            localStorage.setItem('idham_prod_assignments', JSON.stringify(remainingAsg));
-          }
-          recordAudit({ action: 'DELETE_PROJECT', schemaName: 'pmo', tableName: 'projects', entityId: prjs[prjIndex].id, reason: 'حذف مشروع' });
+          const delPrj = { ...prjs[prjIndex] };
+          deleteEntityItem('projects', delPrj.id);
+          cascadeDeleteProject(delPrj);
+          recordAudit({ action: 'DELETE_PROJECT', schemaName: 'pmo', tableName: 'projects', entityId: delPrj.id, reason: 'حذف مشروع وما يرتبط به من تخصيصات وفواتير وقيود' });
         }
-        return { success: true, message: 'تم حذف المشروع بنجاح' };
+        return { success: true, message: 'تم حذف المشروع وجميع سجلاته المرتبطة بنجاح' };
       }
 
       if ((method === 'PATCH' || method === 'PUT') && !subAction) {
@@ -1254,7 +1556,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         let revJe: any = null;
         if (runs[idx].journalEntryId) {
           try {
-            revJe = createReversalJournalEntry(runs[idx].journalEntryId, reasonText);
+            revJe = createReversalJournalEntry(runs[idx].journalEntryId, reasonText, undefined, { allowSourceSync: true });
           } catch { /* already reversed or manual */ }
         }
         runs[idx].status = 'CANCELLED';
@@ -1570,7 +1872,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         let revJe: any = null;
         if (runs[idx].journalEntryId) {
           try {
-            revJe = createReversalJournalEntry(runs[idx].journalEntryId, reasonText);
+            revJe = createReversalJournalEntry(runs[idx].journalEntryId, reasonText, undefined, { allowSourceSync: true });
           } catch { /* already reversed */ }
         }
         // Restore DEDUCTED loan installments tied to this run back to PENDING

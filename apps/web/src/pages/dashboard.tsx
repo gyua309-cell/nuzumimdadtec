@@ -88,7 +88,7 @@ export function DashboardPage() {
 
   // Queries
   const periods = useQuery({ queryKey: ['periods'], queryFn: () => api.get<any[]>('/fiscal-periods') });
-  const posted = useQuery({ queryKey: ['journals', 'posted-count'], queryFn: () => api.get<any>('/journal-entries', { status: 'POSTED', pageSize: 1 }) });
+  const posted = useQuery({ queryKey: ['journals', 'posted-count'], queryFn: () => api.get<any>('/journal-entries', { status: 'POSTED', pageSize: 200 }) });
   const ytd = useQuery({ queryKey: ['is', yearStart(), today()], queryFn: () => api.get<any>('/ledger/income-statement', { from: yearStart(), to: today() }) });
   const month = useQuery({ queryKey: ['tb', monthStart(), today(), 'FINANCIAL'], queryFn: () => api.get<any>('/ledger/trial-balance', { from: monthStart(), to: today(), ledger: 'FINANCIAL' }) });
   const bs = useQuery({ queryKey: ['bs', today()], queryFn: () => api.get<any>('/ledger/balance-sheet', { asOf: today() }) });
@@ -128,12 +128,18 @@ export function DashboardPage() {
     0,
   );
   const postedInvoicesCount = validInvoices.filter((x: any) => x?.status === 'POSTED').length;
-  const purList: any[] = Array.isArray(purInvs.data) ? purInvs.data : (purInvs.data?.data ?? []);
-  const assetsList: any[] = Array.isArray(assetsQ.data) ? assetsQ.data : (assetsQ.data?.data ?? []);
-  const payRunsList: any[] = Array.isArray(payRunsQ.data) ? payRunsQ.data : (payRunsQ.data?.data ?? []);
-  const custodiesList: any[] = Array.isArray(custodiesListQ.data) ? custodiesListQ.data : (custodiesListQ.data?.data ?? []);
-  const zatcaClearedCount = Number(zatcaStatusQ.data?.clearedCount ?? validInvoices.filter((x: any) => x?.zatcaStatus === 'CLEARED' || x?.zatcaStatus === 'REPORTED').length ?? 0);
-  const postedJournalsCount = Number(posted.data?.meta?.total ?? posted.data?.data?.length ?? 0);
+  const purList: any[] = (Array.isArray(purInvs.data) ? purInvs.data : (purInvs.data?.data ?? [])).filter((x: any) => x?.status !== 'CANCELLED');
+  const assetsList: any[] = (Array.isArray(assetsQ.data) ? assetsQ.data : (assetsQ.data?.data ?? [])).filter((x: any) => x?.status !== 'CANCELLED' && x?.status !== 'DISPOSED');
+  const payRunsList: any[] = (Array.isArray(payRunsQ.data) ? payRunsQ.data : (payRunsQ.data?.data ?? [])).filter((x: any) => x?.status !== 'CANCELLED');
+  const custodiesList: any[] = (Array.isArray(custodiesListQ.data) ? custodiesListQ.data : (custodiesListQ.data?.data ?? [])).filter((x: any) => x?.status !== 'CANCELLED');
+  const validZatcaApprovedCount = validInvoices.filter((x: any) => x?.status === 'POSTED' && (x?.zatcaStatus === 'CLEARED' || x?.zatcaStatus === 'REPORTED')).length;
+  const rawZatcaApprovedCount = Number(zatcaStatusQ.data?.clearedCount ?? 0) + Number(zatcaStatusQ.data?.reportedCount ?? 0);
+  const zatcaClearedCount = validInvoices.length > 0 || invs.isSuccess ? validZatcaApprovedCount : rawZatcaApprovedCount;
+  const postedRawList: any[] = Array.isArray(posted.data) ? posted.data : (Array.isArray(posted.data?.data) ? posted.data.data : []);
+  const activePostedList = postedRawList.filter((j: any) => !j?.reversedById && !j?.reversalOfId);
+  const postedJournalsCount = postedRawList.length > 0 || posted.isSuccess
+    ? activePostedList.length
+    : Number(posted.data?.meta?.total ?? 0);
 
   // Unified Net Financial Figures (strictly excluding VAT from Revenue & Profit; 100% reconciled with Project & Profitability hubs)
   const totalAssets = Number(bs.data?.assets?.total ?? 0);
@@ -1050,7 +1056,7 @@ export function DashboardPage() {
         />
         <Stat
           label="قيود مرحّلة بدفتر الأستاذ"
-          value={posted.data?.meta?.total ?? 0}
+          value={postedJournalsCount}
           tone="green"
           icon={CheckCircle2}
           hint={

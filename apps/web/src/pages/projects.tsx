@@ -294,8 +294,8 @@ export function ProjectsPage() {
                                 if (confirm(`هل أنت متأكد من حذف المشروع ${p.nameAr}؟`)) {
                                   api.del(`/projects/${p.id}`)
                                     .then(() => {
-                                      toast.success('تم حذف المشروع');
-                                      qc.invalidateQueries({ queryKey: ['/projects'] });
+                                      toast.success('تم حذف المشروع وجميع سجلاته المرتبطة');
+                                      qc.invalidateQueries();
                                     })
                                     .catch((err) => toast.error(err));
                                 }
@@ -598,8 +598,8 @@ export function ProjectDetailPage() {
                 if (confirm(`هل أنت متأكد من حذف المشروع ${p.nameAr} وجميع تخصيصاته المرتبطة؟`)) {
                   try {
                     await api.del(`/projects/${id}`);
-                    toast.success('تم حذف المشروع بنجاح');
-                    qc.invalidateQueries({ queryKey: ['/projects'] });
+                    toast.success('تم حذف المشروع وجميع سجلاته المرتبطة بنجاح');
+                    qc.invalidateQueries();
                     nav('/prj/projects');
                   } catch (e) {
                     toast.error(e);

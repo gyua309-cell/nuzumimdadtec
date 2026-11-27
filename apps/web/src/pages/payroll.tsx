@@ -845,8 +845,7 @@ export function PayrollRunsPage() {
     try {
       const r: any = await api.post('/payroll-runs', { periodId });
       toast.success('تم ترحيل مسيّر الرواتب');
-      qc.invalidateQueries({ queryKey: ['/payroll-runs'] });
-      qc.invalidateQueries({ queryKey: ['payroll-preview', periodId] });
+      qc.invalidateQueries();
       setViewId(r.id);
     } catch (e) { toast.error(e); }
   };
@@ -1146,7 +1145,7 @@ export function PayrollRunsPage() {
         onClose={() => setCancelId(null)}
         extra={<p className="mb-3 text-sm text-slate-500">يُعكس قيد الرواتب تلقائيًا. يمكن إعادة التشغيل بعد التصحيح.</p>}
         onConfirm={async (reason) => {
-          try { await api.post(`/payroll-runs/${cancelId}/cancel`, { reason }); toast.success('تم الإلغاء'); setCancelId(null); qc.invalidateQueries({ queryKey: ['/payroll-runs'] }); } catch (e) { toast.error(e); }
+          try { await api.post(`/payroll-runs/${cancelId}/cancel`, { reason }); toast.success('تم الإلغاء وعكس القيد المحاسبي'); setCancelId(null); qc.invalidateQueries(); } catch (e) { toast.error(e); }
         }} />
     </div>
   );

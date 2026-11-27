@@ -1837,7 +1837,7 @@ export function cancelDepreciationRunItem(runId: string, reason?: string): any {
 
   if (run.status === 'POSTED') {
     if (run.journalEntryId) {
-      createReversalJournalEntry(run.journalEntryId, reason || `إلغاء تشغيل الإهلاك #${run.runNo}`);
+      createReversalJournalEntry(run.journalEntryId, reason || `إلغاء تشغيل الإهلاك #${run.runNo}`, undefined, { allowSourceSync: true });
     }
     const assets = getEntityList<any>('assets', []);
     for (const line of Array.isArray(run.lines) ? run.lines : []) {
@@ -2835,7 +2835,7 @@ export function cancelZakatReturnItem(id: string, reason?: string): any {
   const r = list.find((x) => x.id === id);
   if (!r) throw new Error('الإقرار الزكوي غير موجود');
   if (r.status === 'POSTED' && r.journalEntryId) {
-    createReversalJournalEntry(r.journalEntryId, reason || `إلغاء إقرار الزكاة ${r.returnNo}`);
+    createReversalJournalEntry(r.journalEntryId, reason || `إلغاء إقرار الزكاة ${r.returnNo}`, undefined, { allowSourceSync: true });
   }
   r.status = 'CANCELLED';
   r.cancelReason = reason || 'إلغاء الإقرار';
