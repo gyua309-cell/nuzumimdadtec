@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { money, today } from '../lib/format';
+import { useReportCurrency } from '../lib/fx-display';
 import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { ExportMenu } from '../components/ExportMenu';
 import { usePeriods } from '../components/forms';
@@ -21,6 +22,9 @@ export function EmployeeAllocationDaysReportPage() {
   const { filters, setFilters, resetAll, queryParams } = useReportFilters({
     syncUrl: true,
   });
+  const fx = useReportCurrency(filters.currencyCode, filters.to || filters.asOf);
+  const cv = (v: any) => fx.convert(v);
+  const fm = (v: any) => money(cv(v));
   const selectedPeriodId = filters.periodId;
   const searchTerm = filters.search;
 
@@ -155,6 +159,7 @@ export function EmployeeAllocationDaysReportPage() {
           <div className="flex flex-wrap items-center gap-2 print:hidden">
             <ExportMenu
               title="تقرير توزيع الموظفين بالأيام والنسب وربط المبيعات"
+              currency={fx.targetCurrency}
               columns={[
                 { key: 'employeeCode', header: 'كود الموظف', width: 14 },
                 { key: 'employeeName', header: 'اسم الموظف', width: 22 },
@@ -162,11 +167,16 @@ export function EmployeeAllocationDaysReportPage() {
                 { key: 'clientName', header: 'العميل', width: 20 },
                 { key: 'allocatedDays', header: 'الأيام المخصصة', width: 12, type: 'number' },
                 { key: 'allocationPct', header: 'نسبة التخصيص %', width: 12, type: 'percent' },
-                { key: 'projectCostShare', header: 'حصة التكلفة', width: 15, type: 'currency', isTotal: true },
-                { key: 'revenueGenerated', header: 'الإيراد التعاقدي', width: 15, type: 'currency', isTotal: true },
-                { key: 'grossProfit', header: 'صافي الربح', width: 15, type: 'currency', isTotal: true },
+                { key: 'projectCostShare', header: `حصة التكلفة (${fx.targetCurrency})`, width: 15, type: 'currency', isTotal: true },
+                { key: 'revenueGenerated', header: `الإيراد التعاقدي (${fx.targetCurrency})`, width: 15, type: 'currency', isTotal: true },
+                { key: 'grossProfit', header: `صافي الربح (${fx.targetCurrency})`, width: 15, type: 'currency', isTotal: true },
               ]}
-              data={filteredRows}
+              data={filteredRows.map((r: any) => ({
+                ...r,
+                projectCostShare: cv(r.projectCostShare),
+                revenueGenerated: cv(r.revenueGenerated),
+                grossProfit: cv(r.grossProfit),
+              }))}
             />
             <Link
               to="/sal/invoices"
@@ -190,6 +200,7 @@ export function EmployeeAllocationDaysReportPage() {
         showProject
         showEmployee
         showDepartment
+        showCurrency
         showSearch
         searchPlaceholder="بحث بالموظف، الكود، المشروع، العميل..."
         extraRight={
@@ -256,20 +267,20 @@ export function EmployeeAllocationDaysReportPage() {
           tone="cyan"
         />
         <Stat
-          label="حصة التكلفة التشغيلية"
-          value={money(summary?.totalCost ?? 0)}
+          label={`حصة التكلفة التشغيلية (${fx.targetCurrency})`}
+          value={fm(summary?.totalCost ?? 0)}
           hint="الرواتب الموزعة للمشاريع"
           tone="amber"
         />
         <Stat
-          label="الإيرادات التعاقدية"
-          value={money(summary?.totalRevenue ?? 0)}
+          label={`الإيرادات التعاقدية (${fx.targetCurrency})`}
+          value={fm(summary?.totalRevenue ?? 0)}
           hint="إيرادات خدمات المطورين"
           tone="green"
         />
         <Stat
-          label="مجمل الربح التشغيلي"
-          value={money(summary?.totalProfit ?? 0)}
+          label={`مجمل الربح التشغيلي (${fx.targetCurrency})`}
+          value={fm(summary?.totalProfit ?? 0)}
           hint={`متوسط الهامش: ${summary?.averageMarginPct ?? 0}%`}
           tone="green"
         />
@@ -452,7 +463,7 @@ export function EmployeeAllocationDaysReportPage() {
 
                       {/* Unit Price */}
                       <td className="num text-xs font-mono">
-                        <div className="font-semibold text-slate-800 dark:text-slate-200">{money(r.unitPrice)}</div>
+                        <div className="font-semibold text-slate-800 dark:text-slate-200">{fm(r.unitPrice)}</div>
                         <div className="text-[10px] text-slate-400">
                           {r.pricingBasis === 'DAILY' ? 'يومي' : r.pricingBasis === 'HOURLY' ? 'ساعة' : 'شهري'}
                         </div>
@@ -460,17 +471,17 @@ export function EmployeeAllocationDaysReportPage() {
 
                       {/* Cost Share */}
                       <td className="num font-semibold text-rose-700 dark:text-rose-400">
-                        {money(r.projectCostShare)}
+                        {fm(r.projectCostShare)}
                       </td>
 
                       {/* Revenue */}
                       <td className="num font-bold text-emerald-700 dark:text-emerald-400">
-                        {money(r.revenueGenerated)}
+                        {fm(r.revenueGenerated)}
                       </td>
 
                       {/* Gross Profit */}
                       <td className={`num font-bold ${isPositiveProfit ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
-                        {money(r.grossProfit)}
+                        {fm(r.grossProfit)}
                       </td>
 
                       {/* Margin % */}

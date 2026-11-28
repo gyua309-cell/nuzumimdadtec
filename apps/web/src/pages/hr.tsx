@@ -94,6 +94,8 @@ export const employeeFields: FieldDef[] = [
   { name: 'email', label: 'البريد الإلكتروني', type: 'email', ltr: true, icon: <Mail className="size-3.5" />, section: 'بيانات الاتصال', sectionIcon: <Phone className="size-4" />, placeholder: 'name@company.com' },
   { name: 'phone', label: 'الهاتف', type: 'tel', ltr: true, icon: <Phone className="size-3.5" />, section: 'بيانات الاتصال', placeholder: '+966 5x xxx xxxx' },
   { name: 'employmentType', label: 'نوع التعاقد', type: 'select', options: opts(EMPLOYMENT_TYPE), default: 'FULL_TIME', required: true, section: 'بيانات التوظيف والعقد والتسعير', sectionIcon: <Briefcase className="size-4" /> },
+  { name: 'hireDate', label: 'تاريخ التعيين', type: 'date', required: true, default: today(), section: 'بيانات التوظيف والعقد والتسعير' },
+  { name: 'terminationDate', label: 'تاريخ الخروج إن وجد', type: 'date', hint: 'يُحتسب الراتب والتكلفة بالتناسب حتى تاريخ الخروج (Sec 3)', section: 'بيانات التوظيف والعقد والتسعير' },
   { name: 'workCalendarId', label: 'تقويم العمل', type: 'ref', ref: REF.calendar, section: 'بيانات التوظيف والعقد والتسعير' },
   { name: 'isBillableResource', label: 'مورد قابل للفوترة للعميل', type: 'bool', default: true, section: 'بيانات التوظيف والعقد والتسعير' },
   { name: 'defaultBillingRate', label: 'سعر بيع الخدمة الافتراضي للعميل', type: 'decimal', default: '1500', hint: 'سعر الخدمة اليومي أو الشهري المحسوب على العميل', section: 'بيانات التوظيف والعقد والتسعير' },
@@ -683,18 +685,19 @@ export function EmployeesPage() {
 }
 
 // ------------------------------------------------------------------ employee detail
-type Tab = 'info' | 'placement' | 'salary' | 'assignments' | 'profitability' | 'cost' | 'custody' | 'docs' | 'preview' | 'status';
+type Tab = 'info' | 'placement' | 'salary' | 'assignments' | 'service-prices' | 'profitability' | 'cost' | 'custody' | 'docs' | 'preview' | 'status';
 const TABS: Array<[Tab, string]> = [
   ['info', 'البيانات الأساسية'],
   ['placement', 'التنسيب الوظيفي'],
   ['salary', 'الراتب والبدلات'],
   ['assignments', 'المشاريع والتخصيص'],
+  ['service-prices', 'أسعار الخدمة (Pricing)'],
   ['profitability', 'تحليل الربحية والأداء'],
   ['cost', 'ملف التكلفة والاستثناءات'],
   ['custody', 'العهد والأصول'],
   ['docs', 'المستندات والعقود'],
   ['preview', 'محاكاة التكلفة الشاملة'],
-  ['status', 'الحالة وسجل الخدمة'],
+  ['status', 'الحالة وتاريخ الخروج'],
 ];
 
 function Effective({ from, to }: { from: string; to: string | null }) {
@@ -832,6 +835,15 @@ export function EmployeeDetailPage() {
             >
               <FolderPlus className="size-4" /> ربط بمشروع
             </button>
+            {e.status !== 'TERMINATED' && (
+              <button
+                className="btn-secondary text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-300 dark:border-amber-800 dark:hover:bg-amber-950/30"
+                onClick={() => setModal('terminate')}
+                title="تسجيل خروج الموظف وإقفال التخصيصات والأسعار المفتوحة تلقائياً بتاريخ الخروج"
+              >
+                <Square className="size-4" /> تسجيل خروج / إنهاء خدمة
+              </button>
+            )}
             <button
               className="btn-secondary text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40"
               onClick={handleDeleteEmployee}
@@ -1077,6 +1089,11 @@ export function EmployeeDetailPage() {
           onAssignNew={() => setAssignModalOpen(true)}
           onRefresh={refresh}
         />
+      )}
+
+      {/* NEW: Service Prices & Overrides Tab (Section 6 & 32#8) */}
+      {tab === 'service-prices' && (
+        <EmployeeServicePricesTab employee={e} onRefresh={() => refresh()} />
       )}
 
       {/* NEW: Profitability Tab */}
@@ -1356,15 +1373,16 @@ export function EmployeeDetailPage() {
       />
 
       <FormModal
-        open={modal === 'status'}
-        title="تغيير حالة الموظف"
+        open={modal === 'status' || modal === 'terminate'}
+        title={modal === 'terminate' ? 'تسجيل خروج / إنهاء خدمة الموظف' : 'تغيير حالة الموظف'}
         onClose={() => setModal(null)}
         onSubmit={submit('/status')}
-        initial={{ effectiveDate: today(), newStatus: 'ACTIVE' }}
+        note="عند اختيار 'منتهية خدمته' تُغلق التخصيصات وأسعار الخدمة المفتوحة تلقائياً بتاريخ الخروج وتُحسب التكلفة بالتناسب (Proration) حتى تاريخ الخروج."
+        initial={{ effectiveDate: today(), newStatus: modal === 'terminate' ? 'TERMINATED' : 'ACTIVE' }}
         fields={[
           { name: 'newStatus', label: 'الحالة الجديدة', type: 'select', options: opts(EMPLOYEE_STATUS), required: true },
-          { name: 'effectiveDate', label: 'تاريخ السريان', type: 'date', required: true },
-          { name: 'reason', label: 'السبب', type: 'textarea', required: true },
+          { name: 'effectiveDate', label: 'تاريخ السريان / تاريخ الخروج', type: 'date', required: true },
+          { name: 'reason', label: 'السبب / المبرر', type: 'textarea', required: true },
         ]}
       />
 
@@ -1836,6 +1854,252 @@ function EmployeeProfitabilityTab({ employee }: { employee: any }) {
           </table>
         </div>
       </Section>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ Employee Service Prices & Adequacy Tab (Sec 6, 8, 26 & 32#8)
+function EmployeeServicePricesTab({ employee, onRefresh }: { employee: any; onRefresh: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const base = useBaseCurrency();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'DEFAULT' | 'OVERRIDE'>('DEFAULT');
+
+  const spQ = useQuery({
+    queryKey: ['/service-prices', employee.id],
+    queryFn: () => api.get<any>('/service-prices', { employeeId: employee.id }),
+  });
+  const costQ = useQuery({
+    queryKey: ['employee-cost', employee.id],
+    queryFn: () => api.get<any>(`/employees/${employee.id}/cost`),
+  });
+
+  const allPrices: any[] = (Array.isArray(spQ.data) ? spQ.data : (spQ.data?.data ?? [])).filter(
+    (sp: any) => sp.employeeId === employee.id || (employee.code && sp.employeeCode === employee.code),
+  );
+  const defaultPrices = allPrices.filter((sp) => !sp.projectId);
+  const projectOverrides = allPrices.filter((sp) => Boolean(sp.projectId));
+
+  const activeDefault = defaultPrices.find((sp) => !sp.effectiveTo) || defaultPrices[0];
+  const monthlyLoadedCost = Number(costQ.data?.distributableCostBase ?? employee.basicSalary ?? 0);
+  const dailyCost = monthlyLoadedCost / 22;
+  const targetMargin = Number(employee.requiredMarginPct || employee.targetMarginPct || 25);
+  const recommendedDailyRate = targetMargin < 100 ? dailyCost / (1 - targetMargin / 100) : dailyCost * 1.25;
+
+  const effPrice = Number(activeDefault?.price ?? employee.defaultBillingRate ?? 0);
+  const effBasis = normalizePricingBasis(activeDefault?.pricingBasis, employee.defaultBillingBasis, 'DAILY');
+  const effDailyEquivalent = effBasis === 'MONTHLY' ? effPrice / 22 : effBasis === 'HOURLY' ? effPrice * 8 : effPrice;
+  const impliedMarginPct = effDailyEquivalent > 0 ? ((effDailyEquivalent - dailyCost) / effDailyEquivalent) * 100 : 0;
+  const isAdequate = effDailyEquivalent >= recommendedDailyRate && effDailyEquivalent > 0;
+  const isProfitable = effDailyEquivalent > dailyCost;
+
+  const priceFields: FieldDef[] = [
+    ...(modalMode === 'OVERRIDE'
+      ? [{ name: 'projectId', label: 'المشروع (سعر خاص Override) *', type: 'ref' as const, ref: REF.project, required: true }]
+      : []),
+    {
+      name: 'pricingBasis',
+      label: 'أساس التسعير *',
+      type: 'select',
+      options: [
+        { value: 'DAILY', label: 'يومي (Daily)' },
+        { value: 'MONTHLY', label: 'شهري (Monthly)' },
+        { value: 'HOURLY', label: 'بالساعة (Hourly)' },
+      ],
+      required: true,
+      default: employee.defaultBillingBasis || 'DAILY',
+    },
+    { name: 'price', label: 'سعر البيع للعميل *', type: 'decimal', required: true, min: 0 },
+    { name: 'currencyCode', label: 'العملة *', type: 'ref', ref: REF.currency, required: true, default: 'SAR' },
+    { name: 'effectiveFrom', label: 'تاريخ السريان (يغلق السعر المفتوح السابق تلقائياً) *', type: 'date', required: true, default: today() },
+    { name: 'effectiveTo', label: 'تاريخ الانتهاء (اختياري)', type: 'date' },
+    { name: 'reason', label: 'المبرر / المرجع التعاقدي *', type: 'text', required: true, default: modalMode === 'OVERRIDE' ? 'سعر تعاقدي خاص بالمشروع' : 'تحديث السعر الافتراضي للموظف' },
+  ];
+
+  const handleEndPrice = async (spId: string) => {
+    const endD = prompt('تاريخ إنهاء هذا السعر (YYYY-MM-DD):', today());
+    if (!endD) return;
+    try {
+      await api.post(`/service-prices/${spId}/end`, { effectiveTo: endD });
+      toast.success('تم إنهاء سريان السعر بنجاح مع الحفاظ على تاريخه');
+      qc.invalidateQueries({ queryKey: ['/service-prices'] });
+      onRefresh();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* KPI Adequacy Strip (Business Process Sec 6 & Sec 32 Question #8) */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat
+          label="التكلفة اليومية المحملة للموظف"
+          value={`${money(dailyCost)} ${base}`}
+          hint={`تكلفة شهرية: ${money(monthlyLoadedCost)} ÷ 22 يوم`}
+          tone="blue"
+        />
+        <Stat
+          label="أقل سعر يومي يغطي التكلفة والهامش"
+          value={`${money(recommendedDailyRate)} ${base}`}
+          hint={`بناءً على هامش مستهدف ${targetMargin}%`}
+          tone="indigo"
+        />
+        <Stat
+          label="السعر اليومي الفعلي المعتمد"
+          value={`${money(effDailyEquivalent)} ${base}`}
+          hint={`أساس التسعير الحالي: ${effBasis === 'DAILY' ? 'يومي' : effBasis === 'MONTHLY' ? 'شهري' : 'ساعي'}`}
+          tone={isAdequate ? 'green' : isProfitable ? 'amber' : 'red'}
+        />
+        <Stat
+          label="ملاءمة التسعير (Sec 32 #8)"
+          value={effDailyEquivalent <= 0 ? 'غير مسعّر' : isAdequate ? `مربح (${impliedMarginPct.toFixed(1)}%)` : isProfitable ? `دون الهامش (${impliedMarginPct.toFixed(1)}%)` : `خسارة (${impliedMarginPct.toFixed(1)}%)`}
+          hint={isAdequate ? 'السعر يغطي التكلفة ويحقق الهامش المطلوب' : 'راجع السعر التعاقدي مع العميل'}
+          tone={isAdequate ? 'green' : isProfitable ? 'amber' : 'red'}
+        />
+      </div>
+
+      {/* Default Service Price History */}
+      <Section
+        title="السعر الافتراضي للموظف وتاريخ تغيراته (Default Service Price)"
+        action={
+          <button
+            className="btn-primary h-8 text-xs"
+            onClick={() => {
+              setModalMode('DEFAULT');
+              setModalOpen(true);
+            }}
+          >
+            <Plus className="size-3.5" /> إصدار سعر افتراضي جديد
+          </button>
+        }
+      >
+        <div className="overflow-x-auto">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>الأساس</th>
+                <th>السعر</th>
+                <th>العملة</th>
+                <th>فترة السريان</th>
+                <th>السبب</th>
+                <th className="w-24 text-end">إجراء</th>
+              </tr>
+            </thead>
+            <tbody>
+              {defaultPrices.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center text-slate-500">
+                    لا يوجد سجل أسعار مسجل؛ يُستخدم السعر المرجعي ({money(employee.defaultBillingRate || 0)} {employee.defaultBillingBasis || 'DAILY'}).
+                  </td>
+                </tr>
+              ) : (
+                defaultPrices.map((sp: any) => (
+                  <tr key={sp.id}>
+                    <td>{sp.pricingBasis === 'MONTHLY' ? 'شهري' : sp.pricingBasis === 'HOURLY' ? 'ساعي' : 'يومي'}</td>
+                    <td className="num font-bold text-emerald-700 dark:text-emerald-400">{money(sp.price)}</td>
+                    <td className="font-mono text-xs">{sp.currencyCode || 'SAR'}</td>
+                    <td><Effective from={sp.effectiveFrom} to={sp.effectiveTo} /></td>
+                    <td className="text-xs text-slate-500">{sp.reason || '—'}</td>
+                    <td className="text-end">
+                      {!sp.effectiveTo && (
+                        <button className="btn-ghost h-7 px-2 text-xs text-rose-600" onClick={() => handleEndPrice(sp.id)}>
+                          إنهاء
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      {/* Project-Specific Overrides */}
+      <Section
+        title="أسعار المشاريع الخاصة (Project Service Price Overrides)"
+        action={
+          <button
+            className="btn-secondary h-8 text-xs"
+            onClick={() => {
+              setModalMode('OVERRIDE');
+              setModalOpen(true);
+            }}
+          >
+            <Plus className="size-3.5" /> إضافة سعر خاص بمشروع
+          </button>
+        }
+      >
+        <div className="overflow-x-auto">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>المشروع</th>
+                <th>الأساس</th>
+                <th>السعر</th>
+                <th>العملة</th>
+                <th>فترة السريان</th>
+                <th>السبب</th>
+                <th className="w-24 text-end">إجراء</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projectOverrides.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center text-slate-500">
+                    لا توجد أسعار Override مخصصة لمشاريع؛ تُسعر مشاريعه بالسعر الافتراضي للموظف.
+                  </td>
+                </tr>
+              ) : (
+                projectOverrides.map((sp: any) => (
+                  <tr key={sp.id}>
+                    <td>
+                      <Link to={`/prj/projects/${sp.projectId}`} className="font-bold text-brand-600 hover:underline">
+                        {sp.projectCode ? `${sp.projectCode} — ` : ''}{sp.projectName || 'مشروع'}
+                      </Link>
+                    </td>
+                    <td>{sp.pricingBasis === 'MONTHLY' ? 'شهري' : sp.pricingBasis === 'HOURLY' ? 'ساعي' : 'يومي'}</td>
+                    <td className="num font-bold text-indigo-700 dark:text-indigo-400">{money(sp.price)}</td>
+                    <td className="font-mono text-xs">{sp.currencyCode || 'SAR'}</td>
+                    <td><Effective from={sp.effectiveFrom} to={sp.effectiveTo} /></td>
+                    <td className="text-xs text-slate-500">{sp.reason || '—'}</td>
+                    <td className="text-end">
+                      {!sp.effectiveTo && (
+                        <button className="btn-ghost h-7 px-2 text-xs text-rose-600" onClick={() => handleEndPrice(sp.id)}>
+                          إنهاء
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      <FormModal
+        open={modalOpen}
+        wide
+        title={modalMode === 'OVERRIDE' ? `إضافة سعر خاص بمشروع — ${employee.fullNameAr}` : `إصدار سعر خدمة افتراضي جديد — ${employee.fullNameAr}`}
+        note="إصدار سعر جديد بتاريخ سريان يُنهي السعر المفتوح السابق تلقائياً دون التأثير على نتائج الشهور التاريخية السابقة (Sec 26)."
+        fields={priceFields}
+        onClose={() => setModalOpen(false)}
+        onSubmit={async (b) => {
+          await api.post('/service-prices', {
+            ...b,
+            employeeId: employee.id,
+            ...(modalMode === 'DEFAULT' ? { projectId: null } : {}),
+          });
+          toast.success('تم تسجيل سعر الخدمة وتحديث السجل التاريخي بنجاح');
+          qc.invalidateQueries({ queryKey: ['/service-prices'] });
+          qc.invalidateQueries({ queryKey: ['/profitability/projects'] });
+          qc.invalidateQueries({ queryKey: ['/profitability/employees'] });
+          onRefresh();
+        }}
+      />
     </div>
   );
 }

@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Briefcase, Building2, ChevronDown, ChevronRight, Download,
-  History, PieChart, Play, Printer, Settings, Users,
+  BarChart3, Briefcase, Building2, CheckCircle2, ChevronDown, ChevronRight, Download,
+  History, PieChart, Play, Plus, Printer, Send, Settings, Users, XCircle,
 } from 'lucide-react';
 import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { api, Page } from '../lib/api';
 import { downloadCsv, money, today } from '../lib/format';
+import { useReportCurrency } from '../lib/fx-display';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { ExportEngine } from '../engine/export-engine';
@@ -282,13 +283,15 @@ export function RevenuePage() {
 // ============================================================================
 export function ProfitabilityPage() {
   const qc = useQueryClient();
-  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (searchParams.get('tab') as any) || 'projects';
   const { filters, setFilters, resetAll, queryParams } = useReportFilters({
     syncUrl: true,
   });
   const periodId = filters.periodId;
+  const fx = useReportCurrency(filters.currencyCode, filters.to || filters.asOf);
+  const cv = (v: any) => fx.convert(v);
+  const fm = (v: any) => money(cv(v));
   const [activeTab, setActiveTab] = useState<'projects' | 'employees' | 'clients' | 'retroactive' | 'overhead'>(initialTab);
 
   useEffect(() => {
@@ -367,7 +370,12 @@ export function ProfitabilityPage() {
             { key: 'totalCostBase', header: 'إجمالي التكلفة', width: 16, type: 'currency' as const, isTotal: true },
             { key: 'grossProfitBase', header: 'صافي الربح', width: 16, type: 'currency' as const, isTotal: true },
           ],
-          data: filteredProjects,
+          data: filteredProjects.map((r: any) => ({
+            ...r,
+            revenueBase: cv(r.revenueBase),
+            totalCostBase: cv(r.totalCostBase),
+            grossProfitBase: cv(r.grossProfitBase),
+          })),
         }
       : activeTab === 'employees'
       ? {
@@ -379,7 +387,12 @@ export function ProfitabilityPage() {
             { key: 'directCostBase', header: 'التكلفة المباشرة', width: 16, type: 'currency' as const, isTotal: true },
             { key: 'grossProfitBase', header: 'صافي الربح', width: 16, type: 'currency' as const, isTotal: true },
           ],
-          data: filteredEmps,
+          data: filteredEmps.map((r: any) => ({
+            ...r,
+            revenueBase: cv(r.revenueBase),
+            directCostBase: cv(r.directCostBase),
+            grossProfitBase: cv(r.grossProfitBase),
+          })),
         }
       : {
           title: 'تقرير ربحية العملاء',
@@ -390,7 +403,12 @@ export function ProfitabilityPage() {
             { key: 'totalCostBase', header: 'إجمالي التكلفة', width: 16, type: 'currency' as const, isTotal: true },
             { key: 'grossProfitBase', header: 'صافي الربح', width: 16, type: 'currency' as const, isTotal: true },
           ],
-          data: rawClients,
+          data: rawClients.map((r: any) => ({
+            ...r,
+            revenueBase: cv(r.revenueBase),
+            totalCostBase: cv(r.totalCostBase),
+            grossProfitBase: cv(r.grossProfitBase),
+          })),
         };
 
   return (
@@ -401,7 +419,7 @@ export function ProfitabilityPage() {
         icon={BarChart3}
         badge={
           <Badge color="emerald" dot>
-            تحليل 360° للربحية
+            {fx.isConverted ? `تحليل 360° — ${fx.rateLabel}` : `تحليل 360° (${fx.targetCurrency})`}
           </Badge>
         }
         actions={
@@ -409,7 +427,7 @@ export function ProfitabilityPage() {
             <ExportMenu
               title={activeExportData.title}
               filename={`profitability-${activeTab}-${periodId || today()}`}
-              currency="SAR"
+              currency={fx.targetCurrency}
               columns={activeExportData.columns}
               data={activeExportData.data}
             />
@@ -418,8 +436,8 @@ export function ProfitabilityPage() {
               onClick={() =>
                 void ExportEngine.exportPdf({
                   title: activeExportData.title,
-                  subtitle: 'تحليل الربحية الشامل متعدد المستويات بالريال السعودي (SAR)',
-                  currency: 'SAR',
+                  subtitle: `تحليل الربحية الشامل متعدد المستويات بعملة العرض (${fx.rateLabel})`,
+                  currency: fx.targetCurrency,
                   columns: activeExportData.columns,
                   data: activeExportData.data,
                 })
@@ -449,7 +467,7 @@ export function ProfitabilityPage() {
                 ? 'مقارنة الإيراد مقابل التكلفة والربح لكل كادر'
                 : 'مقارنة الإيراد مقابل التكلفة والربح لكل عميل'
             }
-            subtitle="تحليل بياني مباشر لأداء الربحية بالريال السعودي (SAR)"
+            subtitle={`تحليل بياني مباشر لأداء الربحية بعملة العرض (${fx.targetCurrency})`}
             icon={BarChart3}
             accent="emerald"
             className="lg:col-span-2"
@@ -468,7 +486,7 @@ export function ProfitabilityPage() {
                   name: 'الإيراد',
                   data: (activeTab === 'projects' ? filteredProjects : activeTab === 'employees' ? filteredEmps : rawClients)
                     .slice(0, 8)
-                    .map((item: any) => Number(item.revenueBase || 0)),
+                    .map((item: any) => cv(item.revenueBase || 0)),
                   color: '#4f46e5',
                   colorEnd: '#6366f1',
                 },
@@ -476,7 +494,7 @@ export function ProfitabilityPage() {
                   name: 'إجمالي التكلفة',
                   data: (activeTab === 'projects' ? filteredProjects : activeTab === 'employees' ? filteredEmps : rawClients)
                     .slice(0, 8)
-                    .map((item: any) => Number(item.totalCostBase ?? item.directCostBase ?? 0)),
+                    .map((item: any) => cv(item.totalCostBase ?? item.directCostBase ?? 0)),
                   color: '#f59e0b',
                   colorEnd: '#d97706',
                 },
@@ -484,20 +502,20 @@ export function ProfitabilityPage() {
                   name: 'صافي الربح',
                   data: (activeTab === 'projects' ? filteredProjects : activeTab === 'employees' ? filteredEmps : rawClients)
                     .slice(0, 8)
-                    .map((item: any) => Number(item.grossProfitBase || 0)),
+                    .map((item: any) => cv(item.grossProfitBase || 0)),
                   color: '#10b981',
                   colorEnd: '#059669',
                 },
               ]}
               height={225}
-              unit="SAR"
+              unit={fx.targetCurrency}
               emptyText="لا توجد بيانات ربحية مسجلة للفترة المختارة"
             />
           </ExecutiveChartCard>
 
           <ExecutiveChartCard
             title="توزيع حصة الإيرادات"
-            subtitle="أعلى العناصر مساهمة في إجمالي الإيراد"
+            subtitle={`أعلى العناصر مساهمة في إجمالي الإيراد (${fx.targetCurrency})`}
             icon={PieChart}
             accent="indigo"
           >
@@ -507,9 +525,9 @@ export function ProfitabilityPage() {
                 .slice(0, 6)
                 .map((item: any) => ({
                   name: item.projectName || item.employeeName || item.clientName || '—',
-                  value: Number(item.revenueBase || 0),
+                  value: cv(item.revenueBase || 0),
                 }))}
-              centerValue={money(
+              centerValue={fm(
                 (activeTab === 'projects' ? filteredProjects : activeTab === 'employees' ? filteredEmps : rawClients).reduce(
                   (s: number, item: any) => s + Number(item.revenueBase || 0),
                   0,
@@ -517,7 +535,7 @@ export function ProfitabilityPage() {
               )}
               centerLabel="إجمالي الإيراد"
               height={225}
-              unit="SAR"
+              unit={fx.targetCurrency}
               emptyText="لا توجد إيرادات"
             />
           </ExecutiveChartCard>
@@ -539,6 +557,7 @@ export function ProfitabilityPage() {
             showProject
             showEmployee
             showDepartment
+            showCurrency
             showSearch
             searchPlaceholder="ابحث باسم المشروع أو الكادر أو العميل..."
           />
@@ -576,7 +595,7 @@ export function ProfitabilityPage() {
               }`}
               onClick={() => handleTabChange('retroactive')}
             >
-              <History className="size-3.5" /> تسويات الأثر الرجعي
+              <History className="size-3.5" /> التسويات والأثر الرجعي (Sec 18 & 29)
             </button>
             <button
               className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors ${
@@ -648,13 +667,13 @@ export function ProfitabilityPage() {
                                   </Link>
                                 </td>
                                 <td>{p.clientName}</td>
-                                <td className="num font-bold text-emerald-600">{money(p.revenueBase)}</td>
-                                <td className="num">{money(p.employeeCostBase)}</td>
-                                <td className="num text-purple-600">{money(p.projectVariablesBase)}</td>
-                                <td className="num text-slate-500">{money(p.overheadBase)}</td>
-                                <td className="num font-medium">{money(p.totalCostBase)}</td>
+                                <td className="num font-bold text-emerald-600">{fm(p.revenueBase)}</td>
+                                <td className="num">{fm(p.employeeCostBase)}</td>
+                                <td className="num text-purple-600">{fm(p.projectVariablesBase)}</td>
+                                <td className="num text-slate-500">{fm(p.overheadBase)}</td>
+                                <td className="num font-medium">{fm(p.totalCostBase)}</td>
                                 <td className={`num font-bold ${Number(p.grossProfitBase) >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600'}`}>
-                                  {money(p.grossProfitBase)}
+                                  {fm(p.grossProfitBase)}
                                 </td>
                                 <td className="num font-bold">{margin != null ? `${margin.toFixed(1)}%` : '—'}</td>
                                 <td className="num text-slate-500">{target != null ? `${target.toFixed(1)}%` : '—'}</td>
@@ -695,7 +714,7 @@ export function ProfitabilityPage() {
                                               <span className="ms-1.5 font-medium">{tm.employeeName}</span>
                                             </div>
                                             <div className="text-end">
-                                              <div className="font-bold text-slate-800 dark:text-slate-200">{money(tm.costBase)}</div>
+                                              <div className="font-bold text-slate-800 dark:text-slate-200">{fm(tm.costBase)}</div>
                                               <div className="text-[10px] text-slate-400">تخصيص: {tm.effectivePct}%</div>
                                             </div>
                                           </div>
@@ -728,17 +747,17 @@ export function ProfitabilityPage() {
               {/* KPI Summary */}
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <Stat label="إجمالي الموظفين" value={String(empProf.data.summary.employeeCount)} tone="blue" />
-                <Stat label="إجمالي إيراد الموظفين" value={money(empProf.data.summary.totalRevenueBase)} tone="green" />
-                <Stat label="إجمالي تكلفة الموظفين" value={money(empProf.data.summary.totalCostBase)} />
+                <Stat label={`إجمالي إيراد الموظفين (${fx.targetCurrency})`} value={fm(empProf.data.summary.totalRevenueBase)} tone="green" />
+                <Stat label={`إجمالي تكلفة الموظفين (${fx.targetCurrency})`} value={fm(empProf.data.summary.totalCostBase)} />
                 <Stat
-                  label="تكلفة الوقت الضائع (غير المستغل)"
-                  value={money(empProf.data.summary.totalUnutilizedCostBase)}
+                  label={`تكلفة الوقت الضائع (${fx.targetCurrency})`}
+                  value={fm(empProf.data.summary.totalUnutilizedCostBase)}
                   tone="amber"
                   hint="تكلفة الشركة للموظفين دون تخصيص مشاريع"
                 />
                 <Stat
-                  label="صافي أرباح الموظفين"
-                  value={money(empProf.data.summary.totalProfitBase)}
+                  label={`صافي أرباح الموظفين (${fx.targetCurrency})`}
+                  value={fm(empProf.data.summary.totalProfitBase)}
                   tone={Number(empProf.data.summary.totalProfitBase) >= 0 ? 'green' : 'red'}
                 />
               </div>
@@ -798,13 +817,13 @@ export function ProfitabilityPage() {
                                 </span>
                               </td>
                               <td className="num font-mono text-amber-700 dark:text-amber-400 font-semibold">
-                                {money(e.unutilizedCostBase)}
+                                {fm(e.unutilizedCostBase)}
                               </td>
-                              <td className="num">{money(e.directCostBase)}</td>
-                              <td className="num text-slate-500">{money(e.overheadBase)}</td>
-                              <td className="num font-bold text-emerald-600">{money(e.revenueBase)}</td>
+                              <td className="num">{fm(e.directCostBase)}</td>
+                              <td className="num text-slate-500">{fm(e.overheadBase)}</td>
+                              <td className="num font-bold text-emerald-600">{fm(e.revenueBase)}</td>
                               <td className={`num font-bold ${Number(e.grossProfitBase) >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600'}`}>
-                                {money(e.grossProfitBase)}
+                                {fm(e.grossProfitBase)}
                               </td>
                               <td className="num font-bold">
                                 {e.grossMarginPct != null ? `${Number(e.grossMarginPct).toFixed(1)}%` : '—'}
@@ -836,8 +855,8 @@ export function ProfitabilityPage() {
                                             <div className="text-[10px] text-slate-400">تخصيص: {pr.effectiveAllocationPct}%</div>
                                           </div>
                                           <div className="text-end">
-                                            <div className="text-emerald-600 font-bold">إيراد: {money(pr.revenueBase)}</div>
-                                            <div className="text-slate-500">تكلفة: {money(pr.costBase)}</div>
+                                            <div className="text-emerald-600 font-bold">إيراد: {fm(pr.revenueBase)}</div>
+                                            <div className="text-slate-500">تكلفة: {fm(pr.costBase)}</div>
                                           </div>
                                         </div>
                                       ))}
@@ -890,12 +909,12 @@ export function ProfitabilityPage() {
                           <div className="text-[10px] font-mono text-slate-400">{c.clientCode}</div>
                         </td>
                         <td className="num font-mono font-semibold">{c.projectCount}</td>
-                        <td className="num font-bold text-emerald-600">{money(c.revenueBase)}</td>
-                        <td className="num">{money(c.directCostBase)}</td>
-                        <td className="num text-slate-500">{money(c.overheadBase)}</td>
-                        <td className="num font-medium">{money(c.totalCostBase)}</td>
+                        <td className="num font-bold text-emerald-600">{fm(c.revenueBase)}</td>
+                        <td className="num">{fm(c.directCostBase)}</td>
+                        <td className="num text-slate-500">{fm(c.overheadBase)}</td>
+                        <td className="num font-medium">{fm(c.totalCostBase)}</td>
                         <td className={`num font-bold ${Number(c.grossProfitBase) >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600'}`}>
-                          {money(c.grossProfitBase)}
+                          {fm(c.grossProfitBase)}
                         </td>
                         <td className="num font-bold">
                           {margin != null ? `${margin.toFixed(1)}%` : '—'}
@@ -912,122 +931,19 @@ export function ProfitabilityPage() {
 
       {/* ================================================================== TAB 4: RETROACTIVE ADJUSTMENTS */}
       {activeTab === 'retroactive' && (
-        <div className="space-y-4">
-          <div className="rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-3 text-xs text-blue-900 dark:text-blue-200 flex items-start gap-2">
-            <History className="size-4 shrink-0 text-blue-600 mt-0.5" />
-            <div>
-              <strong>مفهوم الإيراد بأثر رجعي (Section 18):</strong>
-              <p className="mt-0.5">
-                عند اكتشاف ساعات أو أيام عمل لموظف على مشروع في شهر سابق مغلق، لا يتم فتح الشهر المغلق أو تعديل أرقامه التاريخية. بدلاً من ذلك، يتم تسجيل تسوية إيراد بأثر رجعي في الشهر الحالي كبند منفصل ثابت يحافظ على سلامة السجلات التاريخية.
-              </p>
-            </div>
-          </div>
-
-          <div className="card overflow-hidden">
-            {retroAdjustments.isLoading ? (
-              <Loading />
-            ) : retroRows.length === 0 ? (
-              <EmptyState text="لا توجد تسويات إيرادات بأثر رجعي مسجلة لهذه الفترة." />
-            ) : (
-              <table className="table w-full text-xs">
-                <thead>
-                  <tr>
-                    <th>الموظف</th>
-                    <th>المشروع</th>
-                    <th>العميل</th>
-                    <th>الفترة الأصلية</th>
-                    <th>فترة التسجيل</th>
-                    <th>الأساس</th>
-                    <th className="num">الوحدات</th>
-                    <th className="num">السعر</th>
-                    <th className="num">الإيراد المسوى</th>
-                    <th>القيد الآلي</th>
-                    <th>الحالة (Workflow)</th>
-                    <th>سبب التسوية</th>
-                    <th>إجراءات الاعتماد</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {retroRows.map((r: any) => {
-                    const st = r.status || 'APPROVED';
-                    const statusBadge = st === 'DRAFT'
-                      ? <Badge color="slate">مسودة (Draft)</Badge>
-                      : st === 'PENDING_APPROVAL'
-                        ? <Badge color="amber">بانتظار الاعتماد (Pending)</Badge>
-                        : st === 'REJECTED'
-                          ? <Badge color="red">مرفوضة (Rejected)</Badge>
-                          : <Badge color="green">معتمدة (Approved)</Badge>;
-                    const refreshRetro = () => {
-                      qc.invalidateQueries({ queryKey: ['/revenue-adjustments/retroactive', periodId] });
-                      qc.invalidateQueries({ queryKey: ['/profitability/projects', periodId] });
-                      qc.invalidateQueries({ queryKey: ['/profitability/employees', periodId] });
-                      qc.invalidateQueries({ queryKey: ['/profitability/clients', periodId] });
-                    };
-                    return (
-                      <tr key={r.id}>
-                        <td className="font-medium">{r.employeeName}</td>
-                        <td>{r.projectName}</td>
-                        <td>{r.clientName}</td>
-                        <td className="font-mono text-purple-600 font-medium">{r.originalPeriodName}</td>
-                        <td className="font-mono">{r.periodName}</td>
-                        <td>{r.pricingBasis === 'MONTHLY' ? 'شهري' : r.pricingBasis === 'DAILY' ? 'يومي' : 'ساعي'}</td>
-                        <td className="num font-mono">{Number(r.units).toFixed(2)}</td>
-                        <td className="num font-mono">{money(r.unitPrice)}</td>
-                        <td className="num font-bold text-emerald-600">{money(r.grossRevenueBase)}</td>
-                        <td><JournalLinkBadge entryId={r.journalEntryId} entryNo={r.journalEntryNo} compact /></td>
-                        <td>{statusBadge}</td>
-                        <td className="max-w-xs truncate" title={r.adjustmentReason}>{r.adjustmentReason}</td>
-                        <td>
-                          <div className="flex items-center gap-1">
-                            {st === 'DRAFT' && (
-                              <button
-                                className="btn-secondary text-[11px] px-2 py-0.5 font-bold"
-                                onClick={async () => {
-                                  await api.post(`/revenue-adjustments/${r.id}/submit`, {});
-                                  toast.success('تم إرسال التسوية للاعتماد');
-                                  refreshRetro();
-                                }}
-                              >
-                                إرسال للاعتماد
-                              </button>
-                            )}
-                            {(st === 'DRAFT' || st === 'PENDING_APPROVAL') && (
-                              <>
-                                <button
-                                  className="btn-primary text-[11px] px-2 py-0.5 font-bold"
-                                  onClick={async () => {
-                                    await api.post(`/revenue-adjustments/${r.id}/approve`, {});
-                                    toast.success('تم اعتماد التسوية وتحديث الربحية');
-                                    refreshRetro();
-                                  }}
-                                >
-                                  اعتماد
-                                </button>
-                                <button
-                                  className="btn-danger text-[11px] px-2 py-0.5 font-bold"
-                                  onClick={async () => {
-                                    await api.post(`/revenue-adjustments/${r.id}/reject`, { reason: 'رفض التسوية بعد المراجعة' });
-                                    toast.success('تم رفض التسوية');
-                                    refreshRetro();
-                                  }}
-                                >
-                                  رفض
-                                </button>
-                              </>
-                            )}
-                            {(st === 'APPROVED' || st === 'RECORDED' || st === 'REJECTED') && (
-                              <span className="text-[11px] text-slate-400">مكتمل</span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
+        <AdjustmentsAndRetroTab
+          periodId={periodId}
+          rows={retroRows}
+          loading={retroAdjustments.isLoading}
+          onOpenModal={() => setShowRetroModal(true)}
+          onRefresh={() => {
+            qc.invalidateQueries({ queryKey: ['/revenue-adjustments/retroactive', periodId] });
+            qc.invalidateQueries({ queryKey: ['/profitability/projects', periodId] });
+            qc.invalidateQueries({ queryKey: ['/profitability/employees', periodId] });
+            qc.invalidateQueries({ queryKey: ['/profitability/clients', periodId] });
+            qc.invalidateQueries({ queryKey: ['/audit-log'] });
+          }}
+        />
       )}
 
       {/* ================================================================== TAB 5: OVERHEAD POLICY */}
@@ -1043,7 +959,7 @@ export function ProfitabilityPage() {
         />
       )}
 
-      {/* Retroactive Adjustment Modal */}
+      {/* Retroactive & General Result Adjustment Modal */}
       <CreateRetroactiveAdjustmentModal
         open={showRetroModal}
         currentPeriodId={periodId}
@@ -1052,6 +968,222 @@ export function ProfitabilityPage() {
           qc.invalidateQueries({ queryKey: ['/revenue-adjustments/retroactive', periodId] });
           qc.invalidateQueries({ queryKey: ['/profitability/projects', periodId] });
           qc.invalidateQueries({ queryKey: ['/profitability/employees', periodId] });
+          qc.invalidateQueries({ queryKey: ['/profitability/clients', periodId] });
+          qc.invalidateQueries({ queryKey: ['/audit-log'] });
+        }}
+      />
+    </div>
+  );
+}
+
+const ADJ_KIND_META: Record<string, { label: string; color: string; sign: '+' | '-' }> = {
+  RETROACTIVE_REVENUE: { label: 'إيراد بأثر رجعي (Sec 18)', color: 'blue', sign: '+' },
+  REVENUE: { label: 'تسوية إيراد مباشرة (Sec 29)', color: 'green', sign: '+' },
+  DIRECT_COST: { label: 'تسوية تكلفة مباشرة (Sec 29)', color: 'amber', sign: '-' },
+  OVERHEAD: { label: 'تسوية مصروفات إدارية (Sec 29)', color: 'purple', sign: '-' },
+};
+
+function AdjustmentsAndRetroTab({
+  periodId,
+  rows,
+  loading,
+  onOpenModal,
+  onRefresh,
+}: {
+  periodId: string;
+  rows: any[];
+  loading: boolean;
+  onOpenModal: () => void;
+  onRefresh: () => void;
+}) {
+  const toast = useToast();
+  const [kindFilter, setKindFilter] = useState<string>('ALL');
+  const [rejectTarget, setRejectTarget] = useState<any | null>(null);
+
+  const getAdjAmountBase = (r: any) =>
+    Number(
+      r.adjustmentAmountBase ??
+      (r.adjustmentKind === 'DIRECT_COST'
+        ? r.directCostBase
+        : r.adjustmentKind === 'OVERHEAD'
+          ? r.overheadBase
+          : r.grossRevenueBase) ??
+      0,
+    );
+
+  const filtered = rows.filter((r: any) => kindFilter === 'ALL' || (r.adjustmentKind || 'RETROACTIVE_REVENUE') === kindFilter);
+  const approvedRows = filtered.filter((r: any) => !r.status || r.status === 'APPROVED' || r.status === 'RECORDED');
+  const pendingCount = filtered.filter((r: any) => r.status === 'DRAFT' || r.status === 'PENDING_APPROVAL').length;
+  const revAdjTotal = approvedRows
+    .filter((r: any) => (r.adjustmentKind || 'RETROACTIVE_REVENUE') === 'RETROACTIVE_REVENUE' || r.adjustmentKind === 'REVENUE')
+    .reduce((s: number, r: any) => s + getAdjAmountBase(r), 0);
+  const costAdjTotal = approvedRows
+    .filter((r: any) => r.adjustmentKind === 'DIRECT_COST' || r.adjustmentKind === 'OVERHEAD')
+    .reduce((s: number, r: any) => s + getAdjAmountBase(r), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-3 text-xs text-blue-900 dark:text-blue-200 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-2 max-w-4xl">
+          <History className="size-4 shrink-0 text-blue-600 mt-0.5" />
+          <div className="space-y-1">
+            <strong>تسويات الإيراد بأثر رجعي وتسويات النتائج الإدارية (Sections 18 & 29):</strong>
+            <p>
+              لا يتم المساس بأرقام الفترات التاريخية المغلقة مطلقاً؛ بل تُسجل تسويات الإيراد بأثر رجعي (Section 18) أو تسويات النتائج المعتمدة — إيراد / تكلفة مباشرة / مصروفات عامة (Section 29) داخل الفترة المفتوحة مع دورة اعتماد كاملة (Draft → Pending → Approved/Rejected) وقيد محاسبي تلقائي وسجل تدقيق.
+            </p>
+          </div>
+        </div>
+        <button className="btn-primary text-xs flex items-center gap-1.5 shrink-0" onClick={onOpenModal}>
+          <Plus className="size-4" /> إضافة تسوية جديدة
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="صافي تسويات الإيراد المعتمدة" value={money(revAdjTotal)} tone="green" hint="أثر رجعي + تسويات إيراد" />
+        <Stat label="تسويات التكاليف والأوفرهيد" value={money(costAdjTotal)} tone={costAdjTotal > 0 ? 'amber' : undefined} hint="تكاليف مباشرة ومصروفات عامة" />
+        <Stat label="تسويات قيد المراجعة" value={String(pendingCount)} tone={pendingCount > 0 ? 'amber' : undefined} hint="مسودات وبانتظار الاعتماد" />
+        <div className="card p-3 flex flex-col justify-center">
+          <span className="text-[11px] font-bold text-slate-500 mb-1">تصفية حسب نوع التسوية</span>
+          <select className="input h-8 text-xs" value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+            <option value="ALL">جميع التسويات ({rows.length})</option>
+            <option value="RETROACTIVE_REVENUE">أثر رجعي للإيراد (Sec 18)</option>
+            <option value="REVENUE">تسوية إيراد مباشرة (Sec 29)</option>
+            <option value="DIRECT_COST">تسوية تكلفة مباشرة (Sec 29)</option>
+            <option value="OVERHEAD">تسوية مصروفات إدارية (Sec 29)</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        {loading ? (
+          <Loading />
+        ) : filtered.length === 0 ? (
+          <EmptyState text="لا توجد تسويات مسجلة لهذه الفترة." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table w-full text-xs">
+              <thead>
+                <tr>
+                  <th>نوع التسوية</th>
+                  <th>الموظف / المشروع / العميل</th>
+                  <th>الفترة الأصلية → التسجيل</th>
+                  <th>البيان والوحدات</th>
+                  <th className="num">المبلغ المسوى</th>
+                  <th>القيد الآلي</th>
+                  <th>الحالة (Workflow)</th>
+                  <th>سبب التسوية والتدقيق</th>
+                  <th>إجراءات الاعتماد</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r: any) => {
+                  const kindKey = r.adjustmentKind || 'RETROACTIVE_REVENUE';
+                  const kindMeta = ADJ_KIND_META[kindKey] || ADJ_KIND_META.RETROACTIVE_REVENUE;
+                  const st = r.status || 'APPROVED';
+                  const statusBadge = st === 'DRAFT'
+                    ? <Badge color="slate">مسودة (Draft)</Badge>
+                    : st === 'PENDING_APPROVAL'
+                      ? <Badge color="amber">بانتظار الاعتماد (Pending)</Badge>
+                      : st === 'REJECTED'
+                        ? <Badge color="red">مرفوضة (Rejected)</Badge>
+                        : <Badge color="green">معتمدة (Approved)</Badge>;
+
+                  return (
+                    <tr key={r.id}>
+                      <td><Badge color={kindMeta.color}>{kindMeta.label}</Badge></td>
+                      <td>
+                        <div className="font-semibold text-slate-800 dark:text-slate-100">{r.employeeName || '— (على مستوى المشروع/الشركة)'}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {r.projectName || 'بدون مشروع محدد'} {r.clientName ? `• ${r.clientName}` : ''}
+                        </div>
+                      </td>
+                      <td className="font-mono text-[11px]">
+                        <span className="text-purple-600 font-medium">{r.originalPeriodName || periodId}</span>
+                        <span className="mx-1 text-slate-400">←</span>
+                        <span>{r.periodName || periodId}</span>
+                      </td>
+                      <td>
+                        {kindKey === 'RETROACTIVE_REVENUE' ? (
+                          <span>
+                            {r.pricingBasis === 'MONTHLY' ? 'شهري' : r.pricingBasis === 'DAILY' ? 'يومي' : 'ساعي'} ({Number(r.units || 0).toFixed(2)} × {money(r.unitPrice || 0)})
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">تسوية إدارية مباشرة</span>
+                        )}
+                      </td>
+                      <td className={`num font-bold ${kindMeta.sign === '+' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {kindMeta.sign} {money(getAdjAmountBase(r))}
+                      </td>
+                      <td><JournalLinkBadge entryId={r.journalEntryId} entryNo={r.journalEntryNo} compact /></td>
+                      <td>{statusBadge}</td>
+                      <td className="max-w-xs">
+                        <div className="truncate font-medium" title={r.adjustmentReason}>{r.adjustmentReason}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          {r.createdByName ? `أنشأها: ${r.createdByName}` : ''}
+                          {r.approvedByName ? ` • اعتمدها: ${r.approvedByName}` : ''}
+                          {r.rejectionReason ? ` • سبب الرفض: ${r.rejectionReason}` : ''}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-1">
+                          {st === 'DRAFT' && (
+                            <button
+                              className="btn-secondary text-[11px] px-2 py-0.5 font-bold flex items-center gap-1"
+                              onClick={async () => {
+                                await api.post(`/revenue-adjustments/${r.id}/submit`, {});
+                                toast.success('تم إرسال التسوية للاعتماد (Pending Approval)');
+                                onRefresh();
+                              }}
+                            >
+                              <Send className="size-3" /> إرسال للاعتماد
+                            </button>
+                          )}
+                          {(st === 'DRAFT' || st === 'PENDING_APPROVAL') && (
+                            <>
+                              <button
+                                className="btn-primary text-[11px] px-2 py-0.5 font-bold flex items-center gap-1"
+                                onClick={async () => {
+                                  await api.post(`/revenue-adjustments/${r.id}/approve`, {});
+                                  toast.success('تم اعتماد التسوية وترحيل قيدها وتحديث الربحية');
+                                  onRefresh();
+                                }}
+                              >
+                                <CheckCircle2 className="size-3" /> اعتماد
+                              </button>
+                              <button
+                                className="btn-danger text-[11px] px-2 py-0.5 font-bold flex items-center gap-1"
+                                onClick={() => setRejectTarget(r)}
+                              >
+                                <XCircle className="size-3" /> رفض
+                              </button>
+                            </>
+                          )}
+                          {(st === 'APPROVED' || st === 'RECORDED' || st === 'REJECTED') && (
+                            <span className="text-[11px] text-slate-400">مكتمل وموثّق</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <ReasonDialog
+        open={!!rejectTarget}
+        danger
+        title="رفض التسوية (مع التوثيق في سجل التدقيق)"
+        confirmText="تأكيد الرفض"
+        onClose={() => setRejectTarget(null)}
+        onConfirm={async (reason) => {
+          if (!rejectTarget) return;
+          await api.post(`/revenue-adjustments/${rejectTarget.id}/reject`, { reason });
+          toast.success('تم رفض التسوية وتوثيق السبب');
+          setRejectTarget(null);
+          onRefresh();
         }}
       />
     </div>
@@ -1059,7 +1191,7 @@ export function ProfitabilityPage() {
 }
 
 // ============================================================================
-// Create Retroactive Revenue Adjustment Modal
+// Create Retroactive Revenue OR Sec 29 Management Result Adjustment Modal
 // ============================================================================
 function CreateRetroactiveAdjustmentModal({
   open,
@@ -1073,6 +1205,7 @@ function CreateRetroactiveAdjustmentModal({
   onSuccess: () => void;
 }) {
   const toast = useToast();
+  const [adjustmentKind, setAdjustmentKind] = useState<'RETROACTIVE_REVENUE' | 'REVENUE' | 'DIRECT_COST' | 'OVERHEAD'>('RETROACTIVE_REVENUE');
   const [employeeId, setEmployeeId] = useState('');
   const [projectId, setProjectId] = useState('');
   const [originalPeriodId, setOriginalPeriodId] = useState('fp-2026-10');
@@ -1080,6 +1213,7 @@ function CreateRetroactiveAdjustmentModal({
   const [pricingBasis, setPricingBasis] = useState<'MONTHLY' | 'DAILY' | 'HOURLY'>('DAILY');
   const [units, setUnits] = useState('2');
   const [unitPrice, setUnitPrice] = useState('1000');
+  const [amount, setAmount] = useState('2000');
   const [currencyCode, setCurrencyCode] = useState('SAR');
   const [adjustmentReason, setAdjustmentReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1097,33 +1231,65 @@ function CreateRetroactiveAdjustmentModal({
     queryFn: () => api.get<Page<any>>('/projects', { pageSize: 200 }),
   });
 
-  const handleSubmit = async (initialStatus: 'DRAFT' | 'APPROVED' = 'APPROVED') => {
+  useEffect(() => {
+    if (open && currentPeriodId) setFiscalPeriodId(currentPeriodId);
+  }, [open, currentPeriodId]);
+
+  const handleSubmit = async (initialStatus: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' = 'APPROVED') => {
     if (busy) return;
-    if (!employeeId || !projectId || !originalPeriodId || !fiscalPeriodId) {
-      toast.error(new Error('يرجى استكمال اختيار الموظف والمشروع والفترات المالية'));
+    if (!fiscalPeriodId) {
+      toast.error(new Error('يرجى اختيار فترة التسجيل'));
+      return;
+    }
+    if (adjustmentKind === 'RETROACTIVE_REVENUE' && (!employeeId || !projectId || !originalPeriodId)) {
+      toast.error(new Error('يرجى استكمال اختيار الموظف والمشروع والفترة الأصلية'));
+      return;
+    }
+    if (adjustmentKind !== 'RETROACTIVE_REVENUE' && (!amount || Number(amount) <= 0)) {
+      toast.error(new Error('يرجى إدخال مبلغ التسوية الموجب'));
       return;
     }
     if (!adjustmentReason.trim()) {
-      toast.error(new Error('يرجى كتابة سبب التسوية بأثر رجعي'));
+      toast.error(new Error('يرجى كتابة سبب التسوية للرقابة والتدقيق'));
       return;
     }
 
     setBusy(true);
     try {
-      await api.post('/revenue-adjustments/retroactive', {
-        employeeId,
-        projectId,
-        originalPeriodId,
-        fiscalPeriodId,
-        pricingBasis,
-        units,
-        unitPrice,
-        currencyCode,
-        adjustmentReason,
-        status: initialStatus,
-      });
+      if (adjustmentKind === 'RETROACTIVE_REVENUE') {
+        await api.post('/revenue-adjustments/retroactive', {
+          employeeId,
+          projectId,
+          originalPeriodId,
+          fiscalPeriodId,
+          pricingBasis,
+          units,
+          unitPrice,
+          currencyCode,
+          adjustmentReason,
+          status: initialStatus,
+        });
+      } else {
+        await api.post('/revenue-adjustments/general', {
+          adjustmentKind,
+          employeeId: employeeId || undefined,
+          projectId: projectId || undefined,
+          fiscalPeriodId,
+          amount: Number(amount),
+          currencyCode,
+          adjustmentReason,
+          status: initialStatus,
+        });
+      }
 
-      toast.success(initialStatus === 'DRAFT' ? 'تم حفظ التسوية كمسودة (Draft) للمراجعة' : 'تم تسجيل واعتماد تسوية الإيراد بأثر رجعي بنجاح');
+      toast.success(
+        initialStatus === 'DRAFT'
+          ? 'تم حفظ التسوية كمسودة (Draft) للمراجعة'
+          : initialStatus === 'PENDING_APPROVAL'
+            ? 'تم رفع التسوية لبانتظار الاعتماد (Pending Approval)'
+            : 'تم تسجيل واعتماد التسوية وترحيل أثرها في الربحية والقيود',
+      );
+      setAdjustmentReason('');
       onSuccess();
       onClose();
     } catch (e) {
@@ -1150,24 +1316,41 @@ function CreateRetroactiveAdjustmentModal({
       dirty={Boolean(employeeId || projectId || adjustmentReason)}
       saving={busy}
       onSaveShortcut={() => handleSubmit('APPROVED')}
-      title="إضافة تسوية إيراد بأثر رجعي (Retroactive Revenue)"
+      title="تسجيل تسوية إيراد أثر رجعي / تسوية نتائج إدارية (Sec 18 & 29)"
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>إلغاء</button>
           <button type="button" className="btn-secondary" onClick={() => handleSubmit('DRAFT')} disabled={busy}>
             حفظ كمسودة (Draft)
           </button>
+          <button type="button" className="btn-secondary border-amber-500/40 text-amber-700 dark:text-amber-300" onClick={() => handleSubmit('PENDING_APPROVAL')} disabled={busy}>
+            إرسال للاعتماد (Pending)
+          </button>
           <button type="button" className="btn-primary" onClick={() => handleSubmit('APPROVED')} disabled={busy}>
-            {busy ? 'جارٍ الحفظ...' : 'حفظ التسوية'}
+            {busy ? 'جارٍ الحفظ...' : 'اعتماد فوري'}
           </button>
         </>
       }
     >
       <div className="space-y-4 text-xs">
-        <FormSection title="الموظف والمشروع والفترات" subtitle="تحديد المورد والمشروع وفترتي الاستحقاق والتسجيل" columns={2}>
-          <Field label="الموظف" required>
+        <FormSection title="تصنيف التسوية ونطاقها" subtitle="تحديد هل هي تسوية أثر رجعي أم تسوية نتائج إدارية (Section 29)" columns={2}>
+          <Field label="نوع التسوية" required>
+            <select className="input w-full" value={adjustmentKind} onChange={(e) => setAdjustmentKind(e.target.value as any)}>
+              <option value="RETROACTIVE_REVENUE">تسوية إيراد بأثر رجعي لشهر سابق مغلق (Sec 18)</option>
+              <option value="REVENUE">تسوية إيراد إضافية مباشرة (Sec 29)</option>
+              <option value="DIRECT_COST">تسوية تكلفة مباشرة لمشروع/موظف (Sec 29)</option>
+              <option value="OVERHEAD">تسوية مصروفات إدارية وعامة Overhead (Sec 29)</option>
+            </select>
+          </Field>
+          <Field label="فترة التسجيل والاعتراف (الفترة المفتوحة)" required>
+            <PeriodSelect value={fiscalPeriodId} onChange={setFiscalPeriodId} className="w-full" />
+          </Field>
+        </FormSection>
+
+        <FormSection title="الأطراف المرتبطة" subtitle={adjustmentKind === 'OVERHEAD' ? 'اختياري لتسويات المصروفات العامة' : 'تحديد الموظف والمشروع والفترة الأصلية'} columns={2}>
+          <Field label={adjustmentKind === 'RETROACTIVE_REVENUE' ? 'الموظف' : 'الموظف (اختياري)'} required={adjustmentKind === 'RETROACTIVE_REVENUE'}>
             <SearchableSelect
-              clearable={false}
+              clearable={adjustmentKind !== 'RETROACTIVE_REVENUE'}
               loading={employees.isLoading}
               options={employeeOpts}
               value={employeeId}
@@ -1175,9 +1358,9 @@ function CreateRetroactiveAdjustmentModal({
               placeholder="— ابحث واختر الموظف —"
             />
           </Field>
-          <Field label="المشروع" required>
+          <Field label={adjustmentKind === 'RETROACTIVE_REVENUE' ? 'المشروع' : 'المشروع (اختياري)'} required={adjustmentKind === 'RETROACTIVE_REVENUE'}>
             <SearchableSelect
-              clearable={false}
+              clearable={adjustmentKind !== 'RETROACTIVE_REVENUE'}
               loading={projects.isLoading}
               options={projectOpts}
               value={projectId}
@@ -1185,42 +1368,51 @@ function CreateRetroactiveAdjustmentModal({
               placeholder="— ابحث واختر المشروع —"
             />
           </Field>
-          <Field label="الفترة المالية الأصلية (تاريخ العمل الفعلي)" required>
-            <PeriodSelect value={originalPeriodId} onChange={setOriginalPeriodId} className="w-full" />
-          </Field>
-          <Field label="فترة التسجيل والاعتراف (الشهر الحالي المفتوح)" required>
-            <PeriodSelect value={fiscalPeriodId} onChange={setFiscalPeriodId} className="w-full" />
-          </Field>
+          {adjustmentKind === 'RETROACTIVE_REVENUE' && (
+            <Field label="الفترة المالية الأصلية (تاريخ العمل الفعلي)" required>
+              <PeriodSelect value={originalPeriodId} onChange={setOriginalPeriodId} className="w-full" />
+            </Field>
+          )}
         </FormSection>
 
-        <FormSection title="تفاصيل التسعير والوحدات" subtitle="أساس الاحتساب والعملة وعدد الوحدات وسعر الوحدة" columns={2}>
-          <Field label="أساس التسعير">
-            <select className="input w-full" value={pricingBasis} onChange={(e) => setPricingBasis(e.target.value as any)}>
-              <option value="DAILY">يومي (Daily)</option>
-              <option value="HOURLY">ساعي (Hourly)</option>
-              <option value="MONTHLY">شهري (Monthly)</option>
-            </select>
-          </Field>
+        <FormSection title="تفاصيل القيمة والعملة" columns={2}>
+          {adjustmentKind === 'RETROACTIVE_REVENUE' ? (
+            <>
+              <Field label="أساس التسعير">
+                <select className="input w-full" value={pricingBasis} onChange={(e) => setPricingBasis(e.target.value as any)}>
+                  <option value="DAILY">يومي (Daily)</option>
+                  <option value="HOURLY">ساعي (Hourly)</option>
+                  <option value="MONTHLY">شهري (Monthly)</option>
+                </select>
+              </Field>
+              <Field label="عدد الوحدات (أيام/ساعات)">
+                <input type="number" step="0.5" min="0" className="input w-full font-mono" value={units} onChange={(e) => setUnits(e.target.value)} />
+              </Field>
+              <Field label="سعر الوحدة">
+                <input type="number" step="1" min="0" className="input w-full font-mono" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
+              </Field>
+            </>
+          ) : (
+            <Field label="مبلغ التسوية" required>
+              <input type="number" step="0.01" min="0" className="input w-full font-mono" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </Field>
+          )}
           <Field label="العملة">
             <select className="input w-full font-mono" value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)}>
               <option value="SAR">SAR</option>
               <option value="EGP">EGP</option>
               <option value="USD">USD</option>
+              <option value="AED">AED</option>
+              <option value="EUR">EUR</option>
             </select>
-          </Field>
-          <Field label="عدد الوحدات (أيام/ساعات)">
-            <input type="number" step="0.5" min="0" className="input w-full font-mono" value={units} onChange={(e) => setUnits(e.target.value)} />
-          </Field>
-          <Field label="سعر الوحدة">
-            <input type="number" step="1" min="0" className="input w-full font-mono" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
           </Field>
         </FormSection>
 
-        <FormSection title="مبررات التسوية والمراجعة" columns={1}>
-          <Field label="سبب التسوية بأثر رجعي (إلزامي للرقابة والتدقيق)" required>
+        <FormSection title="مبررات التسوية والمراجعة (Audit Trail)" columns={1}>
+          <Field label="سبب التسوية (إلزامي للرقابة والتدقيق)" required>
             <textarea
               className="input w-full min-h-[76px] py-2"
-              placeholder="مثال: اكتشاف أيام عمل غير مفوترة في الشهر السابق بعد تسليم متطلبات إضافية للعميل..."
+              placeholder="مثال: تعديل متفق عليه مع العميل أو تسوية فرق تكلفة مباشرة..."
               value={adjustmentReason}
               onChange={(e) => setAdjustmentReason(e.target.value)}
             />

@@ -1534,6 +1534,14 @@ export function createAssetItem(body: any): any {
   };
 
   saveEntityItem('assets', asset);
+  recordAudit({
+    action: 'CREATE',
+    schemaName: 'assets',
+    tableName: 'assets',
+    entityId: asset.id,
+    newValues: { assetNo: asset.assetNo, name: asset.name, costBase: asset.costBase, status: asset.status },
+    reason: `تسجيل أصل ثابت (${asset.assetNo})`,
+  });
   if (body.autoActivate === true || (body.autoActivate !== false && body.status !== 'DRAFT' && costBase > 0)) {
     try {
       return activateAssetItem(asset.id, {
@@ -1546,14 +1554,6 @@ export function createAssetItem(body: any): any {
       // If period is closed, fall back to saved draft safely
     }
   }
-  recordAudit({
-    action: 'CREATE',
-    schemaName: 'assets',
-    tableName: 'assets',
-    entityId: asset.id,
-    newValues: { assetNo: asset.assetNo, name: asset.name, costBase: asset.costBase, status: asset.status },
-    reason: `تسجيل أصل ثابت مسودة (${asset.assetNo})`,
-  });
   return asset;
 }
 

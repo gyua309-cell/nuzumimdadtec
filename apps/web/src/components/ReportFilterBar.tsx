@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Calendar, Filter, GitCompare, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { Calendar, Coins, Filter, GitCompare, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../lib/api';
+import { useReportCurrency } from '../lib/fx-display';
 import { COST_CENTER_TYPE_LABELS } from '../lib/reports-analytics-engine';
 import { usePeriods } from './forms';
 import { SearchableSelect, type SelectOption } from './SearchableSelect';
@@ -24,6 +25,7 @@ export interface ReportFilterValues {
   departmentId: string;
   ledger: string;
   ccType: string;
+  currencyCode: string;
   search: string;
 }
 
@@ -43,6 +45,7 @@ const FILTER_URL_KEYS: Array<keyof ReportFilterValues> = [
   'departmentId',
   'ledger',
   'ccType',
+  'currencyCode',
 ];
 
 function extractList(res: any): any[] {
@@ -108,6 +111,7 @@ export function useReportFilters(options?: {
       departmentId: searchParams.get('departmentId') || '',
       ledger: searchParams.get('ledger') || options?.defaultLedger || 'FINANCIAL',
       ccType: searchParams.get('ccType') || '',
+      currencyCode: searchParams.get('currencyCode') || '',
       search: searchParams.get('search') || '',
     };
   }, [searchParams, y, options?.defaultLedger]);
@@ -117,6 +121,9 @@ export function useReportFilters(options?: {
   useEffect(() => {
     if (options?.syncUrl === false) return;
     const next = new URLSearchParams();
+    searchParams.forEach((v, k) => {
+      if (!FILTER_URL_KEYS.includes(k as any)) next.set(k, v);
+    });
     for (const k of FILTER_URL_KEYS) {
       const val = filters[k];
       if (typeof val === 'string' && val.trim() !== '') {
@@ -157,6 +164,7 @@ export function useReportFilters(options?: {
       departmentId: '',
       ledger: options?.defaultLedger || 'FINANCIAL',
       ccType: '',
+      currencyCode: '',
       search: '',
     });
   }, [y, options?.defaultLedger]);
@@ -184,6 +192,7 @@ export function useReportFilters(options?: {
     if (filters.ledger && filters.ledger !== 'FINANCIAL') out.ledger = filters.ledger;
     else if (filters.ledger) out.ledger = filters.ledger;
     if (filters.ccType) out.ccType = filters.ccType;
+    if (filters.currencyCode) out.currencyCode = filters.currencyCode;
     return out;
   }, [filters, options?.singleDateAsOf]);
 
@@ -206,6 +215,7 @@ export interface ReportFilterBarProps {
   showDepartment?: boolean;
   showLedger?: boolean;
   showCcType?: boolean;
+  showCurrency?: boolean;
   showSearch?: boolean;
   searchPlaceholder?: string;
   extraRight?: React.ReactNode;
@@ -227,10 +237,12 @@ export function ReportFilterBar({
   showDepartment = false,
   showLedger = false,
   showCcType = false,
+  showCurrency = false,
   showSearch = false,
   searchPlaceholder = 'ابحث بالرمز أو الاسم أو الوصف...',
   extraRight,
 }: ReportFilterBarProps) {
+  const fx = useReportCurrency(filters.currencyCode, filters.to || filters.asOf);
   const { data: periodsRes } = usePeriods(showPeriod);
   const periods = useMemo(() => extractList(periodsRes), [periodsRes]);
 
@@ -468,8 +480,11 @@ export function ReportFilterBar({
     if (filters.ccType) {
       chips.push({ key: 'ccType', label: `نوع المركز: ${COST_CENTER_TYPE_LABELS[filters.ccType] || filters.ccType}`, clear: () => onChange({ ccType: '' }) });
     }
+    if (filters.currencyCode && filters.currencyCode !== fx.baseCurrency) {
+      chips.push({ key: 'currencyCode', label: `عملة العرض: ${filters.currencyCode} (${fx.rateLabel})`, clear: () => onChange({ currencyCode: '' }) });
+    }
     return chips;
-  }, [filters, periods, costCenters, clients, projects, employees, branches, departments]);
+  }, [filters, periods, costCenters, clients, projects, employees, branches, departments, fx.baseCurrency, fx.rateLabel]);
 
   return (
     <div className="card p-3.5 sm:p-4 space-y-3 border border-indigo-200/70 dark:border-indigo-900/50 shadow-sm">
@@ -713,6 +728,27 @@ export function ReportFilterBar({
                 <option value="FINANCIAL">الدفتر المالي (FINANCIAL)</option>
                 <option value="MANAGEMENT">الدفتر الإداري (MANAGEMENT)</option>
                 <option value="ALL">كلا الدفترين (ALL)</option>
+              </select>
+            </div>
+          )}
+
+          {showCurrency && (
+            <div>
+              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1 block">
+                <Coins className="size-3 inline ml-1 text-emerald-500" />
+                عملة العرض (Sec 25)
+              </label>
+              <select
+                className="input h-9 text-xs font-mono"
+                value={filters.currencyCode || fx.baseCurrency}
+                onChange={(e) => onChange({ currencyCode: e.target.value === fx.baseCurrency ? '' : e.target.value })}
+                title={fx.rateLabel}
+              >
+                {fx.currencies.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} — {c.nameAr}
+                  </option>
+                ))}
               </select>
             </div>
           )}

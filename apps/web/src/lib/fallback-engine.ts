@@ -405,6 +405,27 @@ export function convertToBase(amount: number | string, fromCurrency?: string, as
   return { amountBase, rate };
 }
 
+export function convertBetweenCurrencies(
+  amount: number | string,
+  fromCurrency?: string,
+  toCurrency?: string,
+  asOfDate?: string,
+): { amountConverted: number; rate: number } {
+  const base = getBaseCurrencyCode();
+  const from = (fromCurrency || base).toUpperCase();
+  const to = (toCurrency || base).toUpperCase();
+  const num = Number(amount || 0);
+  if (from === to) return { amountConverted: Math.round(num * 100) / 100, rate: 1 };
+  // Convert from -> base -> to using recorded exchange rates
+  const rateToBase = getExchangeRate(from, base, asOfDate);
+  const rateFromBaseToTarget = getExchangeRate(base, to, asOfDate);
+  const combinedRate = rateToBase * rateFromBaseToTarget;
+  return {
+    amountConverted: Math.round(num * combinedRate * 100) / 100,
+    rate: combinedRate,
+  };
+}
+
 export function resolvePeriodByIdOrDate(periodId?: string | null, dateStr?: string | null): any | null {
   const periods = getEntityList<any>('fiscal_periods', defaultFiscalPeriodsList);
   if (periodId) {
@@ -449,6 +470,89 @@ export interface EmployeeCostBreakdownResult {
   breakdown: any[];
 }
 
+export function dayBeforeIso(iso: string): string {
+  const t = Date.parse(`${String(iso).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(t)) return iso;
+  return new Date(t - 86_400_000).toISOString().slice(0, 10);
+}
+
+function resolveEmploymentProration(emp: any, period?: any): { periodDays: number; employedDays: number; factor: number } {
+  const periodDays = 22;
+  if (!period?.startDate || !period?.endDate) {
+    const inactive = emp.status === 'TERMINATED' || emp.status === 'SUSPENDED';
+    return { periodDays, employedDays: inactive ? 0 : periodDays, factor: inactive ? 0 : 1 };
+  }
+  const pStart = String(period.startDate).slice(0, 10);
+  const pEnd = String(period.endDate).slice(0, 10);
+  const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : '1900-01-01';
+  const term = emp.terminationDate ? String(emp.terminationDate).slice(0, 10) : (emp.status === 'TERMINATED' ? dayBeforeIso(pStart) : null);
+
+  const effFrom = hire > pStart ? hire : pStart;
+  const effTo = term && term < pEnd ? term : pEnd;
+  if (effFrom > effTo || emp.status === 'SUSPENDED') {
+    return { periodDays, employedDays: 0, factor: 0 };
+  }
+  const totalCalDays = Math.max(1, Math.round((Date.parse(`${pEnd}T00:00:00Z`) - Date.parse(`${pStart}T00:00:00Z`)) / 86_400_000) + 1);
+  const activeCalDays = Math.max(0, Math.round((Date.parse(`${effTo}T00:00:00Z`) - Date.parse(`${effFrom}T00:00:00Z`)) / 86_400_000) + 1);
+  if (activeCalDays >= totalCalDays) {
+    return { periodDays, employedDays: periodDays, factor: 1 };
+  }
+  const factor = Math.max(0, Math.min(1, activeCalDays / totalCalDays));
+  const employedDays = Math.round(periodDays * factor * 100) / 100;
+  return { periodDays, employedDays, factor };
+}
+
+function resolveHistoricalComp(emp: any, period?: any): {
+  basicSalary: number; salaryCurrency: string; insuranceSalary: number; insuranceCurrency: string;
+} {
+  const comps: any[] = Array.isArray(emp.compensations) ? emp.compensations : [];
+  if (comps.length > 0 && period?.startDate && period?.endDate) {
+    const pStart = String(period.startDate).slice(0, 10);
+    const pEnd = String(period.endDate).slice(0, 10);
+    const matches = comps
+      .filter((c) => {
+        const from = String(c.effectiveFrom || '1900-01-01').slice(0, 10);
+        const to = c.effectiveTo ? String(c.effectiveTo).slice(0, 10) : '9999-12-31';
+        return from <= pEnd && to >= pStart;
+      })
+      .sort((a, b) => String(b.effectiveFrom || '').localeCompare(String(a.effectiveFrom || '')));
+    if (matches.length > 0) {
+      const m = matches[0];
+      const salCur = m.salaryCurrency || emp.salaryCurrency || 'SAR';
+      return {
+        basicSalary: Number(m.basicSalary || 0),
+        salaryCurrency: salCur,
+        insuranceSalary: Number(m.insuranceSalary || 0),
+        insuranceCurrency: m.insuranceCurrency || emp.insuranceCurrency || salCur,
+      };
+    }
+  }
+  const salCur = emp.salaryCurrency || emp.salary?.salaryCurrency || 'SAR';
+  return {
+    basicSalary: Number(emp.basicSalary || emp.basic_salary || emp.salary?.basicSalary || emp.salary || 0),
+    salaryCurrency: salCur,
+    insuranceSalary: Number(emp.insuranceSalary || emp.insurance_salary || emp.salary?.insuranceSalary || 0),
+    insuranceCurrency: emp.insuranceCurrency || salCur,
+  };
+}
+
+function resolveHistoricalProfileId(emp: any, period?: any): string | null {
+  const history: any[] = Array.isArray(emp.costProfiles) ? emp.costProfiles : [];
+  if (history.length > 0 && period?.startDate && period?.endDate) {
+    const pStart = String(period.startDate).slice(0, 10);
+    const pEnd = String(period.endDate).slice(0, 10);
+    const matches = history
+      .filter((h) => {
+        const from = String(h.effectiveFrom || '1900-01-01').slice(0, 10);
+        const to = h.effectiveTo ? String(h.effectiveTo).slice(0, 10) : '9999-12-31';
+        return from <= pEnd && to >= pStart;
+      })
+      .sort((a, b) => String(b.effectiveFrom || '').localeCompare(String(a.effectiveFrom || '')));
+    if (matches.length > 0) return matches[0].profileId || null;
+  }
+  return emp.costProfileId || history.find((p: any) => !p.effectiveTo)?.profileId || null;
+}
+
 export function computeEmployeeCostBreakdown(
   emp: any,
   period?: any,
@@ -458,14 +562,14 @@ export function computeEmployeeCostBreakdown(
   const profiles = getEntityList<any>('cost_profiles', defaultCostProfilesList);
   const assets = getEntityList<any>('assets', []);
   const monthlyVars = getEntityList<any>('monthly_variables', []);
-  const periodDays = 22;
-  const employedDays = emp.status === 'TERMINATED' || emp.status === 'SUSPENDED' ? 0 : 22;
+  const { periodDays, employedDays, factor } = resolveEmploymentProration(emp, period);
   const asOfDate = period?.endDate;
 
-  const salCur = emp.salaryCurrency || emp.salary?.salaryCurrency || 'SAR';
-  const insCur = emp.insuranceCurrency || salCur;
-  const rawBasic = Number(emp.basicSalary || emp.basic_salary || emp.salary?.basicSalary || emp.salary || 0);
-  const rawIns = Number(emp.insuranceSalary || emp.insurance_salary || emp.salary?.insuranceSalary || 0);
+  const compSnap = resolveHistoricalComp(emp, period);
+  const salCur = compSnap.salaryCurrency;
+  const insCur = compSnap.insuranceCurrency;
+  const rawBasic = compSnap.basicSalary * factor;
+  const rawIns = compSnap.insuranceSalary * factor;
   const { amountBase: basicBase, rate: basicFx } = convertToBase(rawBasic, salCur, asOfDate);
   const { amountBase: insBase } = convertToBase(rawIns, insCur, asOfDate);
 
@@ -492,9 +596,13 @@ export function computeEmployeeCostBreakdown(
   // 2) Active Cost Profile Lines + Overrides
   const overrides = Array.isArray(emp.overrides) ? emp.overrides : [];
   const activeOvr = (componentId: string) =>
-    overrides.find((o: any) => o.componentId === componentId && (!o.effectiveTo || !period?.startDate || o.effectiveTo >= period.startDate));
+    overrides.find((o: any) =>
+      o.componentId === componentId &&
+      (!o.effectiveFrom || !period?.endDate || o.effectiveFrom <= period.endDate) &&
+      (!o.effectiveTo || !period?.startDate || o.effectiveTo >= period.startDate),
+    );
 
-  const assignedProfileId = emp.costProfileId || (Array.isArray(emp.costProfiles) ? emp.costProfiles.find((p: any) => !p.effectiveTo)?.profileId : null);
+  const assignedProfileId = resolveHistoricalProfileId(emp, period);
   const profile = assignedProfileId ? profiles.find((p) => p.id === assignedProfileId) : null;
 
   if (profile && Array.isArray(profile.lines) && profile.lines.length > 0) {
@@ -508,12 +616,13 @@ export function computeEmployeeCostBreakdown(
       let compCur = ovr?.currencyCode || pl.currencyCode || 'SAR';
       let rawComp = 0;
       const effRatePct = Number(ovr?.ratePct ?? pl.ratePct ?? 0);
+      const method = String(pl.calcMethod || '').toUpperCase();
       if (ovr?.amount != null && ovr.amount !== '') {
-        rawComp = Number(ovr.amount);
+        rawComp = Number(ovr.amount) * factor;
         compCur = ovr.currencyCode || pl.currencyCode || 'SAR';
-      } else if (pl.calcMethod === 'FIXED') {
-        rawComp = Number(pl.amount || 0);
-      } else if (pl.calcMethod === 'PERCENT_INSURANCE') {
+      } else if (method === 'FIXED' || method === 'FIXED_MONTHLY') {
+        rawComp = Number(pl.amount || 0) * factor;
+      } else if (method === 'PERCENT_INSURANCE' || method === 'PCT_INSURANCE') {
         rawComp = (rawIns > 0 ? rawIns : rawBasic) * (effRatePct / 100);
         compCur = rawIns > 0 ? insCur : salCur;
       } else {
@@ -578,7 +687,7 @@ export function computeEmployeeCostBreakdown(
     const cost = Number(a.costBase || a.cost || 0);
     const salvage = Number(a.salvageValueBase || 0);
     const months = Number(a.usefulLifeMonths) || 36;
-    return sum + Math.round((cost - salvage) / months);
+    return sum + Math.round(((cost - salvage) / months) * factor);
   }, 0);
   if (assetDeprCost > 0) {
     distributable += assetDeprCost;

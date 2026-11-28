@@ -28,6 +28,7 @@ import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar
 import { api } from '../lib/api';
 import { date, money, today } from '../lib/format';
 import { useBaseCurrency } from '../lib/auth';
+import { useReportCurrency } from '../lib/fx-display';
 import { ExportMenu } from '../components/ExportMenu';
 import { ExportColumnDef } from '../engine/export-engine';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
@@ -207,11 +208,13 @@ function buildEmployeeRecommendation(
 export function UtilizationPage() {
   const toast = useToast();
   const qc = useQueryClient();
-  const baseCurrency = useBaseCurrency() || 'SAR';
+  const companyBaseCurrency = useBaseCurrency() || 'SAR';
 
   const { filters, setFilters, resetAll, queryParams } = useReportFilters({
     syncUrl: true,
   });
+  const fx = useReportCurrency(filters.currencyCode, filters.to || filters.asOf);
+  const baseCurrency = fx.targetCurrency || companyBaseCurrency;
   const periodId = filters.periodId;
   const searchQuery = filters.search;
   const [tierFilter, setTierFilter] = useState<'ALL' | UtilizationTier>('ALL');
@@ -307,12 +310,12 @@ export function UtilizationPage() {
             allocationPct: Number(p.allocationPct ?? p.effectivePct ?? 0),
             allocatedDays: Number(p.allocatedDays ?? ((Number(p.allocationPct ?? 0) / 100) * workingDays)),
             pricingBasis: p.pricingBasis || 'DAILY',
-            billableRate: Number(p.billableRate ?? 0),
-            revenueBase: Number(p.revenueBase ?? 0),
-            directCostBase: Number(p.directCostBase ?? 0),
-            overheadShareBase: Number(p.overheadShareBase ?? 0),
-            totalCostShareBase: Number(p.totalCostShareBase ?? p.directCostBase ?? 0),
-            profitBase: Number(p.profitBase ?? (Number(p.revenueBase ?? 0) - Number(p.totalCostShareBase ?? p.directCostBase ?? 0))),
+            billableRate: fx.convert(Number(p.billableRate ?? 0)),
+            revenueBase: fx.convert(Number(p.revenueBase ?? 0)),
+            directCostBase: fx.convert(Number(p.directCostBase ?? 0)),
+            overheadShareBase: fx.convert(Number(p.overheadShareBase ?? 0)),
+            totalCostShareBase: fx.convert(Number(p.totalCostShareBase ?? p.directCostBase ?? 0)),
+            profitBase: fx.convert(Number(p.profitBase ?? (Number(p.revenueBase ?? 0) - Number(p.totalCostShareBase ?? p.directCostBase ?? 0)))),
             marginPct: Number(p.marginPct ?? 0),
           }))
         : [];
@@ -322,28 +325,28 @@ export function UtilizationPage() {
           ? r.projectNames
           : projects.map((p) => `${p.projectCode ? `${p.projectCode} — ` : ''}${p.projectName} (${p.allocationPct}%)`);
 
-      const directCostBase = Number(r.directCostBase ?? r.distributableCostBase ?? 0);
-      const overheadBase = Number(r.overheadBase ?? r.overheadCostBase ?? 0);
-      const totalCostBase = Number(r.totalCostBase ?? directCostBase + overheadBase);
-      const unutilizedCostBase = Number(r.unutilizedCostBase ?? Math.round(directCostBase * (unutilizedPct / 100)));
-      const revenueBase = Number(r.revenueBase ?? 0);
-      const grossProfitBase = Number(r.grossProfitBase ?? revenueBase - totalCostBase);
+      const directCostBase = fx.convert(Number(r.directCostBase ?? r.distributableCostBase ?? 0));
+      const overheadBase = fx.convert(Number(r.overheadBase ?? r.overheadCostBase ?? 0));
+      const totalCostBase = fx.convert(Number(r.totalCostBase ?? (Number(r.directCostBase ?? r.distributableCostBase ?? 0) + Number(r.overheadBase ?? r.overheadCostBase ?? 0))));
+      const unutilizedCostBase = fx.convert(Number(r.unutilizedCostBase ?? Math.round(Number(r.directCostBase ?? 0) * (unutilizedPct / 100))));
+      const revenueBase = fx.convert(Number(r.revenueBase ?? 0));
+      const grossProfitBase = fx.convert(Number(r.grossProfitBase ?? (Number(r.revenueBase ?? 0) - Number(r.totalCostBase ?? 0))));
       const grossMarginPct = Number(
         r.grossMarginPct ?? (revenueBase > 0 ? Number(((grossProfitBase / revenueBase) * 100).toFixed(1)) : 0),
       );
       const targetMarginPct = Number(r.targetMarginPct ?? r.requiredMarginPct ?? 25);
-      const dailyDirectCostBase = Number(
-        r.dailyDirectCostBase ?? (workingDays > 0 ? directCostBase / workingDays : 0),
-      );
-      const effectiveDailyRateBase = Number(
-        r.effectiveDailyRateBase ?? (allocatedDays > 0 && revenueBase > 0 ? revenueBase / allocatedDays : 1500),
-      );
-      const potentialRevenueBase = Number(
-        r.potentialRevenueBase ?? (unutilizedDays > 0 ? unutilizedDays * effectiveDailyRateBase : 0),
-      );
-      const potentialProfitBase = Number(
-        r.potentialProfitBase ?? (unutilizedDays > 0 ? potentialRevenueBase - unutilizedCostBase : 0),
-      );
+      const dailyDirectCostBase = fx.convert(Number(
+        r.dailyDirectCostBase ?? (workingDays > 0 ? Number(r.directCostBase ?? 0) / workingDays : 0),
+      ));
+      const effectiveDailyRateBase = fx.convert(Number(
+        r.effectiveDailyRateBase ?? (allocatedDays > 0 && Number(r.revenueBase ?? 0) > 0 ? Number(r.revenueBase ?? 0) / allocatedDays : 1500),
+      ));
+      const potentialRevenueBase = fx.convert(Number(
+        r.potentialRevenueBase ?? (unutilizedDays > 0 ? unutilizedDays * Number(r.effectiveDailyRateBase ?? 1500) : 0),
+      ));
+      const potentialProfitBase = fx.convert(Number(
+        r.potentialProfitBase ?? (unutilizedDays > 0 ? (unutilizedDays * Number(r.effectiveDailyRateBase ?? 1500)) - Number(r.unutilizedCostBase ?? 0) : 0),
+      ));
 
       const baseRow: Omit<NormalizedUtilRow, 'recommendation'> = {
         employeeId: r.employeeId || r.id,
@@ -381,7 +384,7 @@ export function UtilizationPage() {
         recommendation: buildEmployeeRecommendation(baseRow, baseCurrency),
       };
     });
-  }, [report.data, activePeriod, baseCurrency]);
+  }, [report.data, activePeriod, baseCurrency, fx]);
 
   // Filtered rows
   const filteredRows = useMemo(() => {
@@ -791,6 +794,7 @@ export function UtilizationPage() {
         showProject
         showEmployee
         showDepartment
+        showCurrency
         showSearch
         searchPlaceholder="اسم موظف، مشروع، عميل..."
       />

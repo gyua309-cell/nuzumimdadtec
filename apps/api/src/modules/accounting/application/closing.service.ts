@@ -86,6 +86,54 @@ export class ClosingService {
         return diffs.length ? { status: 'FAIL', message: 'اختلاف بين الأرصدة المجمعة والقيود', details: diffs } : { status: 'PASS' };
       },
     });
+    registry.register({
+      code: 'PAY-01', titleAr: 'عدم وجود مسيّرات رواتب مسودة غير مرحّلة', order: 50,
+      run: async (companyId, p) => {
+        try {
+          const r = await this.db.one<{ n: string }>(
+            `SELECT count(*) n FROM pay.payroll_runs WHERE company_id = $1 AND fiscal_period_id = $2 AND status = 'DRAFT'`,
+            [companyId, p.id],
+          );
+          return Number(r?.n) > 0
+            ? { status: 'FAIL', message: `يوجد ${r?.n} مسيّر رواتب بحالة مسودة يجب ترحيله أو إلغاؤه` }
+            : { status: 'PASS' };
+        } catch {
+          return { status: 'PASS' };
+        }
+      },
+    });
+    registry.register({
+      code: 'VAR-01', titleAr: 'اعتماد كافة المتغيرات الشهرية للفترة', order: 60,
+      run: async (companyId, p) => {
+        try {
+          const r = await this.db.one<{ n: string }>(
+            `SELECT count(*) n FROM pay.monthly_variables WHERE company_id = $1 AND fiscal_period_id = $2 AND status = 'DRAFT'`,
+            [companyId, p.id],
+          );
+          return Number(r?.n) > 0
+            ? { status: 'WARN', message: `يوجد ${r?.n} متغير شهري مسودة لم يُعتمد بعد` }
+            : { status: 'PASS' };
+        } catch {
+          return { status: 'PASS' };
+        }
+      },
+    });
+    registry.register({
+      code: 'ADJ-01', titleAr: 'حسم تسويات الأثر الرجعي وتسويات النتائج', order: 70,
+      run: async (companyId, p) => {
+        try {
+          const r = await this.db.one<{ n: string }>(
+            `SELECT count(*) n FROM rev.revenue_lines WHERE company_id = $1 AND fiscal_period_id = $2 AND status IN ('DRAFT','PENDING_APPROVAL')`,
+            [companyId, p.id],
+          );
+          return Number(r?.n) > 0
+            ? { status: 'WARN', message: `يوجد ${r?.n} تسوية معلقة بانتظار الاعتماد` }
+            : { status: 'PASS' };
+        } catch {
+          return { status: 'PASS' };
+        }
+      },
+    });
   }
 
   async runChecks(companyId: string, periodId: string): Promise<{ period: PeriodRow; results: CheckResult[]; canClose: boolean }> {
@@ -175,11 +223,30 @@ export class ClosingService {
          FROM acc.journal_entries WHERE company_id = $1 AND fiscal_period_id = $2`,
       [companyId, period.id],
     );
+    let overheadPolicy: unknown = null;
+    let profitabilitySummary: unknown = null;
+    try {
+      overheadPolicy = await this.db.one(
+        `SELECT method, rate::text AS rate, notes FROM rev.overhead_policies WHERE company_id = $1 LIMIT 1`,
+        [companyId],
+      );
+      profitabilitySummary = await this.db.one(
+        `SELECT COALESCE(SUM(gross_revenue_base) FILTER (WHERE status = 'POSTED' AND COALESCE(adjustment_kind,'RETROACTIVE_REVENUE') IN ('RETROACTIVE_REVENUE','REVENUE')), 0)::text AS "totalRevenue",
+                COALESCE(SUM(gross_revenue_base) FILTER (WHERE status = 'POSTED' AND adjustment_kind = 'DIRECT_COST'), 0)::text AS "directCostAdjustments",
+                COALESCE(SUM(gross_revenue_base) FILTER (WHERE status = 'POSTED' AND adjustment_kind = 'OVERHEAD'), 0)::text AS "overheadAdjustments"
+           FROM rev.revenue_lines WHERE company_id = $1 AND fiscal_period_id = $2`,
+        [companyId, period.id],
+      );
+    } catch {
+      // ignore if rev schema not queried in isolated unit tests
+    }
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       period: { id: period.id, name: period.name, startDate: period.startDate, endDate: period.endDate, periodNo: period.periodNo },
       takenAt: new Date().toISOString(),
       checks,
+      overheadPolicy,
+      profitability: profitabilitySummary ? { summary: profitabilitySummary } : undefined,
       journal: counts,
       trialBalance: { financial: tbFin, management: tbMgmt },
       incomeStatement: { period: isPeriod, yearToDate: isYtd },

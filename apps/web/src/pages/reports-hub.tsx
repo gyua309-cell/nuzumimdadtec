@@ -24,6 +24,7 @@ import {
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { money } from '../lib/format';
+import { useReportCurrency } from '../lib/fx-display';
 import { COST_CENTER_TYPE_LABELS } from '../lib/reports-analytics-engine';
 import { ExportMenu } from '../components/ExportMenu';
 import {
@@ -38,11 +39,15 @@ import {
 import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat } from '../components/ui';
 
 export function ReportsHubPage() {
-  const base = useBaseCurrency();
+  const baseDefault = useBaseCurrency();
   const { filters, setFilters, resetAll, queryParams } = useReportFilters({
     syncUrl: true,
     defaultLedger: 'FINANCIAL',
   });
+  const fx = useReportCurrency(filters.currencyCode, filters.to || filters.asOf);
+  const base = fx.targetCurrency || baseDefault;
+  const cv = (v: any) => fx.convert(v);
+  const fm = (v: any) => money(cv(v));
 
   const q = useQuery({
     queryKey: ['report-multi-level-hub', queryParams],
@@ -71,8 +76,8 @@ export function ReportsHubPage() {
 
   const statementCards = [
     { to: `/reports/trial-balance${suffix}`, title: 'ميزان المراجعة', desc: 'أرصدة افتتاحية وحركة الفترة والأرصدة الختامية', icon: Scale, tone: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/50' },
-    { to: `/reports/income-statement${suffix}`, title: 'قائمة الدخل', desc: `صافي الربح: ${money(company.netProfit || 0)} ${base}`, icon: TrendingUp, tone: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50' },
-    { to: `/reports/balance-sheet${suffixAsOf}`, title: 'المركز المالي', desc: `الأصول: ${money(company.totalAssets || 0)} ${base}`, icon: Landmark, tone: 'text-sky-600 bg-sky-50 dark:bg-sky-950/50' },
+    { to: `/reports/income-statement${suffix}`, title: 'قائمة الدخل', desc: `صافي الربح: ${fm(company.netProfit || 0)} ${base}`, icon: TrendingUp, tone: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50' },
+    { to: `/reports/balance-sheet${suffixAsOf}`, title: 'المركز المالي', desc: `الأصول: ${fm(company.totalAssets || 0)} ${base}`, icon: Landmark, tone: 'text-sky-600 bg-sky-50 dark:bg-sky-950/50' },
     { to: `/reports/cash-flow${suffix}`, title: 'التدفقات النقدية', desc: 'تحليل تشغيلي واستثماري وتمويلي (IAS 7)', icon: Wallet, tone: 'text-teal-600 bg-teal-50 dark:bg-teal-950/50' },
     { to: `/reports/equity-changes${suffix}`, title: 'التغيرات في حقوق الملكية', desc: 'رأس المال والاحتياطيات وصافي أرباح الفترة', icon: FileSpreadsheet, tone: 'text-purple-600 bg-purple-50 dark:bg-purple-950/50' },
     { to: `/reports/account-statement${suffix}`, title: 'كشف حساب الأستاذ', desc: 'تفصيل الحركات مع أبعاد المراكز والعملاء', icon: Layers, tone: 'text-amber-600 bg-amber-50 dark:bg-amber-950/50' },
@@ -120,10 +125,10 @@ export function ReportsHubPage() {
               periodLabel={`من ${filters.from} إلى ${filters.to}`}
               currency={base}
               summaryKpis={[
-                { label: 'الإيرادات', value: `${money(company.revenue || 0)} ${base}`, tone: 'emerald' },
-                { label: 'مجمل الربح', value: `${money(company.grossProfit || 0)} ${base}`, tone: 'sky' },
-                { label: 'صافي الربح', value: `${money(company.netProfit || 0)} ${base}`, tone: netProfit >= 0 ? 'indigo' : 'rose' },
-                { label: 'إجمالي الأصول', value: `${money(company.totalAssets || 0)} ${base}`, tone: 'navy' },
+                { label: 'الإيرادات', value: `${fm(company.revenue || 0)} ${base}`, tone: 'emerald' },
+                { label: 'مجمل الربح', value: `${fm(company.grossProfit || 0)} ${base}`, tone: 'sky' },
+                { label: 'صافي الربح', value: `${fm(company.netProfit || 0)} ${base}`, tone: netProfit >= 0 ? 'indigo' : 'rose' },
+                { label: 'إجمالي الأصول', value: `${fm(company.totalAssets || 0)} ${base}`, tone: 'navy' },
               ]}
               columns={[
                 { key: 'code', header: 'رمز المركز', width: 14 },
@@ -136,9 +141,9 @@ export function ReportsHubPage() {
               data={ccRows.map((r) => ({
                 code: r.code,
                 nameAr: r.nameAr,
-                revenue: Number(r.revenue || 0),
-                totalCost: Number(r.totalCost || 0),
-                netContribution: Number(r.netContribution || 0),
+                revenue: cv(r.revenue || 0),
+                totalCost: cv(r.totalCost || 0),
+                netContribution: cv(r.netContribution || 0),
                 marginPct: Number(r.marginPct || 0),
               }))}
               additionalSheets={[
@@ -153,7 +158,7 @@ export function ReportsHubPage() {
                     { key: 'totalCost', header: 'التكلفة', width: 14, type: 'currency' as const },
                     { key: 'netProfit', header: 'الربح', width: 14, type: 'currency' as const },
                   ],
-                  data: projectsLevel.map((r) => ({ ...r, revenue: Number(r.revenue), totalCost: Number(r.totalCost), netProfit: Number(r.netProfit) })),
+                  data: projectsLevel.map((r) => ({ ...r, revenue: cv(r.revenue), totalCost: cv(r.totalCost), netProfit: cv(r.netProfit) })),
                 },
                 {
                   sheetName: 'الموظفون',
@@ -166,7 +171,7 @@ export function ReportsHubPage() {
                     { key: 'totalCost', header: 'التكلفة', width: 14, type: 'currency' as const },
                     { key: 'netContribution', header: 'المساهمة', width: 14, type: 'currency' as const },
                   ],
-                  data: employeesLevel.map((r) => ({ ...r, revenueGenerated: Number(r.revenueGenerated), totalCost: Number(r.totalCost), netContribution: Number(r.netContribution) })),
+                  data: employeesLevel.map((r) => ({ ...r, revenueGenerated: cv(r.revenueGenerated), totalCost: cv(r.totalCost), netContribution: cv(r.netContribution) })),
                 },
               ]}
             />
@@ -188,6 +193,7 @@ export function ReportsHubPage() {
         showBranch
         showDepartment
         showLedger
+        showCurrency
       />
 
       {q.isLoading && <Loading />}
@@ -207,11 +213,11 @@ export function ReportsHubPage() {
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-              <Stat label="الإيرادات التشغيلية" value={money(company.revenue || 0)} hint={base} tone="green" icon={TrendingUp} />
-              <Stat label="التكلفة المباشرة" value={money(company.directCost || 0)} hint={`مجمل الربح: ${money(company.grossProfit || 0)}`} tone="amber" icon={Layers} />
-              <Stat label="المصاريف التشغيلية" value={money(company.operatingExpenses || 0)} hint={base} tone="red" icon={Coins} />
-              <Stat label="صافي الربح / (الخسارة)" value={money(company.netProfit || 0)} hint={ccReconciled ? 'متطابق مع مراكز التكلفة' : 'راجع مطابقة المراكز'} tone={netProfit >= 0 ? 'indigo' : 'red'} icon={CheckCircle2} />
-              <Stat label="إجمالي الأصول" value={money(company.totalAssets || 0)} hint={`الالتزامات: ${money(company.totalLiabilities || 0)} | الملكية: ${money(company.totalEquity || 0)}`} tone="blue" icon={Landmark} />
+              <Stat label="الإيرادات التشغيلية" value={fm(company.revenue || 0)} hint={base} tone="green" icon={TrendingUp} />
+              <Stat label="التكلفة المباشرة" value={fm(company.directCost || 0)} hint={`مجمل الربح: ${fm(company.grossProfit || 0)}`} tone="amber" icon={Layers} />
+              <Stat label="المصاريف التشغيلية" value={fm(company.operatingExpenses || 0)} hint={base} tone="red" icon={Coins} />
+              <Stat label="صافي الربح / (الخسارة)" value={fm(company.netProfit || 0)} hint={ccReconciled ? 'متطابق مع مراكز التكلفة' : 'راجع مطابقة المراكز'} tone={netProfit >= 0 ? 'indigo' : 'red'} icon={CheckCircle2} />
+              <Stat label="إجمالي الأصول" value={fm(company.totalAssets || 0)} hint={`الالتزامات: ${fm(company.totalLiabilities || 0)} | الملكية: ${fm(company.totalEquity || 0)}`} tone="blue" icon={Landmark} />
             </div>
           </div>
 
@@ -296,8 +302,8 @@ export function ReportsHubPage() {
               <ExecutiveBarChart
                 categories={ccRows.slice(0, 8).map((c) => c.nameAr)}
                 series={[
-                  { name: 'الإيراد', data: ccRows.slice(0, 8).map((c) => Number(c.revenue || 0)), color: '#10b981' },
-                  { name: 'التكلفة', data: ccRows.slice(0, 8).map((c) => Number(c.totalCost || 0)), color: '#f43f5e' },
+                  { name: 'الإيراد', data: ccRows.slice(0, 8).map((c) => cv(c.revenue || 0)), color: '#10b981' },
+                  { name: 'التكلفة', data: ccRows.slice(0, 8).map((c) => cv(c.totalCost || 0)), color: '#f43f5e' },
                 ]}
                 horizontal
                 height={260}
@@ -342,9 +348,9 @@ export function ReportsHubPage() {
                               {c.id === 'UNASSIGNED' ? 'غير مخصص' : COST_CENTER_TYPE_LABELS[c.ccType] || c.ccType}
                             </Badge>
                           </td>
-                          <td className="num text-emerald-700 dark:text-emerald-400">{money(c.revenue)}</td>
-                          <td className="num text-rose-700 dark:text-rose-400">{money(c.totalCost)}</td>
-                          <td className="num font-bold">{money(c.netContribution)}</td>
+                          <td className="num text-emerald-700 dark:text-emerald-400">{fm(c.revenue)}</td>
+                          <td className="num text-rose-700 dark:text-rose-400">{fm(c.totalCost)}</td>
+                          <td className="num font-bold">{fm(c.netContribution)}</td>
                           <td className="num font-mono">{c.marginPct}%</td>
                         </tr>
                       ))}
@@ -388,9 +394,9 @@ export function ReportsHubPage() {
                           <td className="font-semibold">{r.clientName}</td>
                           <td>{r.projectName}</td>
                           <td className="text-slate-500">{r.costCenterName}</td>
-                          <td className="num text-emerald-700 dark:text-emerald-400">{money(r.revenue)}</td>
-                          <td className="num text-rose-700 dark:text-rose-400">{money(r.totalCost)}</td>
-                          <td className="num font-bold">{money(r.netProfit)}</td>
+                          <td className="num text-emerald-700 dark:text-emerald-400">{fm(r.revenue)}</td>
+                          <td className="num text-rose-700 dark:text-rose-400">{fm(r.totalCost)}</td>
+                          <td className="num font-bold">{fm(r.netProfit)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -432,9 +438,9 @@ export function ReportsHubPage() {
                             {e.employeeName}
                           </td>
                           <td className="text-slate-500">{e.costCenterName}</td>
-                          <td className="num text-emerald-700 dark:text-emerald-400">{money(e.revenueGenerated)}</td>
-                          <td className="num text-rose-700 dark:text-rose-400">{money(e.totalCost)}</td>
-                          <td className="num font-bold">{money(e.netContribution)}</td>
+                          <td className="num text-emerald-700 dark:text-emerald-400">{fm(e.revenueGenerated)}</td>
+                          <td className="num text-rose-700 dark:text-rose-400">{fm(e.totalCost)}</td>
+                          <td className="num font-bold">{fm(e.netContribution)}</td>
                           <td className="num font-mono">{e.marginPct}%</td>
                         </tr>
                       ))}
@@ -486,9 +492,9 @@ export function ReportsHubPage() {
                           </Link>
                         </td>
                         <td><Badge color="slate">{a.sectionNameAr}</Badge></td>
-                        <td className="num">{money(a.debit)}</td>
-                        <td className="num">{money(a.credit)}</td>
-                        <td className="num font-bold">{money(a.netAmount)}</td>
+                        <td className="num">{fm(a.debit)}</td>
+                        <td className="num">{fm(a.credit)}</td>
+                        <td className="num font-bold">{fm(a.netAmount)}</td>
                       </tr>
                     ))}
                   </tbody>

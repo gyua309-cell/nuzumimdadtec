@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, FileSpreadsheet, FileText, Play, Plus, Printer, Search, Calculator, Award, FileCheck2, CheckCircle2, Wallet, Landmark, BarChart3, PieChart, Users } from 'lucide-react';
+import { BarChart3, Briefcase, Calculator, Award, CheckCircle2, Clock, Eye, FileCheck2, FileSpreadsheet, FileText, Landmark, Pencil, PieChart, Play, Plus, Printer, Search, Trash2, Users, Wallet } from 'lucide-react';
 import { api, Page } from '../lib/api';
 import { date as _date, money, today } from '../lib/format';
 import { ExportEngine, RoyalDetailDocumentOptions } from '../engine/export-engine';
@@ -9,8 +9,9 @@ import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
 import { ExecutiveBarChart, ExecutiveChartCard, ExecutiveDonutChart } from '../components/ExecutiveCharts';
 import { ExportMenu } from '../components/ExportMenu';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { JournalLinkBadge } from '../components/JournalPreviewPill';
-import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
+import { ActionButton, ActionGroup, AddButton, Badge, EmptyState, ErrorState, Field, FormSection, Loading, Modal, PageHeader, Pager, ReasonDialog, Stat, useToast } from '../components/ui';
 
 const CALC_METHOD: Record<string, string> = {
   FIXED: 'مبلغ ثابت',
@@ -85,60 +86,92 @@ export const VariableTypesPage = () => (
 );
 
 // ================================================================== monthly variables
+const OVERTIME_PRESETS = [
+  { key: 'DAY', label: 'نهاري عادي (1.25x)', multiplier: '1.25' },
+  { key: 'NIGHT_WEEKEND', label: 'ليلي / عطلة أسبوعية (1.50x)', multiplier: '1.5' },
+  { key: 'HOLIDAY', label: 'عطلة رسمية / عيد (2.00x)', multiplier: '2' },
+  { key: 'CUSTOM', label: 'مضاعف مخصص', multiplier: '' },
+] as const;
+
 export function MonthlyVariablesPage() {
   const qc = useQueryClient();
   const toast = useToast();
   const [periodId, setPeriodId] = useState('fp-2026-11');
+  const [q, setQ] = useState('');
+  const [scopeFilter, setScopeFilter] = useState<'ALL' | 'PROJECT' | 'GENERAL' | 'OVERTIME'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'APPROVED' | 'POSTED'>('ALL');
+  const [modalRow, setModalRow] = useState<any | null>(null);
   const [adding, setAdding] = useState(false);
+
   const list = useQuery({
     queryKey: ['/monthly-variables', periodId],
     enabled: !!periodId,
     queryFn: () => api.get<Page<any>>('/monthly-variables', { periodId, pageSize: 200 }),
   });
-  const refresh = () => qc.invalidateQueries({ queryKey: ['/monthly-variables', periodId] });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['/monthly-variables', periodId] });
+    qc.invalidateQueries({ queryKey: ['/profitability/projects', periodId] });
+    qc.invalidateQueries({ queryKey: ['/profitability/employees', periodId] });
+    qc.invalidateQueries({ queryKey: ['/profitability/clients', periodId] });
+  };
 
-  const addFields: FieldDef[] = [
-    { name: 'employeeId', label: 'الموظف', type: 'ref', ref: REF.employee, required: true },
-    { name: 'variableTypeId', label: 'نوع المتغير', type: 'ref', ref: { path: '/variable-types', label: (v: any) => `${v.code} — ${v.nameAr}` }, required: true },
-    { name: 'projectId', label: 'المشروع (اختياري)', type: 'ref', ref: REF.project, hint: 'إذا كان المتغير مرتبطاً بمشروع محدد' },
-    { name: 'amount', label: 'المبلغ / الكمية', type: 'decimal', hint: 'مبلغ للطريقة الثابتة، أو كمية للساعات/الأيام' },
-    { name: 'hours', label: 'الساعات', type: 'decimal', hint: 'للإضافي والساعات' },
-    { name: 'days', label: 'الأيام', type: 'decimal', hint: 'للخصم اليومي' },
-    { name: 'rate', label: 'المعدل (تجاوز)', type: 'decimal', hint: 'اتركه فارغًا لاستخدام معدل النوع الافتراضي' },
-    { name: 'multiplier', label: 'المضاعف (تجاوز)', type: 'decimal', hint: 'اتركه فارغًا لاستخدام المضاعف الافتراضي' },
-    { name: 'notes', label: 'ملاحظات', type: 'textarea' },
-  ];
+  const allRows: any[] = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
+  const rows = allRows.filter((v: any) => {
+    if (statusFilter !== 'ALL' && v.status !== statusFilter) return false;
+    if (scopeFilter === 'PROJECT' && !v.projectId) return false;
+    if (scopeFilter === 'GENERAL' && v.projectId) return false;
+    if (scopeFilter === 'OVERTIME' && v.category !== 'OVERTIME') return false;
+    if (q.trim()) {
+      const s = q.trim().toLowerCase();
+      return (
+        String(v.employeeName || '').toLowerCase().includes(s) ||
+        String(v.variableTypeName || '').toLowerCase().includes(s) ||
+        String(v.projectName || '').toLowerCase().includes(s) ||
+        String(v.notes || '').toLowerCase().includes(s)
+      );
+    }
+    return true;
+  });
 
-  const rows: any[] = Array.isArray(list.data) ? list.data : (list.data?.data ?? []);
-  const totalApproved = rows.filter((v: any) => v.status === 'APPROVED').reduce((s: number, v: any) => s + Number(v.computedAmount), 0) ?? 0;
-  const totalDraft = rows.filter((v: any) => v.status === 'DRAFT').reduce((s: number, v: any) => s + Number(v.computedAmount), 0) ?? 0;
+  const totalApproved = rows.filter((v: any) => v.status === 'APPROVED' || v.status === 'POSTED').reduce((s: number, v: any) => s + Number(v.computedAmount || 0), 0);
+  const totalDraft = rows.filter((v: any) => v.status === 'DRAFT').reduce((s: number, v: any) => s + Number(v.computedAmount || 0), 0);
+  const totalOvertimeHours = rows.filter((v: any) => v.category === 'OVERTIME' || Number(v.hours || 0) > 0).reduce((s: number, v: any) => s + Number(v.hours || 0), 0);
+  const totalProjectLinked = rows.filter((v: any) => Boolean(v.projectId)).reduce((s: number, v: any) => s + Number(v.computedAmount || 0), 0);
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="المتغيرات الشهرية"
-        subtitle="مكافآت وإضافي وخصومات وبدلات الشهر. يجب اعتماد المتغير قبل تضمينه في مسيّر الرواتب."
+        title="المتغيرات الشهرية والعمل الإضافي"
+        subtitle="إدارة الإضافي (عادي/ليلي/عطلات/مخصص)، المكافآت، الخصومات، والأجر الإضافي المرتبط بمشروع (Sections 13–15)"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportMenu
-              title="سجل المتغيرات الشهرية"
+              title="سجل المتغيرات الشهرية والعمل الإضافي"
               periodLabel={periodId || 'الحالية'}
               filename={`monthly-variables-${periodId || today()}`}
               columns={[
                 { key: 'employeeName', header: 'الموظف', width: 22 },
                 { key: 'variableTypeName', header: 'النوع', width: 20 },
-                { key: 'categoryLabel', header: 'الفئة', width: 14 },
-                { key: 'projectName', header: 'المشروع', width: 20 },
-                { key: 'computedAmount', header: 'المبلغ المحسوب', width: 16, type: 'currency', isTotal: true },
+                { key: 'categoryLabel', header: 'الفئة', width: 15 },
+                { key: 'scopeLabel', header: 'نطاق التحميل', width: 22 },
+                { key: 'formulaLabel', header: 'البيان الحسابي', width: 18 },
+                { key: 'computedAmount', header: 'المبلغ المحسوب (أساسي)', width: 18, type: 'currency', isTotal: true },
                 { key: 'status', header: 'الحالة', width: 12 },
               ]}
               data={rows.map((v: any) => ({
                 ...v,
                 categoryLabel: VAR_CATEGORY[v.category]?.label || v.category,
-                projectName: v.projectName || '—',
+                scopeLabel: v.projectName ? `مباشر على مشروع: ${v.projectName}` : 'عام (موزع بالتخصيص)',
+                formulaLabel: Number(v.hours || 0) > 0
+                  ? `${v.hours} س × ${money(v.rate || 0)} × ${v.multiplier || 1}x`
+                  : Number(v.days || 0) > 0
+                    ? `${v.days} يوم × ${money(v.rate || 0)} × ${v.multiplier || 1}x`
+                    : v.calcMethod === 'PCT_BASIC'
+                      ? `${v.amount || 0}% من الأساسي`
+                      : 'مبلغ ثابت',
               }))}
             />
-            {rows.some((v: any) => v.status === 'DRAFT') && (
+            {allRows.some((v: any) => v.status === 'DRAFT') && (
               <button
                 className="btn-secondary text-xs flex items-center gap-1.5 border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
                 onClick={async () => {
@@ -154,63 +187,604 @@ export function MonthlyVariablesPage() {
                 <CheckCircle2 className="size-3.5 text-emerald-600" /> اعتماد كافة المسودات
               </button>
             )}
-            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAdding(true)}>
-              <Plus className="size-4" /> إضافة متغير
+            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => { setModalRow(null); setAdding(true); }}>
+              <Plus className="size-4" /> إضافة متغير / إضافي
             </button>
           </div>
         }
       />
-      <div className="card p-3">
-        <Field label="الفترة المالية"><PeriodSelect value={periodId} onChange={setPeriodId} className="w-64" /></Field>
+
+      <div className="card p-3 flex flex-wrap items-end gap-3">
+        <Field label="الفترة المالية"><PeriodSelect value={periodId} onChange={setPeriodId} className="w-56" /></Field>
+        <Field label="بحث سريع">
+          <div className="relative">
+            <Search className="size-3.5 text-slate-400 absolute start-2.5 top-2.5" />
+            <input
+              className="input ps-8 w-52 text-xs"
+              placeholder="اسم الموظف، النوع، المشروع..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+        </Field>
+        <Field label="التوجيه / النطاق">
+          <select className="input w-48 text-xs" value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value as any)}>
+            <option value="ALL">الكل ({allRows.length})</option>
+            <option value="PROJECT">مرتبط بمشروع مباشر (Direct)</option>
+            <option value="GENERAL">عام على الموظف (Allocation-Split)</option>
+            <option value="OVERTIME">عمل إضافي (Overtime) فقط</option>
+          </select>
+        </Field>
+        <Field label="الحالة">
+          <select className="input w-36 text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
+            <option value="ALL">الكل</option>
+            <option value="DRAFT">مسودة (Draft)</option>
+            <option value="APPROVED">معتمد</option>
+            <option value="POSTED">مرحّل</option>
+          </select>
+        </Field>
       </div>
+
       {periodId && (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Stat label="إجمالي المعتمد" value={money(totalApproved)} tone="green" />
-            <Stat label="إجمالي المسودة" value={money(totalDraft)} hint="في انتظار الاعتماد" />
-            <Stat label="عدد السجلات" value={String(list.data?.meta?.total ?? rows.length)} />
+            <Stat label="إجمالي المعتمد والمرحّل" value={money(totalApproved)} tone="green" hint="مشمول في الربحية ومسيّر الرواتب" />
+            <Stat label="في انتظار الاعتماد" value={money(totalDraft)} tone={totalDraft > 0 ? 'amber' : undefined} hint="مسودات لم تدخل الربحية بعد" />
+            <Stat label="ساعات الإضافي المسجلة" value={`${totalOvertimeHours.toFixed(1)} ساعة`} tone="blue" hint="بحسب التوقيت والمضاعف" />
+            <Stat label="متغيرات محمّلة لمشاريع" value={money(totalProjectLinked)} tone="indigo" hint="أجر إضافي ومكافآت مباشرة لمشروع" />
           </div>
+
           <div className="card overflow-hidden">
-            {list.isLoading ? <Loading /> : list.error ? <ErrorState error={list.error} /> : rows.length === 0 ? <EmptyState text="لا توجد متغيرات لهذه الفترة." /> : (
+            {list.isLoading ? <Loading /> : list.error ? <ErrorState error={list.error} /> : rows.length === 0 ? <EmptyState text="لا توجد متغيرات مطابقة لمعايير البحث في هذه الفترة." /> : (
               <table className="table">
                 <thead>
-                  <tr><th>الموظف</th><th>النوع</th><th>الفئة</th><th>المشروع</th><th>المبلغ المحسوب</th><th>الحالة</th><th /></tr>
+                  <tr>
+                    <th>الموظف</th>
+                    <th>النوع والبيان الحسابي</th>
+                    <th>الفئة</th>
+                    <th>توجيه التكلفة للربحية</th>
+                    <th className="num">المبلغ المحسوب</th>
+                    <th>الحالة</th>
+                    <th />
+                  </tr>
                 </thead>
                 <tbody>
-                  {rows.map((v: any) => (
-                    <tr key={v.id}>
-                      <td><Link to={`/hr/employees/${v.employeeId}`} className="text-brand-600 hover:underline">{v.employeeName}</Link></td>
-                      <td>{v.variableTypeName}</td>
-                      <td><Badge color={VAR_CATEGORY[v.category]?.color}>{VAR_CATEGORY[v.category]?.label ?? v.category}</Badge></td>
-                      <td className="text-xs">{v.projectName ?? '—'}</td>
-                      <td className="num font-medium">{money(v.computedAmount)}</td>
-                      <td><Badge color={v.status === 'APPROVED' ? 'green' : v.status === 'POSTED' ? 'blue' : 'slate'}>{v.status === 'DRAFT' ? 'مسودة' : v.status === 'APPROVED' ? 'معتمد' : v.status === 'POSTED' ? 'مرحّل' : v.status}</Badge></td>
-                      <td>
-                        <div className="flex justify-end gap-1">
-                          {v.status === 'DRAFT' && (
-                            <>
-                              <button className="btn-ghost h-7 px-2 text-xs text-green-600"
-                                onClick={async () => { try { await api.post(`/monthly-variables/${v.id}/approve`, {}); refresh(); toast.success('تم الاعتماد'); } catch (e) { toast.error(e); } }}>اعتماد</button>
-                              <button className="btn-ghost h-7 px-2 text-xs text-rose-600"
-                                onClick={async () => { if (!confirm('حذف المتغير؟')) return; try { await api.del(`/monthly-variables/${v.id}`); refresh(); toast.success('تم الحذف'); } catch (e) { toast.error(e); } }}>حذف</button>
-                            </>
+                  {rows.map((v: any) => {
+                    const formulaBadge = Number(v.hours || 0) > 0
+                      ? `${Number(v.hours)} ساعة × ${money(v.rate || 0)} × ${Number(v.multiplier || 1)}x`
+                      : Number(v.days || 0) > 0
+                        ? `${Number(v.days)} يوم × ${money(v.rate || 0)} × ${Number(v.multiplier || 1)}x`
+                        : v.calcMethod === 'PCT_BASIC'
+                          ? `${Number(v.amount || 0)}% من الأساسي`
+                          : v.currencyCode && v.currencyCode !== 'SAR'
+                            ? `${Number(v.amount || v.computedAmount).toLocaleString()} ${v.currencyCode}`
+                            : null;
+                    return (
+                      <tr key={v.id}>
+                        <td>
+                          <Link to={`/hr/employees/${v.employeeId}`} className="text-brand-600 hover:underline font-medium">
+                            {v.employeeName}
+                          </Link>
+                        </td>
+                        <td>
+                          <div className="font-medium text-xs">{v.variableTypeName}</div>
+                          {formulaBadge && (
+                            <div className="text-[11px] font-mono text-slate-500 mt-0.5">{formulaBadge}</div>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          {v.notes && <div className="text-[11px] text-slate-400 truncate max-w-xs" title={v.notes}>{v.notes}</div>}
+                        </td>
+                        <td><Badge color={VAR_CATEGORY[v.category]?.color}>{VAR_CATEGORY[v.category]?.label ?? v.category}</Badge></td>
+                        <td className="text-xs">
+                          {v.projectId ? (
+                            <Link to={`/prj/projects/${v.projectId}`} className="inline-flex items-center gap-1 rounded bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 text-indigo-700 dark:text-indigo-300 font-medium hover:underline">
+                              <Briefcase className="size-3" /> مباشر: {v.projectName || v.projectId}
+                            </Link>
+                          ) : (
+                            <span className="text-slate-500 dark:text-slate-400">عام — يُوزع بنسبة التخصيص والـ Bench</span>
+                          )}
+                        </td>
+                        <td className="num font-semibold">{money(v.computedAmount)}</td>
+                        <td>
+                          <Badge color={v.status === 'APPROVED' ? 'green' : v.status === 'POSTED' ? 'blue' : 'amber'}>
+                            {v.status === 'DRAFT' ? 'مسودة' : v.status === 'APPROVED' ? 'معتمد' : v.status === 'POSTED' ? 'مرحّل' : v.status}
+                          </Badge>
+                        </td>
+                        <td>
+                          <div className="flex justify-end gap-1">
+                            {v.status === 'DRAFT' && (
+                              <>
+                                <button
+                                  title="تعديل المسودة"
+                                  className="btn-ghost h-7 px-2 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1"
+                                  onClick={() => { setModalRow(v); setAdding(true); }}
+                                >
+                                  <Pencil className="size-3.5" /> تعديل
+                                </button>
+                                <button
+                                  className="btn-ghost h-7 px-2 text-xs text-emerald-600 font-medium"
+                                  onClick={async () => {
+                                    try {
+                                      await api.post(`/monthly-variables/${v.id}/approve`, {});
+                                      refresh();
+                                      toast.success('تم اعتماد المتغير وتضمينه في مسيّر الرواتب والربحية');
+                                    } catch (e) {
+                                      toast.error(e);
+                                    }
+                                  }}
+                                >
+                                  اعتماد
+                                </button>
+                                <button
+                                  title="حذف"
+                                  className="btn-ghost h-7 px-2 text-xs text-rose-600 flex items-center gap-1"
+                                  onClick={async () => {
+                                    if (!confirm('هل تريد حذف هذا المتغير؟')) return;
+                                    try {
+                                      await api.del(`/monthly-variables/${v.id}`);
+                                      refresh();
+                                      toast.success('تم الحذف');
+                                    } catch (e) {
+                                      toast.error(e);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="size-3.5" /> حذف
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
           </div>
         </>
       )}
-      <FormModal open={adding} wide title="إضافة متغير شهري" fields={addFields}
-        initial={{ periodId }}
-        onClose={() => setAdding(false)}
-        onSubmit={async (b) => { await api.post('/monthly-variables', { ...b, fiscalPeriodId: periodId }); refresh(); }}
+
+      <MonthlyVariableModal
+        open={adding}
+        periodId={periodId}
+        editing={modalRow}
+        onClose={() => { setAdding(false); setModalRow(null); }}
+        onSuccess={() => {
+          setAdding(false);
+          setModalRow(null);
+          refresh();
+        }}
       />
     </div>
+  );
+}
+
+function MonthlyVariableModal({
+  open,
+  periodId,
+  editing,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  periodId: string;
+  editing: any | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [employeeId, setEmployeeId] = useState('');
+  const [variableTypeId, setVariableTypeId] = useState('');
+  const [scope, setScope] = useState<'GENERAL' | 'PROJECT'>('GENERAL');
+  const [projectId, setProjectId] = useState('');
+  const [overtimePreset, setOvertimePreset] = useState<string>('NIGHT_WEEKEND');
+  const [amount, setAmount] = useState('');
+  const [hours, setHours] = useState('');
+  const [days, setDays] = useState('');
+  const [rate, setRate] = useState('');
+  const [multiplier, setMultiplier] = useState('1.5');
+  const [currencyCode, setCurrencyCode] = useState('SAR');
+  const [notes, setNotes] = useState('');
+
+  const employees = useQuery({
+    queryKey: ['/employees', 'var-modal'],
+    enabled: open,
+    queryFn: () => api.get<Page<any>>('/employees', { pageSize: 200 }),
+  });
+  const varTypes = useQuery({
+    queryKey: ['/variable-types', 'var-modal'],
+    enabled: open,
+    queryFn: () => api.get<Page<any>>('/variable-types', { pageSize: 200 }),
+  });
+  const projects = useQuery({
+    queryKey: ['/projects', 'var-modal'],
+    enabled: open,
+    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 200 }),
+  });
+  const empDetail = useQuery({
+    queryKey: ['/employees', employeeId, 'var-modal'],
+    enabled: open && !!employeeId,
+    queryFn: () => api.get<any>(`/employees/${employeeId}`),
+  });
+  const empAssignments = useQuery({
+    queryKey: ['/employees', employeeId, 'assignments', 'var-modal'],
+    enabled: open && !!employeeId,
+    queryFn: () => api.get<any[]>(`/employees/${employeeId}/assignments`),
+  });
+  const currencies = useQuery({
+    queryKey: ['/company-currencies', 'var-modal'],
+    enabled: open,
+    queryFn: () => api.get<any[]>('/company-currencies'),
+  });
+  const rates = useQuery({
+    queryKey: ['/exchange-rates', 'var-modal'],
+    enabled: open,
+    queryFn: () => api.get<Page<any>>('/exchange-rates', { pageSize: 200 }),
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setEmployeeId(editing.employeeId || '');
+      setVariableTypeId(editing.variableTypeId || '');
+      setScope(editing.projectId ? 'PROJECT' : 'GENERAL');
+      setProjectId(editing.projectId || '');
+      setAmount(editing.amount != null ? String(editing.amount) : '');
+      setHours(editing.hours != null ? String(editing.hours) : '');
+      setDays(editing.days != null ? String(editing.days) : '');
+      setRate(editing.rate != null ? String(editing.rate) : '');
+      setMultiplier(editing.multiplier != null ? String(editing.multiplier) : '1');
+      setCurrencyCode(editing.currencyCode || 'SAR');
+      setNotes(editing.notes || '');
+      const multStr = String(editing.multiplier ?? '');
+      const matched = OVERTIME_PRESETS.find((p) => p.multiplier === multStr);
+      setOvertimePreset(matched ? matched.key : 'CUSTOM');
+    } else {
+      setEmployeeId('');
+      setVariableTypeId('');
+      setScope('GENERAL');
+      setProjectId('');
+      setAmount('');
+      setHours('');
+      setDays('');
+      setRate('');
+      setMultiplier('1.5');
+      setOvertimePreset('NIGHT_WEEKEND');
+      setCurrencyCode('SAR');
+      setNotes('');
+    }
+  }, [open, editing]);
+
+  const asList = (v: any): any[] =>
+    Array.isArray(v) ? v : Array.isArray(v?.data) ? v.data : Array.isArray(v?.assignments) ? v.assignments : [];
+
+  const varTypeList: any[] = asList(varTypes.data);
+  const selectedType = varTypeList.find((t) => t.id === variableTypeId);
+  const calcMethod = selectedType?.calcMethod || 'FIXED';
+  const isOvertimeType = selectedType?.category === 'OVERTIME' || calcMethod === 'HOURS_RATE';
+
+  const empRows: any[] = asList(employees.data);
+  const selectedEmp = empRows.find((e) => e.id === employeeId);
+  const baseSalary = Number(empDetail.data?.currentBaseSalary ?? empDetail.data?.compensation?.baseSalary ?? selectedEmp?.currentBaseSalary ?? selectedEmp?.baseSalary ?? 0);
+
+  // Determine active exchange rate to SAR base
+  const fxRate = useMemo(() => {
+    if (!currencyCode || currencyCode === 'SAR') return 1;
+    const rateRows: any[] = asList(rates.data);
+    const direct = rateRows.find((r: any) => r.fromCurrency === currencyCode && r.toCurrency === 'SAR');
+    if (direct && Number(direct.rate) > 0) return Number(direct.rate);
+    const rev = rateRows.find((r: any) => r.fromCurrency === 'SAR' && r.toCurrency === currencyCode);
+    if (rev && Number(rev.rate) > 0) return 1 / Number(rev.rate);
+    return 1;
+  }, [currencyCode, rates.data]);
+
+  const effectiveRate = Number(rate || 0) || Number(selectedType?.defaultRate || 0);
+  const effectiveMult = Number(multiplier || 0) || Number(selectedType?.defaultMultiplier || 1) || 1;
+  const effectiveAmount = Number(amount || 0) || Number(selectedType?.defaultAmount || 0);
+
+  let rawComputed = 0;
+  if (calcMethod === 'HOURS_RATE') {
+    rawComputed = Number(hours || 0) * effectiveRate * effectiveMult;
+  } else if (calcMethod === 'DAYS_RATE') {
+    rawComputed = Number(days || 0) * effectiveRate * effectiveMult;
+  } else if (calcMethod === 'PCT_BASIC') {
+    const pct = Number(amount || selectedType?.defaultAmount || 0);
+    rawComputed = (baseSalary * pct) / 100;
+  } else {
+    rawComputed = effectiveAmount;
+  }
+  const computedBase = Math.round(rawComputed * fxRate * 100) / 100;
+
+  const activeAllocs = asList(empAssignments.data).filter((a: any) => a.status === 'ACTIVE');
+
+  const handleSave = async (andApprove = false) => {
+    if (busy) return;
+    if (!employeeId || !variableTypeId) {
+      toast.error(new Error('يرجى اختيار الموظف ونوع المتغير'));
+      return;
+    }
+    if (scope === 'PROJECT' && !projectId) {
+      toast.error(new Error('يرجى اختيار المشروع المرتبط عند اختيار التحميل المباشر لمشروع'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const payload = {
+        fiscalPeriodId: periodId,
+        employeeId,
+        variableTypeId,
+        projectId: scope === 'PROJECT' ? projectId : null,
+        amount: amount ? Number(amount) : undefined,
+        hours: hours ? Number(hours) : undefined,
+        days: days ? Number(days) : undefined,
+        rate: rate ? Number(rate) : undefined,
+        multiplier: multiplier ? Number(multiplier) : undefined,
+        currencyCode,
+        notes: notes.trim() || undefined,
+      };
+      let saved: any;
+      if (editing) {
+        saved = await api.patch(`/monthly-variables/${editing.id}`, payload);
+      } else {
+        saved = await api.post('/monthly-variables', payload);
+      }
+      if (andApprove && saved?.id) {
+        await api.post(`/monthly-variables/${saved.id}/approve`, {});
+        toast.success('تم حفظ واعتماد المتغير الشهري وتضمينه في الربحية ومسيّر الرواتب');
+      } else {
+        toast.success(editing ? 'تم تحديث مسودة المتغير الشهري' : 'تم حفظ المتغير الشهري كمسودة');
+      }
+      onSuccess();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const currencyList = asList(currencies.data);
+  const currencyOpts = (currencyList.length
+    ? currencyList.map((c: any) => c.currencyCode || c.code)
+    : ['SAR', 'USD', 'EGP', 'AED', 'EUR']).filter((v, i, a) => Boolean(v) && a.indexOf(v) === i);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      dirty={Boolean(employeeId || variableTypeId || amount || hours || days || notes)}
+      saving={busy}
+      onSaveShortcut={() => handleSave(false)}
+      title={editing ? 'تعديل متغير شهري (مسودة)' : 'إضافة متغير شهري / ساعات عمل إضافي'}
+      footer={
+        <>
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>إلغاء</button>
+          <button type="button" className="btn-secondary" onClick={() => handleSave(false)} disabled={busy}>
+            حفظ كمسودة
+          </button>
+          <button type="button" className="btn-primary" onClick={() => handleSave(true)} disabled={busy}>
+            {busy ? 'جارٍ الحفظ...' : 'حفظ واعتماد فوري'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4 text-xs">
+        <FormSection title="بيانات الموظف والنوع" columns={2}>
+          <Field label="الموظف" required>
+            <SearchableSelect
+              clearable={false}
+              loading={employees.isLoading}
+              value={employeeId}
+              onChange={(val) => setEmployeeId(val)}
+              options={empRows.map((e: any) => ({ value: e.id, label: `${e.code} — ${e.fullNameAr}` }))}
+              placeholder="— اختر الموظف —"
+            />
+          </Field>
+          <Field label="نوع المتغير / الإضافي" required>
+            <SearchableSelect
+              clearable={false}
+              loading={varTypes.isLoading}
+              value={variableTypeId}
+              onChange={(val) => {
+                setVariableTypeId(val);
+                const t = varTypeList.find((x) => x.id === val);
+                if (t) {
+                  if (t.defaultMultiplier != null) setMultiplier(String(t.defaultMultiplier));
+                  if (t.category === 'ADDITIONAL_PAY') setScope('PROJECT');
+                  if (t.calcMethod === 'HOURS_RATE' && baseSalary > 0 && !rate) {
+                    setRate((baseSalary / 240).toFixed(2));
+                  } else if (t.calcMethod === 'DAYS_RATE' && baseSalary > 0 && !rate) {
+                    setRate((baseSalary / 30).toFixed(2));
+                  }
+                }
+              }}
+              options={varTypeList.map((t: any) => ({
+                value: t.id,
+                label: `${t.code} — ${t.nameAr} (${CALC_METHOD[t.calcMethod] ?? t.calcMethod})`,
+              }))}
+              placeholder="— اختر نوع المتغير —"
+            />
+          </Field>
+        </FormSection>
+
+        <FormSection title="طريقة الحساب والعملة" subtitle={`الطريقة المطبّقة للنوع المختار: ${CALC_METHOD[calcMethod] ?? calcMethod}`} columns={2}>
+          {calcMethod === 'FIXED' && (
+            <Field label={`المبلغ الثابت (${currencyCode})`} required>
+              <input
+                type="number"
+                step="0.01"
+                className="input w-full font-mono"
+                value={amount}
+                placeholder={selectedType?.defaultAmount ? String(selectedType.defaultAmount) : '0.00'}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+            </Field>
+          )}
+
+          {calcMethod === 'PCT_BASIC' && (
+            <Field label="النسبة من الراتب الأساسي (%)" hint={baseSalary > 0 ? `الأساسي الحالي للموظف: ${money(baseSalary)}` : 'اختر الموظف لحساب النسبة تلقائياً'} required>
+              <input
+                type="number"
+                step="0.5"
+                className="input w-full font-mono"
+                value={amount}
+                placeholder={selectedType?.defaultAmount ? String(selectedType.defaultAmount) : '10'}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+            </Field>
+          )}
+
+          {isOvertimeType && (
+            <>
+              <Field label="نوع وتوقيت الإضافي (المضاعف القياسي — Sec 13)">
+                <select
+                  className="input w-full"
+                  value={overtimePreset}
+                  onChange={(e) => {
+                    const key = e.target.value;
+                    setOvertimePreset(key);
+                    const p = OVERTIME_PRESETS.find((x) => x.key === key);
+                    if (p && p.multiplier) setMultiplier(p.multiplier);
+                  }}
+                >
+                  {OVERTIME_PRESETS.map((p) => (
+                    <option key={p.key} value={p.key}>{p.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="عدد الساعات" required>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  className="input w-full font-mono"
+                  value={hours}
+                  placeholder="مثال: 8"
+                  onChange={(e) => setHours(e.target.value)}
+                />
+              </Field>
+              <Field
+                label="أجر الساعة / المعدل"
+                hint="أو يُستخدم معدل النوع الافتراضي"
+              >
+                <div className="space-y-1">
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="input w-full font-mono"
+                    value={rate}
+                    placeholder={selectedType?.defaultRate ? String(selectedType.defaultRate) : '0.00'}
+                    onChange={(e) => setRate(e.target.value)}
+                  />
+                  {baseSalary > 0 && (
+                    <button
+                      type="button"
+                      className="text-[11px] text-brand-600 hover:underline font-medium"
+                      onClick={() => setRate((baseSalary / 240).toFixed(2))}
+                    >
+                      استخدام أجر الساعة القياسي ({(baseSalary / 240).toFixed(2)} = الأساسي ÷ 240)
+                    </button>
+                  )}
+                </div>
+              </Field>
+              <Field label="المضاعف (Multiplier)" hint="عادي 1.25 / ليلي-ويكند 1.5 / رسمي 2.0 / مخصص">
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0.1"
+                  className="input w-full font-mono"
+                  value={multiplier}
+                  onChange={(e) => {
+                    setMultiplier(e.target.value);
+                    const match = OVERTIME_PRESETS.find((p) => p.multiplier === e.target.value);
+                    setOvertimePreset(match ? match.key : 'CUSTOM');
+                  }}
+                />
+              </Field>
+            </>
+          )}
+
+          {calcMethod === 'DAYS_RATE' && (
+            <>
+              <Field label="عدد الأيام" required>
+                <input type="number" step="0.5" min="0" className="input w-full font-mono" value={days} placeholder="مثال: 2" onChange={(e) => setDays(e.target.value)} />
+              </Field>
+              <Field label="الأجر اليومي / المعدل">
+                <div className="space-y-1">
+                  <input type="number" step="0.01" className="input w-full font-mono" value={rate} onChange={(e) => setRate(e.target.value)} />
+                  {baseSalary > 0 && (
+                    <button type="button" className="text-[11px] text-brand-600 hover:underline font-medium" onClick={() => setRate((baseSalary / 30).toFixed(2))}>
+                      استخدام أجر اليوم القياسي ({(baseSalary / 30).toFixed(2)} = الأساسي ÷ 30)
+                    </button>
+                  )}
+                </div>
+              </Field>
+              <Field label="المضاعف">
+                <input type="number" step="0.1" className="input w-full font-mono" value={multiplier} onChange={(e) => setMultiplier(e.target.value)} />
+              </Field>
+            </>
+          )}
+
+          <Field label="العملة">
+            <select className="input w-full font-mono" value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)}>
+              {currencyOpts.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+        </FormSection>
+
+        <FormSection title="توجيه التكلفة في تحليل الربحية (Section 14 & 19)" columns={2}>
+          <Field label="نطاق التحميل">
+            <select className="input w-full" value={scope} onChange={(e) => setScope(e.target.value as any)}>
+              <option value="GENERAL">متغير عام على الموظف (يوزع بالتخصيص على المشاريع والـ Bench)</option>
+              <option value="PROJECT">مرتبط بمشروع محدد (يحمل 100% على تكلفة المشروع مباشرة)</option>
+            </select>
+          </Field>
+          {scope === 'PROJECT' && (
+            <Field label="المشروع المرتبط" required>
+              <SearchableSelect
+                clearable={false}
+                loading={projects.isLoading}
+                value={projectId}
+                onChange={setProjectId}
+                options={(Array.isArray(projects.data) ? projects.data : (projects.data?.data ?? [])).map((p: any) => ({
+                  value: p.id,
+                  label: `${p.code} — ${p.nameAr}`,
+                }))}
+                placeholder="— اختر المشروع —"
+              />
+            </Field>
+          )}
+        </FormSection>
+
+        {/* Live Calculation & Attribution Preview Box */}
+        <div className="rounded-lg border border-brand-200 dark:border-brand-800/60 bg-brand-50/70 dark:bg-brand-950/30 p-3 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-brand-900 dark:text-brand-200 flex items-center gap-1.5">
+              <Clock className="size-4 text-brand-600" /> المعاينة الحية للمتغير وتوزيعه
+            </span>
+            <span className="text-sm font-bold font-mono text-brand-700 dark:text-brand-300">
+              {money(computedBase)} {currencyCode !== 'SAR' ? `(${rawComputed.toFixed(2)} ${currencyCode} × ${fxRate})` : ''}
+            </span>
+          </div>
+          {scope === 'PROJECT' ? (
+            <div className="text-[11px] text-indigo-700 dark:text-indigo-300">
+              يُحمّل هذا البند بالكامل (100%) كمصروف إضافي مباشر على تكلفة المشروع المختار فقط دون التأثير على تكلفة الـ Bench أو المشاريع الأخرى.
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-600 dark:text-slate-300">
+              {activeAllocs.length > 0
+                ? `التوزيع التلقائي المتوقع على تخصيصات الموظف النشطة: ${activeAllocs.map((a: any) => `${a.projectName} (${Number(a.allocationPct)}%)`).join(' ، ')}`
+                : 'الموظف ليس لديه تخصيص نشط حالياً — سيتم تحميل هذا المتغير على تكلفة الوقت غير المستغل (Bench) في الربحية.'}
+            </div>
+          )}
+        </div>
+
+        <Field label="ملاحظات إدارية">
+          <textarea className="input w-full min-h-[64px]" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="تفاصيل العمل الإضافي أو مبرر الأجر..." />
+        </Field>
+      </div>
+    </Modal>
   );
 }
 

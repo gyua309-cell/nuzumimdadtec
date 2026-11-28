@@ -14,6 +14,7 @@ import {
   saveOverheadPolicy,
   getNormalizedAccounts,
   convertToBase,
+  dayBeforeIso,
   resolvePeriodByIdOrDate,
   assertPeriodOpen,
   computeEmployeeCostBreakdown,
@@ -995,16 +996,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             id: uid('cmp'),
             effectiveFrom: body.effectiveFrom || new Date().toISOString().slice(0, 10),
             effectiveTo: null,
-            basicSalary: String(body.basicSalary || '0.00'),
-            salaryCurrency: body.salaryCurrency || 'SAR',
-            insuranceSalary: String(body.insuranceSalary || '0.00'),
-            insuranceCurrency: body.insuranceCurrency || body.salaryCurrency || 'SAR',
+            basicSalary: String(body.basicSalary ?? body.baseSalary ?? '0.00'),
+            salaryCurrency: body.salaryCurrency || body.currencyCode || 'SAR',
+            insuranceSalary: String(body.insuranceSalary ?? body.basicSalary ?? body.baseSalary ?? '0.00'),
+            insuranceCurrency: body.insuranceCurrency || body.salaryCurrency || body.currencyCode || 'SAR',
             changeReason: body.reason || body.changeReason || 'تعديل الراتب المعتمد',
             createdBy: 'المدير التنفيذي',
             createdAt: new Date().toISOString(),
           };
           const curComps = Array.isArray(emp.compensations) ? emp.compensations : [];
-          if (curComps.length > 0 && !curComps[0].effectiveTo) curComps[0].effectiveTo = newComp.effectiveFrom;
+          if (curComps.length > 0 && !curComps[0].effectiveTo) {
+            curComps[0].effectiveTo = dayBeforeIso(newComp.effectiveFrom);
+          }
           emp.basicSalary = newComp.basicSalary;
           emp.salaryCurrency = newComp.salaryCurrency;
           emp.insuranceSalary = newComp.insuranceSalary;
@@ -1037,7 +1040,9 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             changeReason: body.reason || 'تغيير التنسيب الوظيفي',
           };
           const curPlcs = Array.isArray(emp.placements) ? emp.placements : [];
-          if (curPlcs.length > 0 && !curPlcs[0].effectiveTo) curPlcs[0].effectiveTo = newPlc.effectiveFrom;
+          if (curPlcs.length > 0 && !curPlcs[0].effectiveTo) {
+            curPlcs[0].effectiveTo = dayBeforeIso(newPlc.effectiveFrom);
+          }
           emp.departmentId = newPlc.departmentId;
           emp.departmentName = newPlc.departmentName;
           emp.positionId = newPlc.positionId;
@@ -1068,7 +1073,9 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
               effectiveTo: null,
             };
             const curP = Array.isArray(emp.costProfiles) ? emp.costProfiles : [];
-            if (curP.length > 0 && !curP[0].effectiveTo) curP[0].effectiveTo = newP.effectiveFrom;
+            if (curP.length > 0 && !curP[0].effectiveTo) {
+              curP[0].effectiveTo = dayBeforeIso(newP.effectiveFrom);
+            }
             emp.costProfileId = newP.profileId;
             emp.costProfileName = newP.profileName;
             emp.costProfiles = [newP, ...curP];
@@ -1105,20 +1112,61 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
 
         if (subAction === 'status' && method === 'POST') {
           const oldStatus = emp.status;
-          const newStatus = body.newStatus || 'ACTIVE';
+          const newStatus = body.newStatus || body.status || 'ACTIVE';
+          const effDate = body.effectiveDate || body.terminationDate || new Date().toISOString().slice(0, 10);
+          if (emp.hireDate && effDate < String(emp.hireDate).slice(0, 10)) {
+            throw new Error('تاريخ السريان لا يمكن أن يسبق تاريخ تعيين الموظف');
+          }
           const newSh = {
             id: uid('sh'),
             oldStatus: emp.status,
             newStatus,
-            effectiveDate: body.effectiveDate || new Date().toISOString().slice(0, 10),
+            effectiveDate: effDate,
             reason: body.reason || 'تغيير الحالة الإدارية',
             changedBy: 'المدير التنفيذي',
             changedAt: new Date().toISOString(),
           };
           emp.status = newStatus;
+          if (newStatus === 'TERMINATED') {
+            emp.terminationDate = effDate;
+            // Automatically end active assignments & open service prices on termination date (Sec 3 & 26)
+            const asgs = getEntityList<any>('assignments', []);
+            let asgChanged = false;
+            const nextAsgs = asgs.map((a) => {
+              if ((a.employeeId === emp.id || a.employeeCode === emp.code) && (!a.endDate || a.endDate > effDate)) {
+                asgChanged = true;
+                return { ...a, endDate: effDate, effectiveTo: effDate, endReason: `انتهاء خدمة الموظف (${effDate})` };
+              }
+              return a;
+            });
+            if (asgChanged) {
+              replaceEntityList('assignments', nextAsgs);
+              recomputeEmployeeOverAllocation(emp.id);
+            }
+            const sps = getEntityList<any>('service_prices', []);
+            let spChanged = false;
+            const nextSps = sps.map((sp) => {
+              if ((sp.employeeId === emp.id || sp.employeeCode === emp.code) && (!sp.effectiveTo || sp.effectiveTo > effDate)) {
+                spChanged = true;
+                return { ...sp, effectiveTo: effDate };
+              }
+              return sp;
+            });
+            if (spChanged) replaceEntityList('service_prices', nextSps);
+          } else {
+            emp.terminationDate = null;
+          }
           emp.statusHistory = [newSh, ...(Array.isArray(emp.statusHistory) ? emp.statusHistory : [])];
           saveEntityItem('employees', emp);
-          recordAudit({ action: 'UPDATE_EMPLOYEE_STATUS', schemaName: 'hr', tableName: 'employees', entityId: emp.id, oldValues: { status: oldStatus }, newValues: { status: newStatus }, reason: newSh.reason });
+          recordAudit({
+            action: 'UPDATE_EMPLOYEE_STATUS',
+            schemaName: 'hr',
+            tableName: 'employees',
+            entityId: emp.id,
+            oldValues: { status: oldStatus, terminationDate: emps[empIndex]?.terminationDate || null },
+            newValues: { status: newStatus, terminationDate: emp.terminationDate || null },
+            reason: newSh.reason,
+          });
           return emp;
         }
 
@@ -1370,6 +1418,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         endDate: periodObj.endDate,
         closingDate: new Date().toISOString(),
         closedBy: 'المدير التنفيذي',
+        checks: checks.results,
+        overheadPolicy: getOverheadPolicy(),
         trialBalance: { financial: tbFinancial },
         incomeStatement: { period: isPeriod },
         balanceSheet: bsPeriod,
@@ -2021,28 +2071,39 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           list[idx].status = 'APPROVED';
           list[idx].approvedAt = new Date().toISOString();
           list[idx].approvedBy = 'المدير التنفيذي';
-          const amt = Math.abs(Number(list[idx].grossRevenueBase || 0));
+          const kind = list[idx].adjustmentKind || 'RETROACTIVE_REVENUE';
+          const rawSignedAmt = Number(
+            kind === 'DIRECT_COST'
+              ? (list[idx].directCostBase ?? list[idx].adjustmentAmountBase ?? list[idx].grossRevenueBase ?? 0)
+              : kind === 'OVERHEAD'
+                ? (list[idx].overheadBase ?? list[idx].adjustmentAmountBase ?? list[idx].grossRevenueBase ?? 0)
+                : (list[idx].grossRevenueBase ?? list[idx].adjustmentAmountBase ?? 0),
+          );
+          const amt = Math.abs(rawSignedAmt);
           if (amt > 0 && !list[idx].journalEntryId) {
             const p = resolvePeriodByIdOrDate(list[idx].fiscalPeriodId, null);
-            const isPos = Number(list[idx].grossRevenueBase || 0) >= 0;
+            const isPos = rawSignedAmt >= 0;
+            const debitAcc = kind === 'DIRECT_COST' ? '50101' : kind === 'OVERHEAD' ? '50401' : '110301';
+            const creditAcc = kind === 'DIRECT_COST' ? '20401' : kind === 'OVERHEAD' ? '20401' : '40101';
+            const jeLines = isPos
+              ? [
+                  { accountCode: debitAcc, debit: amt, credit: 0, employeeId: list[idx].employeeId || null, projectId: list[idx].projectId || null, description: `${list[idx].adjustmentReason} (${list[idx].projectName || list[idx].employeeName || 'عام'})` },
+                  { accountCode: creditAcc, debit: 0, credit: amt, employeeId: list[idx].employeeId || null, projectId: list[idx].projectId || null, description: `قيد تسوية معتمدة — ${list[idx].periodName || ''}` },
+                ]
+              : [
+                  { accountCode: creditAcc, debit: amt, credit: 0, employeeId: list[idx].employeeId || null, projectId: list[idx].projectId || null, description: `عكس / تخفيض تسوية — ${list[idx].adjustmentReason}` },
+                  { accountCode: debitAcc, debit: 0, credit: amt, employeeId: list[idx].employeeId || null, projectId: list[idx].projectId || null, description: `تسوية مخفضة — ${list[idx].periodName || ''}` },
+                ];
             const je = createAutoPostedJournalEntry({
               entryDate: p?.endDate || new Date().toISOString().slice(0, 10),
               fiscalPeriodId: list[idx].fiscalPeriodId,
               journalType: 'ADJUSTMENT',
               sourceModule: 'REV',
               sourceType: 'REVENUE_ADJUSTMENT',
-              postingEvent: 'RETRO_REVENUE_APPROVED',
+              postingEvent: kind === 'RETROACTIVE_REVENUE' ? 'RETRO_REVENUE_APPROVED' : 'RESULT_ADJUSTMENT_APPROVED',
               reference: list[idx].id,
-              description: `قيد اعتماد تسوية إيراد بأثر رجعي — ${list[idx].employeeName} (${list[idx].projectName})`,
-              lines: isPos
-                ? [
-                    { accountCode: '110301', debit: amt, credit: 0, employeeId: list[idx].employeeId, projectId: list[idx].projectId, description: `إيراد مستحق بأثر رجعي (${list[idx].originalPeriodName})` },
-                    { accountCode: '40101', debit: 0, credit: amt, employeeId: list[idx].employeeId, projectId: list[idx].projectId, description: `إيراد عقود ومشاريع — تسوية ${list[idx].projectName}` },
-                  ]
-                : [
-                    { accountCode: '40101', debit: amt, credit: 0, employeeId: list[idx].employeeId, projectId: list[idx].projectId, description: `تخفيض إيراد بأثر رجعي — ${list[idx].projectName}` },
-                    { accountCode: '110301', debit: 0, credit: amt, employeeId: list[idx].employeeId, projectId: list[idx].projectId, description: `تخفيض إيرادات مستحقة غير مفوترة` },
-                  ],
+              description: `قيد اعتماد تسوية نتائج (${kind}) — ${list[idx].employeeName || list[idx].projectName || 'الإدارة المالية'}`,
+              lines: jeLines,
             });
             list[idx].journalEntryId = je.id;
             list[idx].journalEntryNo = je.entryNo;
@@ -2054,8 +2115,8 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
             tableName: 'revenue_adjustments',
             entityId: adjId,
             oldValues: { status: oldStatus },
-            newValues: { status: 'APPROVED', grossRevenueBase: list[idx].grossRevenueBase, journalEntryNo: list[idx].journalEntryNo || null },
-            reason: body?.reason || `اعتماد تسوية الإيراد للموظف ${list[idx].employeeName}`,
+            newValues: { status: 'APPROVED', adjustmentKind: kind, amountBase: rawSignedAmt, journalEntryNo: list[idx].journalEntryNo || null },
+            reason: body?.reason || `اعتماد تسوية (${list[idx].adjustmentReason || ''})`,
           });
         } else if (act === 'reject') {
           list[idx].status = 'REJECTED';
@@ -2076,6 +2137,60 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
     }
 
+    if (path.includes('/revenue-adjustments/general') && method === 'POST') {
+      assertPeriodOpen(body.fiscalPeriodId, 'إنشاء تسوية نتائج (Section 29)');
+      const emps = getEntityList('employees', []);
+      const prjs = getEntityList('projects', []);
+      const periods = getEntityList('fiscal_periods', defaultFiscalPeriodsList);
+      const emp = body.employeeId ? emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId) : null;
+      const prj = body.projectId ? prjs.find((p: any) => p.id === body.projectId || p.code === body.projectId) : null;
+      const regPeriod = periods.find((p: any) => p.id === body.fiscalPeriodId);
+      const kind = body.adjustmentKind || 'REVENUE';
+      const rawAmt = Number(body.amount || 0);
+      const { amountBase: amtBase } = convertToBase(rawAmt, body.currencyCode || 'SAR');
+      const initialStatus = body.status || 'DRAFT';
+      const adjItem: any = {
+        id: uid('adj'),
+        adjustmentKind: kind,
+        employeeId: emp?.id || body.employeeId || null,
+        employeeCode: emp?.code || '',
+        employeeName: emp?.fullNameAr || 'تسوية عامة',
+        projectId: prj?.id || body.projectId || null,
+        projectCode: prj?.code || '',
+        projectName: prj?.nameAr || 'كامل المشروع / الشركة',
+        clientName: prj?.clientName || '—',
+        originalPeriodId: body.fiscalPeriodId,
+        originalPeriodName: regPeriod?.name || 'الفترة الحالية',
+        fiscalPeriodId: body.fiscalPeriodId,
+        periodName: regPeriod?.name || 'فترة حالية',
+        pricingBasis: 'FIXED',
+        units: 1,
+        unitPrice: rawAmt,
+        adjustmentAmountBase: amtBase,
+        grossRevenueBase: kind === 'REVENUE' ? amtBase : 0,
+        directCostBase: kind === 'DIRECT_COST' ? amtBase : 0,
+        overheadBase: kind === 'OVERHEAD' ? amtBase : 0,
+        currencyCode: body.currencyCode || 'SAR',
+        adjustmentReason: body.adjustmentReason || 'تسوية إدارية ومالية للنتائج',
+        createdAt: new Date().toISOString(),
+        createdBy: 'المدير التنفيذي',
+        status: initialStatus,
+      };
+      saveEntityItem('revenue_adjustments', adjItem);
+      recordAudit({
+        action: 'CREATE_ADJUSTMENT',
+        schemaName: 'revenue',
+        tableName: 'revenue_adjustments',
+        entityId: adjItem.id,
+        newValues: { adjustmentKind: kind, fiscalPeriodId: adjItem.fiscalPeriodId, amountBase: amtBase, status: initialStatus },
+        reason: adjItem.adjustmentReason,
+      });
+      if (initialStatus === 'APPROVED') {
+        return getDemoFallback(`/revenue-adjustments/${adjItem.id}/approve`, 'POST', { reason: adjItem.adjustmentReason });
+      }
+      return adjItem;
+    }
+
     if (path.includes('/revenue-adjustments/retroactive') && method === 'POST') {
       assertPeriodOpen(body.fiscalPeriodId, 'تسجيل تسوية إيراد بأثر رجعي');
       const emps = getEntityList('employees', []);
@@ -2091,6 +2206,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const initialStatus = body.status || 'APPROVED';
       const retroItem: any = {
         id: uid('retro'),
+        adjustmentKind: 'RETROACTIVE_REVENUE',
         employeeId: body.employeeId,
         employeeCode: emp?.code || '',
         employeeName: emp?.fullNameAr || 'الموظف',
@@ -2105,6 +2221,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         pricingBasis: body.pricingBasis || 'DAILY',
         units,
         unitPrice,
+        adjustmentAmountBase: grossRev,
         grossRevenueBase: grossRev,
         currencyCode: body.currencyCode || 'SAR',
         adjustmentReason: body.adjustmentReason || 'تسوية إيراد أثر رجعي',
@@ -2755,23 +2872,41 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           return savedEmp;
         }
 
-        // 1.5) Service prices enrichment (Sec 6 & 8)
+        // 1.5) Service prices enrichment (Sec 6, 8 & 26 effective-dated preservation)
         if (targetKey === 'service_prices') {
           const emps = getEntityList('employees', []);
           const prjs = getEntityList('projects', []);
           const emp = emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId);
           const prj = body.projectId ? prjs.find((p: any) => p.id === body.projectId || p.code === body.projectId) : null;
+          const effFrom = body.effectiveFrom || new Date().toISOString().slice(0, 10);
+          const resolvedEmpId = emp?.id || body.employeeId;
+          const resolvedPrjId = prj?.id || body.projectId || null;
+
+          // Supersede prior active open price for same (employee, project) pair without touching past months
+          const allSps = getEntityList<any>('service_prices', []);
+          let superseded = false;
+          const nextSps = allSps.map((sp) => {
+            const sameEmp = sp.employeeId === resolvedEmpId || (emp?.code && sp.employeeCode === emp.code);
+            const samePrj = (sp.projectId || null) === resolvedPrjId;
+            if (sameEmp && samePrj && !sp.effectiveTo && sp.id !== body.id && (!sp.effectiveFrom || sp.effectiveFrom <= effFrom)) {
+              superseded = true;
+              return { ...sp, effectiveTo: dayBeforeIso(effFrom) };
+            }
+            return sp;
+          });
+          if (superseded) replaceEntityList('service_prices', nextSps);
+
           body.id = body.id || uid('sp');
-          body.employeeId = emp?.id || body.employeeId;
+          body.employeeId = resolvedEmpId;
           body.employeeCode = emp?.code || body.employeeCode || '';
           body.employeeName = emp?.fullNameAr || body.employeeName || 'الموظف';
-          body.projectId = prj?.id || body.projectId || null;
+          body.projectId = resolvedPrjId;
           body.projectCode = prj?.code || body.projectCode || null;
           body.projectName = prj?.nameAr || body.projectName || null;
           body.pricingBasis = body.pricingBasis || 'DAILY';
           body.price = String(body.price || '0.00');
           body.currencyCode = body.currencyCode || 'SAR';
-          body.effectiveFrom = body.effectiveFrom || new Date().toISOString().slice(0, 10);
+          body.effectiveFrom = effFrom;
           body.effectiveTo = body.effectiveTo || null;
           const savedSp = saveEntityItem('service_prices', body);
           recordAudit({
@@ -2809,50 +2944,66 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           }
         }
 
-        // 2.5) Monthly variables enrichment (Sec 12, 13, 14, 15)
+        // 2.5) Monthly variables enrichment (Sec 12, 13, 14, 15) — Create & Draft Edit
         if (targetKey === 'monthly_variables') {
-          if (body.fiscalPeriodId) assertPeriodOpen(body.fiscalPeriodId, 'تسجيل متغير شهري');
+          const existingMv = body.id ? getEntityList<any>('monthly_variables', []).find((m) => m.id === body.id) : null;
+          if (existingMv && existingMv.status && existingMv.status !== 'DRAFT') {
+            throw new Error('لا يمكن تعديل متغير شهري معتمد أو مرحّل؛ أنشئ تسوية بدلاً من ذلك');
+          }
+          const merged = existingMv ? { ...existingMv, ...body } : { ...body };
+          if (merged.fiscalPeriodId) assertPeriodOpen(merged.fiscalPeriodId, 'تسجيل متغير شهري');
           const emps = getEntityList('employees', []);
           const prjs = getEntityList('projects', []);
           const varTypes = getEntityList('variable_types', defaultVariableTypesList);
-          const emp = emps.find((e: any) => e.id === body.employeeId || e.code === body.employeeId);
-          const prj = prjs.find((p: any) => p.id === body.projectId || p.code === body.projectId);
-          const vt = varTypes.find((v: any) => v.id === body.variableTypeId || v.code === body.variableTypeId);
-          body.id = body.id || uid('mv');
-          body.employeeName = emp?.fullNameAr || body.employeeName || 'الموظف';
-          body.employeeCode = emp?.code || body.employeeCode || '';
-          body.projectName = prj?.nameAr || body.projectName || null;
-          body.variableTypeName = vt?.nameAr || body.variableTypeName || 'مكافأة / متغير';
-          body.category = vt?.category || body.category || 'EARNING';
-          body.status = body.status || 'DRAFT';
+          const emp = emps.find((e: any) => e.id === merged.employeeId || e.code === merged.employeeId);
+          const prj = merged.projectId ? prjs.find((p: any) => p.id === merged.projectId || p.code === merged.projectId) : null;
+          const vt = varTypes.find((v: any) => v.id === merged.variableTypeId || v.code === merged.variableTypeId);
+          merged.id = merged.id || uid('mv');
+          merged.employeeId = emp?.id || merged.employeeId;
+          merged.employeeName = emp?.fullNameAr || merged.employeeName || 'الموظف';
+          merged.employeeCode = emp?.code || merged.employeeCode || '';
+          merged.projectId = prj?.id || merged.projectId || null;
+          merged.projectName = prj?.nameAr || null;
+          merged.variableTypeName = vt?.nameAr || merged.variableTypeName || 'مكافأة / متغير';
+          merged.category = vt?.category || merged.category || 'BONUS';
+          merged.calcMethod = merged.calcMethod || vt?.calcMethod || 'FIXED';
+          merged.status = merged.status || 'DRAFT';
+          const mvCurrency = (merged.currencyCode || emp?.salaryCurrency || 'SAR').toUpperCase();
+          merged.currencyCode = mvCurrency;
 
-          const bSal = Number(emp?.basicSalary || emp?.basic_salary || 0);
-          const dailyRate = bSal > 0 ? (bSal / 22) : 500;
+          const bSalRaw = Number(emp?.basicSalary || emp?.basic_salary || 0);
+          const { amountBase: bSalBase } = convertToBase(bSalRaw, emp?.salaryCurrency || 'SAR');
+          const salaryInMvCurrency = mvCurrency === (emp?.salaryCurrency || 'SAR') ? bSalRaw : bSalBase;
+          const dailyRate = salaryInMvCurrency > 0 ? salaryInMvCurrency / 22 : 500;
           const hourlyRate = dailyRate / 8;
-          const calcMethod = body.calcMethod || vt?.calcMethod || 'FIXED';
-          let computed = Number(body.amount || 0);
-          if (calcMethod === 'PCT_BASIC' && !body.hours && !body.days) {
-            const pct = Number(body.rate || body.pct || body.amount || 0);
-            const mult = Number(body.multiplier || vt?.defaultMultiplier || 1);
-            computed = (pct / 100) * bSal * mult;
-          } else if (body.hours || calcMethod === 'HOURS_RATE') {
-            const mult = Number(body.multiplier || vt?.defaultMultiplier || 1.5);
-            const r = Number(body.rate || hourlyRate);
-            computed = Number(body.hours || 0) * r * mult;
-          } else if (body.days || calcMethod === 'DAYS_RATE') {
-            const mult = Number(body.multiplier || vt?.defaultMultiplier || 1);
-            const r = Number(body.rate || dailyRate);
-            computed = Number(body.days || 0) * r * mult;
+
+          let computedRaw = Number(merged.amount || 0);
+          if (merged.calcMethod === 'PCT_BASIC' && !merged.hours && !merged.days) {
+            const pct = Number(merged.rate || merged.pct || merged.amount || 0);
+            const mult = Number(merged.multiplier || vt?.defaultMultiplier || 1);
+            computedRaw = (pct / 100) * salaryInMvCurrency * mult;
+          } else if (merged.hours || merged.calcMethod === 'HOURS_RATE') {
+            const mult = Number(merged.multiplier || vt?.defaultMultiplier || 1.5);
+            const r = Number(merged.rate || hourlyRate);
+            computedRaw = Number(merged.hours || 0) * r * mult;
+          } else if (merged.days || merged.calcMethod === 'DAYS_RATE') {
+            const mult = Number(merged.multiplier || vt?.defaultMultiplier || 1);
+            const r = Number(merged.rate || dailyRate);
+            computedRaw = Number(merged.days || 0) * r * mult;
           }
-          body.computedAmount = String(computed.toFixed(2));
-          const savedVar = saveEntityItem(targetKey, body);
+          const { amountBase: computedBase, rate: mvFx } = convertToBase(computedRaw, mvCurrency);
+          merged.amountRaw = String(computedRaw.toFixed(2));
+          merged.exchangeRate = String(mvFx.toFixed(4));
+          merged.computedAmount = String(computedBase.toFixed(2));
+          const savedVar = saveEntityItem(targetKey, merged);
           recordAudit({
-            action: 'CREATE_VARIABLE',
+            action: existingMv ? 'UPDATE' : 'CREATE_VARIABLE',
             schemaName: 'pay',
             tableName: 'monthly_variables',
             entityId: savedVar.id,
+            oldValues: existingMv ? { computedAmount: existingMv.computedAmount, projectId: existingMv.projectId || null } : null,
             newValues: { employeeName: savedVar.employeeName, variableTypeName: savedVar.variableTypeName, computedAmount: savedVar.computedAmount, projectId: savedVar.projectId || null },
-            reason: `إضافة متغير شهري (${savedVar.variableTypeName}) للموظف ${savedVar.employeeName}`,
+            reason: `${existingMv ? 'تعديل' : 'إضافة'} متغير شهري (${savedVar.variableTypeName}) للموظف ${savedVar.employeeName}`,
           });
           return savedVar;
         }
@@ -3095,9 +3246,19 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     const assignments = getEntityList('assignments', []).filter((a: any) => isAssignmentActiveInPeriod(a, targetPeriod));
     const depts = getEntityList('departments', defaultDepartments);
     const deptMap = new Map(depts.map((d: any) => [d.id, d.nameAr]));
-    const monthlyVars = getEntityList('monthly_variables', []);
-    const retroAdjs = getEntityList('revenue_adjustments', []).filter((r: any) => r.status !== 'REJECTED' && (!periodFilterId || r.fiscalPeriodId === periodFilterId || r.originalPeriodId === periodFilterId));
-    const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
+    const monthlyVars = getEntityList('monthly_variables', []).filter(
+      (v: any) => (v.status === 'APPROVED' || v.status === 'POSTED') && (!targetPeriod || !targetPeriod.id || targetPeriod.id === 'custom' || !v.fiscalPeriodId || v.fiscalPeriodId === targetPeriod.id),
+    );
+    const retroAdjs = getEntityList('revenue_adjustments', []).filter(
+      (r: any) =>
+        (r.status === 'APPROVED' || r.status === 'RECORDED') &&
+        (!periodFilterId || r.fiscalPeriodId === periodFilterId),
+    );
+    const servicePrices = getEntityList('service_prices', []).filter(
+      (sp: any) =>
+        (!targetPeriod?.endDate || !sp.effectiveFrom || sp.effectiveFrom <= targetPeriod.endDate) &&
+        (!sp.effectiveTo || !targetPeriod?.startDate || sp.effectiveTo >= targetPeriod.startDate),
+    );
     const overheadPolicy = getOverheadPolicy();
     const empBreakdownMap = new Map<string, ReturnType<typeof computeEmployeeCostBreakdown>>();
 
@@ -3120,7 +3281,6 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         : overheadPolicy.method === 'FIXED_PER_EMPLOYEE'
           ? Math.round(Number(overheadPolicy.rate || 0))
           : Math.round(prjs.length > 0 && emps.length > 0 ? (Number(overheadPolicy.rate || 0) * prjs.length) / emps.length : 0);
-      const totalCost = directCost + overhead;
       const targetMargin = Number(emp.targetMarginPct || emp.requiredMarginPct || 25);
 
       const myAsgs = assignments.filter((a: any) => matchesEmployee(a, emp));
@@ -3225,12 +3385,31 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
               ? 'PARTIAL'
               : 'IDLE';
 
-      const empProfit = empRev - totalCost;
-      const empMarginPct = empRev > 0 ? Number(((empProfit / empRev) * 100).toFixed(1)) : 0;
+      // Apply approved employee-scoped Sec 14/15 project variables + Sec 18/29 adjustments for Level 1 reconciliation
+      const empProjVars = monthlyVars
+        .filter((v: any) => (v.employeeId === emp.id || v.employeeCode === emp.code) && Boolean(v.projectId))
+        .reduce((s: number, v: any) => s + (v.category === 'DEDUCTION' ? -Number(v.computedAmount || 0) : Number(v.computedAmount || 0)), 0);
+      const empRetros = retroAdjs.filter((r: any) => r.employeeId === emp.id || r.employeeCode === emp.code);
+      const empRetroRev = empRetros
+        .filter((r: any) => !r.adjustmentKind || r.adjustmentKind === 'RETROACTIVE_REVENUE' || r.adjustmentKind === 'REVENUE')
+        .reduce((s: number, r: any) => s + Number(r.grossRevenueBase || r.adjustmentAmountBase || 0), 0);
+      const empDirectAdj = empRetros
+        .filter((r: any) => r.adjustmentKind === 'DIRECT_COST')
+        .reduce((s: number, r: any) => s + Number(r.directCostBase ?? r.adjustmentAmountBase ?? 0), 0);
+      const empOverheadAdj = empRetros
+        .filter((r: any) => r.adjustmentKind === 'OVERHEAD')
+        .reduce((s: number, r: any) => s + Number(r.overheadBase ?? r.adjustmentAmountBase ?? 0), 0);
+
+      const adjEmpRev = empRev + empRetroRev;
+      const adjDirectCost = directCost + empProjVars + empDirectAdj;
+      const adjOverhead = overhead + empOverheadAdj;
+      const adjTotalCost = adjDirectCost + adjOverhead;
+      const empProfit = adjEmpRev - adjTotalCost;
+      const empMarginPct = adjEmpRev > 0 ? Number(((empProfit / adjEmpRev) * 100).toFixed(1)) : 0;
       const deltaMargin = Number((empMarginPct - targetMargin).toFixed(1));
 
-      sumEmpRev += empRev;
-      sumEmpCost += totalCost;
+      sumEmpRev += adjEmpRev;
+      sumEmpCost += adjTotalCost;
       sumEmpProfit += empProfit;
       sumUnutilizedCost += unutilizedCost;
 
@@ -3252,11 +3431,12 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         potentialRevenueBase,
         potentialProfitBase,
         utilizationTier,
-        directCostBase: directCost,
-        overheadBase: overhead,
-        overheadCostBase: overhead,
-        totalCostBase: totalCost,
-        revenueBase: empRev,
+        directCostBase: adjDirectCost,
+        overheadBase: adjOverhead,
+        overheadCostBase: adjOverhead,
+        totalCostBase: adjTotalCost,
+        revenueBase: adjEmpRev,
+        retroactiveRevenueBase: empRetroRev,
         grossProfitBase: empProfit,
         grossMarginPct: empMarginPct,
         targetMarginPct: targetMargin,
@@ -3268,7 +3448,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         isOverAllocated: totalAllocPct > 100.05,
         overAllocatedPct: Number(overAllocatedPct.toFixed(1)),
         assetDepreciationBase: assetDeprCost,
-        variablesCostBase: generalVarsCost,
+        variablesCostBase: generalVarsCost + empProjVars,
         projectCount: empProjects.length,
         projectNames: empProjects.map((p) => `${p.projectCode ? `${p.projectCode} — ` : ''}${p.projectName} (${p.allocationPct}%)`),
         projects: empProjects,
@@ -3337,16 +3517,25 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const pVarsCost = pVars.reduce((sum: number, v: any) => sum + Number(v.computedAmount || 0), 0);
       pDirect += pVarsCost;
 
-      // Section 18: Add retroactive adjustments registered for this project
+      // Section 18 & 29: Add approved adjustments (Retroactive Revenue, Revenue, Direct Cost, Overhead)
       const pRetros = retroAdjs.filter((r: any) => r.projectId === p.id || r.projectId === p.code);
-      const pRetroRev = pRetros.reduce((sum: number, r: any) => sum + Number(r.grossRevenueBase || 0), 0);
+      const pRetroRev = pRetros
+        .filter((r: any) => !r.adjustmentKind || r.adjustmentKind === 'RETROACTIVE_REVENUE' || r.adjustmentKind === 'REVENUE')
+        .reduce((sum: number, r: any) => sum + Number(r.grossRevenueBase || r.adjustmentAmountBase || 0), 0);
+      const pDirectAdj = pRetros
+        .filter((r: any) => r.adjustmentKind === 'DIRECT_COST')
+        .reduce((sum: number, r: any) => sum + Number(r.directCostBase ?? r.adjustmentAmountBase ?? 0), 0);
+      const pOverheadAdj = pRetros
+        .filter((r: any) => r.adjustmentKind === 'OVERHEAD')
+        .reduce((sum: number, r: any) => sum + Number(r.overheadBase ?? r.adjustmentAmountBase ?? 0), 0);
       pRev += pRetroRev;
+      pDirect += pDirectAdj;
 
-      const pOverhead = overheadPolicy.method === 'PERCENTAGE'
+      const pOverhead = (overheadPolicy.method === 'PERCENTAGE'
         ? Math.round(pDirect * (Number(overheadPolicy.rate || 0) / 100))
         : overheadPolicy.method === 'FIXED_PER_PROJECT'
           ? Math.round(Number(overheadPolicy.rate || 0))
-          : Math.round(teamMembers.reduce((sum, m) => sum + Number(overheadPolicy.rate || 0) * ((Number(m.allocationPct) || 100) / 100), 0));
+          : Math.round(teamMembers.reduce((sum, m) => sum + Number(overheadPolicy.rate || 0) * ((Number(m.allocationPct) || 100) / 100), 0))) + pOverheadAdj;
       const pTotal = pDirect + pOverhead;
       const pProfit = pRev - pTotal;
       const pMargin = pRev > 0 ? Number(((pProfit / pRev) * 100).toFixed(1)) : 0;
@@ -3830,6 +4019,18 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const singleEmp = emps.find((e) => e.id === targetId || e.code === targetId || e.code?.toLowerCase() === targetId?.toLowerCase());
       const allAsg = getEntityList('assignments', []);
       const empAsg = allAsg.filter((a) => matchesEmployee(a, singleEmp || { id: targetId, code: targetId }));
+
+      if (segments.length >= 3 && segments[2] === 'assignments') {
+        const allPrjs = getEntityList('projects', []);
+        return makeList(empAsg.map((a: any) => {
+          const prj = allPrjs.find((p: any) => matchesProject(a, p));
+          return {
+            ...a,
+            projectName: a.projectName || prj?.nameAr || '',
+            projectCode: a.projectCode || prj?.code || '',
+          };
+        }));
+      }
 
       if (singleEmp) {
         const defaultPlacement = {
@@ -4624,7 +4825,17 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/monthly-variables')) {
-    return makeList(getEntityList('monthly_variables', []));
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const pId = q.get('periodId') || q.get('fiscalPeriodId');
+    const eId = q.get('employeeId');
+    const prId = q.get('projectId');
+    const st = q.get('status');
+    let list = getEntityList<any>('monthly_variables', []);
+    if (pId) list = list.filter((v) => !v.fiscalPeriodId || v.fiscalPeriodId === pId);
+    if (eId) list = list.filter((v) => v.employeeId === eId || v.employeeCode === eId);
+    if (prId) list = list.filter((v) => v.projectId === prId);
+    if (st) list = list.filter((v) => v.status === st);
+    return makeList(list);
   }
 
   if (path.includes('/variable-types')) {
@@ -4807,7 +5018,13 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   }
 
   if (path.includes('/service-prices')) {
-    return makeList(getEntityList('service_prices', []));
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const eId = q.get('employeeId');
+    const prId = q.get('projectId');
+    let list = getEntityList<any>('service_prices', []);
+    if (eId) list = list.filter((s) => s.employeeId === eId || s.employeeCode === eId);
+    if (prId) list = list.filter((s) => s.projectId === prId);
+    return makeList(list);
   }
 
   // 19. Revenue Recognition & Runs

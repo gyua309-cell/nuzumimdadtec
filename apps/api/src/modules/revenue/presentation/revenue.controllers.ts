@@ -5,6 +5,7 @@ import { activeCompanyId } from '../../../shared/http/request';
 import { ZodPipe } from '../../../shared/http/zod.pipe';
 import { RequirePermission } from '../../iam/presentation/decorators';
 import {
+  GeneralAdjustmentCreate,
   OverheadPolicyUpdate,
   ProfitabilityFilter,
   RetroactiveAdjustmentCreate,
@@ -127,6 +128,12 @@ export class RevenueAdjustmentsController {
   @RequirePermission('rev.adjustment.create')
   createRetroactive(@Body(new ZodPipe(RetroactiveAdjustmentCreate)) body: z.infer<typeof RetroactiveAdjustmentCreate>) {
     return this.svc.createRetroactiveAdjustment(activeCompanyId(), body);
+  }
+
+  @Post('general')
+  @RequirePermission('rev.adjustment.create')
+  createGeneral(@Body(new ZodPipe(GeneralAdjustmentCreate)) body: z.infer<typeof GeneralAdjustmentCreate>) {
+    return this.svc.createGeneralAdjustment(activeCompanyId(), body);
   }
 
   @Post(':id/submit')

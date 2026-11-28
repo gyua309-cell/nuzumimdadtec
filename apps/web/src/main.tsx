@@ -70,6 +70,7 @@ const loadHr = () => import('./pages/hr');
 const EmployeeDetailPage = lazyNamed(loadHr, 'EmployeeDetailPage');
 const EmployeesPage = lazyNamed(loadHr, 'EmployeesPage');
 const PositionsPage = lazyNamed(loadHr, 'PositionsPage');
+const OperatingCycleHubPage = lazyNamed(() => import('./pages/operating-cycle'), 'OperatingCycleHubPage');
 
 const loadCost = () => import('./pages/cost');
 const CostComponentsPage = lazyNamed(loadCost, 'CostComponentsPage');
@@ -188,6 +189,7 @@ function Root() {
           <Route path="hr/positions" element={<PositionsPage />} />
           <Route path="hr/employees" element={<EmployeesPage />} />
           <Route path="hr/employees/:id" element={<EmployeeDetailPage />} />
+          <Route path="hr/operating-cycle" element={<OperatingCycleHubPage />} />
           <Route path="cost/components" element={<CostComponentsPage />} />
           <Route path="cost/profiles" element={<CostProfilesPage />} />
           <Route path="cost/profiles/:id" element={<CostProfileDetailPage />} />

@@ -199,6 +199,7 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Users,
         color: 'emerald',
         items: [
+          { to: '/hr/operating-cycle', label: 'دورة التشغيل والأسئلة الـ 10' },
           { to: '/hr/employees', label: 'سجل الموظفين' },
           { to: '/hr/positions', label: 'الهيكل الوظيفي' },
           { to: '/cost/sheet', label: 'كشف تكلفة الكوادر' },

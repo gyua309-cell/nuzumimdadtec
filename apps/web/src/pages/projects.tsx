@@ -1276,9 +1276,66 @@ export function ServicePricesPage() {
     queryKey: ['/service-prices', page],
     queryFn: () => api.get<Page<any>>('/service-prices', { page, pageSize: 50 }),
   });
+  const costSheetQ = useQuery({
+    queryKey: ['/cost-sheet', 'service-prices-adequacy'],
+    queryFn: () => api.get<any>('/cost-sheet'),
+  });
+  const overheadQ = useQuery({
+    queryKey: ['/overhead-policy', 'service-prices-adequacy'],
+    queryFn: () => api.get<any>('/overhead-policy'),
+  });
+  const projectsQ = useQuery({
+    queryKey: ['/projects', 'service-prices-adequacy'],
+    queryFn: () => api.get<Page<any>>('/projects', { pageSize: 200 }),
+  });
 
   const rawPrice: any = list.data;
-  const priceItems: any[] = Array.isArray(rawPrice) ? rawPrice : (Array.isArray(rawPrice?.data) ? rawPrice.data : []);
+  const rawPriceItems: any[] = Array.isArray(rawPrice) ? rawPrice : (Array.isArray(rawPrice?.data) ? rawPrice.data : []);
+  const costRows: any[] = Array.isArray(costSheetQ.data?.rows) ? costSheetQ.data.rows : (Array.isArray(costSheetQ.data) ? costSheetQ.data : []);
+  const projectRows: any[] = Array.isArray(projectsQ.data) ? projectsQ.data : (projectsQ.data?.data ?? []);
+
+  const overheadPool = Number(overheadQ.data?.totalPoolAmount || 0);
+  const totalCostSheetBase = Number(costSheetQ.data?.totals?.distributableCostBase || 0);
+  const overheadRatio = totalCostSheetBase > 0 && overheadPool > 0 ? Math.min(0.4, overheadPool / totalCostSheetBase) : 0.1;
+  const costMap = new Map<string, any>(costRows.map((c) => [c.employeeId, c]));
+  const projectMap = new Map<string, any>(projectRows.map((p) => [p.id, p]));
+
+  const priceItems = rawPriceItems.map((sp: any) => {
+    const basis = sp.pricingBasis ?? sp.basis ?? 'DAILY';
+    const rawVal = Number(sp.price || 0);
+    const monthlyEquivBilling = basis === 'DAILY' ? rawVal * 22 : basis === 'HOURLY' ? rawVal * 176 : rawVal;
+    const costRow = costMap.get(sp.employeeId);
+    const monthlyDirect = Number(costRow?.distributableCostBase ?? costRow?.totalCostBase ?? 0);
+    const monthlyFullCost = monthlyDirect * (1 + overheadRatio);
+    const proj = sp.projectId ? projectMap.get(sp.projectId) : null;
+    const targetMarginPct = Number(proj?.targetMarginPct ?? proj?.requiredMarginPct ?? 20);
+    const projectedNet = monthlyEquivBilling - monthlyFullCost;
+    const projectedMarginPct = monthlyEquivBilling > 0 ? (projectedNet / monthlyEquivBilling) * 100 : 0;
+    const recommendedDaily = monthlyFullCost > 0 ? (monthlyFullCost / (1 - targetMarginPct / 100)) / 22 : 0;
+    const adequacy: 'ADEQUATE' | 'LOW_MARGIN' | 'LOSS' | 'UNKNOWN' =
+      monthlyFullCost <= 0
+        ? 'UNKNOWN'
+        : projectedNet < 0
+          ? 'LOSS'
+          : projectedMarginPct >= targetMarginPct
+            ? 'ADEQUATE'
+            : 'LOW_MARGIN';
+    return {
+      ...sp,
+      basis,
+      monthlyEquivBilling,
+      monthlyFullCost,
+      projectedMarginPct,
+      targetMarginPct,
+      recommendedDaily,
+      adequacy,
+    };
+  });
+
+  const activePrices = priceItems.filter((x) => !x.effectiveTo);
+  const adequateCount = activePrices.filter((x) => x.adequacy === 'ADEQUATE').length;
+  const lowMarginCount = activePrices.filter((x) => x.adequacy === 'LOW_MARGIN').length;
+  const lossCount = activePrices.filter((x) => x.adequacy === 'LOSS').length;
 
   const fields: FieldDef[] = [
     { name: 'employeeId', label: 'الموظف', type: 'ref', ref: REF.employee, required: true },
@@ -1294,17 +1351,22 @@ export function ServicePricesPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="أسعار خدمات الموظفين والمبرمجين"
-        subtitle="السعر الافتراضي لكل موظف. عند إسناده لمشروع يمكن تجاوزه بسعر خاص بالمشروع (Override). السعر مؤرّخ ولا يتأثر بالتغييرات المستقبلية."
+        title="أسعار خدمات الموظفين وتحليل كفاية التسعير"
+        subtitle="السعر الافتراضي لكل موظف مع تجاوز المشاريع (Override) ومؤشر كفاية السعر لتغطية التكلفة والأوفرهيد والهامش المستهدف (Sections 10 & 32 #8)."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Link to="/hr/operating-cycle" className="btn-secondary text-xs flex items-center gap-1.5">
+              <Sparkles className="size-3.5 text-brand-600" /> مصفوفة الأسئلة الـ 10
+            </Link>
             <ExportMenu
-              title="أسعار خدمات الموظفين والمبرمجين"
+              title="أسعار خدمات الموظفين والمبرمجين وكفاية التسعير"
               columns={[
                 { key: 'employeeName', header: 'اسم الموظف', width: 22 },
                 { key: 'pricingBasis', header: 'أساس التسعير', width: 14 },
                 { key: 'price', header: 'السعر', width: 15, type: 'currency', isTotal: true },
                 { key: 'currencyCode', header: 'العملة', width: 10 },
+                { key: 'monthlyFullCost', header: 'التكلفة الكلية الشهرية', width: 18, type: 'currency' },
+                { key: 'projectedMarginPct', header: 'الهامش المتوقع %', width: 14, type: 'percent' },
                 { key: 'effectiveFrom', header: 'ساري من', width: 14 },
                 { key: 'effectiveTo', header: 'ساري حتى', width: 14 },
               ]}
@@ -1316,6 +1378,14 @@ export function ServicePricesPage() {
           </div>
         }
       />
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat label="التسعيرات النشطة" value={String(activePrices.length)} tone="blue" />
+        <Stat label="أسعار محققة للهدف" value={String(adequateCount)} tone="green" hint="تغطي التكلفة + الأوفرهيد + الهامش" />
+        <Stat label="أسعار دون الهامش المستهدف" value={String(lowMarginCount)} tone={lowMarginCount > 0 ? 'amber' : undefined} />
+        <Stat label="أسعار خاسرة (أقل من التكلفة)" value={String(lossCount)} tone={lossCount > 0 ? 'red' : undefined} hint="تتطلب تعديل السعر فوراً" />
+      </div>
+
       <div className="card overflow-hidden">
         {list.isLoading ? <Loading /> : list.error ? <div className="p-4"><ErrorState error={list.error} /></div>
           : priceItems.length === 0 ? <EmptyState text="لا توجد أسعار. أضف سعراً افتراضياً لكل موظف." />
@@ -1324,16 +1394,39 @@ export function ServicePricesPage() {
               <div className="overflow-x-auto">
                 <table className="table">
                   <thead>
-                    <tr><th>الموظف</th><th>الأساس</th><th>السعر</th><th>العملة</th><th>النوع</th><th>من</th><th>إلى</th><th /></tr>
+                    <tr>
+                      <th>الموظف</th>
+                      <th>الأساس</th>
+                      <th className="num">السعر</th>
+                      <th>العملة</th>
+                      <th>النوع</th>
+                      <th className="num">التكلفة + الأوفرهيد / شهر</th>
+                      <th className="num">كفاية السعر والهامش</th>
+                      <th>من</th>
+                      <th>إلى</th>
+                      <th />
+                    </tr>
                   </thead>
                   <tbody>
                     {priceItems.map((sp: any) => (
                       <tr key={sp.id}>
-                        <td><Link to={`/hr/employees/${sp.employeeId}`} className="text-brand-600 hover:underline">{sp.employeeName}</Link></td>
+                        <td><Link to={`/hr/employees/${sp.employeeId}`} className="text-brand-600 hover:underline font-medium">{sp.employeeName}</Link></td>
                         <td>{PRICING_BASIS[sp.pricingBasis ?? sp.basis] ?? (sp.pricingBasis ?? sp.basis)}</td>
-                        <td className="num">{money(sp.price)}</td>
+                        <td className="num font-semibold">{money(sp.price)}</td>
                         <td>{sp.currencyCode}</td>
                         <td>{sp.projectId ? <Badge color="blue">مشروع محدد</Badge> : <Badge color="slate">افتراضي</Badge>}</td>
+                        <td className="num font-mono text-xs">{sp.monthlyFullCost > 0 ? money(sp.monthlyFullCost) : '—'}</td>
+                        <td className="num">
+                          {sp.adequacy === 'UNKNOWN' ? (
+                            <span className="text-xs text-slate-400">—</span>
+                          ) : sp.adequacy === 'LOSS' ? (
+                            <Badge color="red">خاسر ({sp.projectedMarginPct.toFixed(0)}%) — يوصى ≥ {money(sp.recommendedDaily)}/يوم</Badge>
+                          ) : sp.adequacy === 'LOW_MARGIN' ? (
+                            <Badge color="amber">هامشي ({sp.projectedMarginPct.toFixed(0)}% / هدف {sp.targetMarginPct}%)</Badge>
+                          ) : (
+                            <Badge color="green">كافٍ ({sp.projectedMarginPct.toFixed(1)}%)</Badge>
+                          )}
+                        </td>
                         <td>{date(sp.effectiveFrom)}</td>
                         <td>{sp.effectiveTo ? date(sp.effectiveTo) : 'مفتوح'}</td>
                         <td className="text-end">

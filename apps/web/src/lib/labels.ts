@@ -122,6 +122,36 @@ export const CHECK_STATUS: Record<string, { label: string; color: 'green' | 'red
 export const AUDIT_ACTION: Record<string, string> = {
   INSERT: 'إضافة', UPDATE: 'تعديل', DELETE: 'حذف', POST: 'ترحيل', REVERSE: 'عكس', CLOSE: 'إقفال', REOPEN: 'إعادة فتح', CANCEL: 'إلغاء',
   LOGIN: 'دخول', APPROVE: 'اعتماد',
+  CREATE: 'إنشاء',
+  CREATE_EMPLOYEE: 'تعيين موظف',
+  UPDATE_EMPLOYEE_STATUS: 'تغيير حالة موظف',
+  CREATE_EMPLOYEE_OVERRIDE: 'استثناء مكون تكلفة',
+  END_EMPLOYEE_OVERRIDE: 'إنهاء استثناء تكلفة',
+  CREATE_ASSIGNMENT: 'تخصيص كادر لمشروع',
+  END_ASSIGNMENT: 'إنهاء تخصيص كادر',
+  DELETE_ASSIGNMENT: 'حذف تخصيص كادر',
+  CREATE_SERVICE_PRICE: 'تسعير خدمة موظف',
+  END_SERVICE_PRICE: 'إنهاء سعر خدمة',
+  CREATE_VARIABLE: 'إضافة متغير شهري',
+  APPROVE_VARIABLE: 'اعتماد متغير شهري',
+  CREATE_LOAN: 'صرف سلفة موظف',
+  POSTPONE_INSTALLMENT: 'تأجيل قسط سلفة',
+  CANCEL_LOAN: 'إلغاء سلفة موظف',
+  ACTIVATE_ASSET: 'تفعيل أصل وعهدة',
+  RETROACTIVE_REVENUE_ADJUSTMENT: 'تسوية إيراد بأثر رجعي',
+  CREATE_ADJUSTMENT: 'إنشاء تسوية نتائج',
+  SUBMIT_ADJUSTMENT: 'إرسال تسوية للاعتماد',
+  APPROVE_ADJUSTMENT: 'اعتماد تسوية',
+  REJECT_ADJUSTMENT: 'رفض تسوية',
+  CLOSE_PERIOD: 'إقفال شهر مالي',
+  REOPEN_PERIOD: 'إعادة فتح شهر مالي',
+};
+
+export const ADJUSTMENT_KIND: Record<string, { label: string; color: 'blue' | 'emerald' | 'amber' | 'purple' }> = {
+  RETROACTIVE_REVENUE: { label: 'إيراد بأثر رجعي (Sec 18)', color: 'blue' },
+  REVENUE: { label: 'تسوية إيرادات الشهر (Sec 29)', color: 'emerald' },
+  DIRECT_COST: { label: 'تسوية تكلفة مباشرة (Sec 29)', color: 'amber' },
+  OVERHEAD: { label: 'تسوية مصروفات عامة Overhead', color: 'purple' },
 };
 
 type Tone = 'green' | 'red' | 'amber' | 'slate' | 'blue';

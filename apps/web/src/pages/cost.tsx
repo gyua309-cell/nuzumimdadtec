@@ -7,6 +7,7 @@ import { ExportMenu } from '../components/ExportMenu';
 import { ExportEngine } from '../engine/export-engine';
 import { useBaseCurrency } from '../lib/auth';
 import { date, money, today } from '../lib/format';
+import { useReportCurrency } from '../lib/fx-display';
 import { CALC_METHOD, COMPONENT_NATURE, COMPONENT_TYPE, COST_BEHAVIOR, opts, POSTING_TREATMENT, PROFITABILITY_TREATMENT, TAX_TREATMENT } from '../lib/labels';
 import { ActiveBadge, CrudPage, FieldDef } from '../components/CrudPage';
 import { FormModal, PeriodSelect, REF } from '../components/forms';
@@ -219,48 +220,75 @@ export function CostProfileDetailPage() {
   );
 }
 
-// ------------------------------------------------------------------ cost sheet
+// ------------------------------------------------------------------ cost sheet (Sec 8 & 25)
 export function CostSheetPage() {
   const base = useBaseCurrency();
   const [periodId, setPeriodId] = useState('');
+  const [currencyCode, setCurrencyCode] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  const fx = useReportCurrency(currencyCode);
+  const cv = (v: any) => fx.convert(v);
+  const fm = (v: any) => money(cv(v));
   const sheet = useQuery({ queryKey: ['cost-sheet', periodId], queryFn: () => api.get<any>('/cost-sheet', periodId ? { periodId } : {}) });
   const rows: any[] = Array.isArray(sheet.data?.rows) ? sheet.data.rows : (Array.isArray(sheet.data) ? sheet.data : []);
   return (
     <div className="space-y-4">
       <PageHeader
         title="كشف تكلفة الموظفين"
-        subtitle="تكلفة كل موظف عن الفترة بعملة الشركة الأساسية، محسوبة من البيانات الفعلية المؤرخة."
+        subtitle={`تكلفة كل موظف عن الفترة بعملة العرض (${fx.rateLabel})، محسوبة من البيانات الفعلية المؤرخة ومكونات التكلفة وإهلاك العهد.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportMenu
               title="كشف تكلفة الموظفين الشهري"
               periodLabel={sheet.data?.period?.name || ''}
+              currency={fx.targetCurrency}
               columns={[
                 { key: 'code', header: 'الرقم الوظيفي', width: 14 },
                 { key: 'fullNameAr', header: 'اسم الموظف', width: 24 },
                 { key: 'employedDays', header: 'أيام العمل', width: 12, type: 'number' },
-                { key: 'totalCostBase', header: 'إجمالي التكلفة', width: 16, type: 'currency', isTotal: true },
-                { key: 'distributableCostBase', header: 'القابلة للتوزيع', width: 16, type: 'currency', isTotal: true },
-                { key: 'totalDeductionsBase', header: 'الاستقطاعات', width: 16, type: 'currency', isTotal: true },
+                { key: 'totalCostBase', header: `إجمالي التكلفة (${fx.targetCurrency})`, width: 18, type: 'currency', isTotal: true },
+                { key: 'distributableCostBase', header: `القابلة للتوزيع (${fx.targetCurrency})`, width: 18, type: 'currency', isTotal: true },
+                { key: 'totalDeductionsBase', header: `الاستقطاعات (${fx.targetCurrency})`, width: 18, type: 'currency', isTotal: true },
               ]}
-              data={rows}
+              data={rows.map((r: any) => ({
+                ...r,
+                totalCostBase: cv(r.totalCostBase),
+                distributableCostBase: cv(r.distributableCostBase),
+                totalDeductionsBase: cv(r.totalDeductionsBase),
+              }))}
             />
           </div>
         }
       />
-      <Field label="الفترة"><PeriodSelect value={periodId} onChange={setPeriodId} /></Field>
+      <div className="card p-3 flex flex-wrap items-end gap-3">
+        <Field label="الفترة"><PeriodSelect value={periodId} onChange={setPeriodId} /></Field>
+        <Field label="عملة العرض (Sec 25)">
+          <select
+            className="input h-9 text-xs font-mono w-48"
+            value={currencyCode || fx.baseCurrency}
+            onChange={(e) => setCurrencyCode(e.target.value === fx.baseCurrency ? '' : e.target.value)}
+            title={fx.rateLabel}
+          >
+            {fx.currencies.map((c) => (
+              <option key={c.code} value={c.code}>{c.code} — {c.nameAr}</option>
+            ))}
+          </select>
+        </Field>
+        {fx.isConverted && (
+          <Badge color="blue">{fx.rateLabel}</Badge>
+        )}
+      </div>
       {sheet.isLoading ? <Loading /> : sheet.error ? <ErrorState error={sheet.error} /> : sheet.data && (
         <>
           <div className="grid grid-cols-3 gap-3">
-            <Stat label="إجمالي التكلفة" value={money(sheet.data.totals?.totalCostBase ?? 0)} hint={base} tone="blue" />
-            <Stat label="القابلة للتوزيع على المشاريع" value={money(sheet.data.totals?.distributableCostBase ?? 0)} hint={base} tone="green" />
-            <Stat label="استقطاعات الموظفين" value={money(sheet.data.totals?.totalDeductionsBase ?? 0)} hint="ليست تكلفة شركة" />
+            <Stat label="إجمالي التكلفة" value={fm(sheet.data.totals?.totalCostBase ?? 0)} hint={fx.targetCurrency} tone="blue" />
+            <Stat label="القابلة للتوزيع على المشاريع" value={fm(sheet.data.totals?.distributableCostBase ?? 0)} hint={fx.targetCurrency} tone="green" />
+            <Stat label="استقطاعات الموظفين" value={fm(sheet.data.totals?.totalDeductionsBase ?? 0)} hint={`ليست تكلفة شركة (${fx.targetCurrency})`} />
           </div>
           <div className="card overflow-x-auto">
             {rows.length === 0 ? <EmptyState text="لا يوجد موظفون عاملون في هذه الفترة." /> : (
               <table className="table">
-                <thead><tr><th>الرقم</th><th>الموظف</th><th>أيام العمل</th><th>إجمالي التكلفة</th><th>القابلة للتوزيع</th><th>الاستقطاعات</th></tr></thead>
+                <thead><tr><th>الرقم</th><th>الموظف</th><th>أيام العمل</th><th>إجمالي التكلفة ({fx.targetCurrency})</th><th>القابلة للتوزيع</th><th>الاستقطاعات</th></tr></thead>
                 <tbody>
                   {rows.map((r: any) => (
                     <Fragment key={r.employeeId}>
@@ -272,9 +300,9 @@ export function CostSheetPage() {
                         ) : (
                           <>
                             <td className="num">{r.employedDays} / {r.periodDays}</td>
-                            <td className="num">{money(r.totalCostBase)}</td>
-                            <td className="num">{money(r.distributableCostBase)}</td>
-                            <td className="num">{money(r.totalDeductionsBase)}</td>
+                            <td className="num">{fm(r.totalCostBase)}</td>
+                            <td className="num">{fm(r.distributableCostBase)}</td>
+                            <td className="num">{fm(r.totalDeductionsBase)}</td>
                           </>
                         )}
                       </tr>

@@ -18,6 +18,7 @@ import {
 import { api } from '../lib/api';
 import { useBaseCurrency } from '../lib/auth';
 import { date, money } from '../lib/format';
+import { useReportCurrency } from '../lib/fx-display';
 import { COST_CENTER_TYPE_LABELS } from '../lib/reports-analytics-engine';
 import { ExportMenu } from '../components/ExportMenu';
 import {
@@ -36,7 +37,7 @@ import { Badge, EmptyState, ErrorState, Loading, PageHeader, Stat } from '../com
 type LevelTab = 'hierarchy' | 'accounts' | 'projects' | 'employees' | 'movements';
 
 export function CostCentersReportPage() {
-  const base = useBaseCurrency();
+  const baseDefault = useBaseCurrency();
   const [tab, setTab] = useState<LevelTab>('hierarchy');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [showAllExpanded, setShowAllExpanded] = useState(true);
@@ -45,6 +46,10 @@ export function CostCentersReportPage() {
     syncUrl: true,
     defaultLedger: 'FINANCIAL',
   });
+  const fx = useReportCurrency(filters.currencyCode, filters.to || filters.asOf);
+  const base = fx.targetCurrency || baseDefault;
+  const cv = (v: any) => fx.convert(v);
+  const fm = (v: any) => money(cv(v));
 
   const q = useQuery({
     queryKey: ['report-cost-centers', queryParams],
@@ -150,36 +155,36 @@ export function CostCentersReportPage() {
     () => [
       {
         name: 'الإيرادات',
-        data: leafOrVisibleCenters.map((c) => Number(c.revenue || 0)),
+        data: leafOrVisibleCenters.map((c) => cv(c.revenue || 0)),
         color: '#10b981',
         colorEnd: '#059669',
       },
       {
         name: 'إجمالي التكاليف',
-        data: leafOrVisibleCenters.map((c) => Number(c.totalCost || 0)),
+        data: leafOrVisibleCenters.map((c) => cv(c.totalCost || 0)),
         color: '#f43f5e',
         colorEnd: '#e11d48',
       },
       {
         name: 'صافي المساهمة',
-        data: leafOrVisibleCenters.map((c) => Number(c.netContribution || 0)),
+        data: leafOrVisibleCenters.map((c) => cv(c.netContribution || 0)),
         color: '#4f46e5',
         colorEnd: '#4338ca',
       },
     ],
-    [leafOrVisibleCenters],
+    [leafOrVisibleCenters, fx],
   );
 
   const donutCostSlices = useMemo(() => {
     const slices = leafOrVisibleCenters
       .map((c, idx) => ({
         name: c.nameAr,
-        value: Math.max(0, Number(c.totalCost || 0)),
+        value: Math.max(0, cv(c.totalCost || 0)),
         color: c.id === 'UNASSIGNED' ? '#f59e0b' : ROYAL_PALETTE[idx % ROYAL_PALETTE.length],
       }))
       .filter((s) => s.value > 0);
     return slices;
-  }, [leafOrVisibleCenters]);
+  }, [leafOrVisibleCenters, fx]);
 
   const reconciled = reconciliation.reconciled !== false;
   const unassignedPct = Number(summary.unassignedCostPct || 0);
@@ -204,15 +209,15 @@ export function CostCentersReportPage() {
         code: r.code,
         nameAr: `${r.level > 1 ? `${'— '.repeat(r.level - 1)}` : ''}${r.nameAr}`,
         ccTypeLabel: r.id === 'UNASSIGNED' ? 'غير مرتبط بمركز' : COST_CENTER_TYPE_LABELS[r.ccType] || r.ccType,
-        revenue: Number(r.revenue || 0),
-        directCost: Number(r.directCost || 0),
-        operatingExpense: Number(r.operatingExpense || 0),
-        totalCost: Number(r.totalCost || 0),
-        netContribution: Number(r.netContribution || 0),
+        revenue: cv(r.revenue || 0),
+        directCost: cv(r.directCost || 0),
+        operatingExpense: cv(r.operatingExpense || 0),
+        totalCost: cv(r.totalCost || 0),
+        netContribution: cv(r.netContribution || 0),
         marginPct: Number(r.marginPct || 0),
         shareOfTotalCostPct: Number(r.shareOfTotalCostPct || 0),
       })),
-    [hierarchy],
+    [hierarchy, fx],
   );
 
   const tabsList: Array<{ id: LevelTab; label: string; count?: number; icon: any }> = [
@@ -233,7 +238,7 @@ export function CostCentersReportPage() {
           reconciled ? (
             <Badge color="green" dot>متطابق 100% مع قائمة الدخل</Badge>
           ) : (
-            <Badge color="amber" dot>فرق {money(reconciliation.difference)} (بحسب فلتر النوع)</Badge>
+            <Badge color="amber" dot>فرق {fm(reconciliation.difference)} (بحسب فلتر النوع)</Badge>
           )
         }
         actions={
@@ -254,10 +259,10 @@ export function CostCentersReportPage() {
               periodLabel={`من ${filters.from} إلى ${filters.to}`}
               currency={base}
               summaryKpis={[
-                { label: 'إجمالي الإيرادات', value: `${money(summary.totalRevenue || 0)} ${base}`, tone: 'emerald' },
-                { label: 'إجمالي التكاليف', value: `${money(summary.totalCost || 0)} ${base}`, tone: 'rose' },
-                { label: 'صافي المساهمة', value: `${money(summary.netContribution || 0)} ${base}`, tone: netContrib >= 0 ? 'indigo' : 'rose' },
-                { label: 'ربح قائمة الدخل (GL)', value: `${money(reconciliation.incomeStatementNetProfit || 0)} ${base}`, tone: 'navy' },
+                { label: 'إجمالي الإيرادات', value: `${fm(summary.totalRevenue || 0)} ${base}`, tone: 'emerald' },
+                { label: 'إجمالي التكاليف', value: `${fm(summary.totalCost || 0)} ${base}`, tone: 'rose' },
+                { label: 'صافي المساهمة', value: `${fm(summary.netContribution || 0)} ${base}`, tone: netContrib >= 0 ? 'indigo' : 'rose' },
+                { label: 'ربح قائمة الدخل (GL)', value: `${fm(reconciliation.incomeStatementNetProfit || 0)} ${base}`, tone: 'navy' },
               ]}
               columns={exportCols}
               data={exportRows}
@@ -275,7 +280,7 @@ export function CostCentersReportPage() {
                     { key: 'credit', header: 'دائن', width: 14, type: 'currency' as const },
                     { key: 'netAmount', header: 'الصافي', width: 14, type: 'currency' as const },
                   ],
-                  data: filteredAccounts.map((r) => ({ ...r, debit: Number(r.debit), credit: Number(r.credit), netAmount: Number(r.netAmount) })),
+                  data: filteredAccounts.map((r) => ({ ...r, debit: cv(r.debit), credit: cv(r.credit), netAmount: cv(r.netAmount) })),
                 },
                 {
                   sheetName: 'المراكز × المشاريع',
@@ -288,7 +293,7 @@ export function CostCentersReportPage() {
                     { key: 'totalCost', header: 'التكاليف', width: 14, type: 'currency' as const },
                     { key: 'netProfit', header: 'صافي الربح', width: 14, type: 'currency' as const },
                   ],
-                  data: filteredProjects.map((r) => ({ ...r, revenue: Number(r.revenue), totalCost: Number(r.totalCost), netProfit: Number(r.netProfit) })),
+                  data: filteredProjects.map((r) => ({ ...r, revenue: cv(r.revenue), totalCost: cv(r.totalCost), netProfit: cv(r.netProfit) })),
                 },
                 {
                   sheetName: 'المراكز × الموظفين',
@@ -301,7 +306,7 @@ export function CostCentersReportPage() {
                     { key: 'totalCost', header: 'التكلفة', width: 14, type: 'currency' as const },
                     { key: 'netContribution', header: 'صافي المساهمة', width: 14, type: 'currency' as const },
                   ],
-                  data: filteredEmployees.map((r) => ({ ...r, revenueGenerated: Number(r.revenueGenerated), totalCost: Number(r.totalCost), netContribution: Number(r.netContribution) })),
+                  data: filteredEmployees.map((r) => ({ ...r, revenueGenerated: cv(r.revenueGenerated), totalCost: cv(r.totalCost), netContribution: cv(r.netContribution) })),
                 },
               ]}
             />
@@ -324,6 +329,7 @@ export function CostCentersReportPage() {
         showBranch
         showDepartment
         showLedger
+        showCurrency
         showSearch
         searchPlaceholder="ابحث عن مركز تكلفة، حساب، مشروع، عميل، أو موظف..."
       />
@@ -337,32 +343,32 @@ export function CostCentersReportPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
             <Stat
               label="إيرادات مراكز التكلفة"
-              value={`${money(summary.totalRevenue || 0)}`}
-              hint={`إيرادات أخرى: ${money(summary.totalOtherIncome || 0)} ${base}`}
+              value={`${fm(summary.totalRevenue || 0)}`}
+              hint={`إيرادات أخرى: ${fm(summary.totalOtherIncome || 0)} ${base}`}
               tone="green"
               icon={Coins}
             />
             <Stat
               label="إجمالي التكاليف"
-              value={`${money(summary.totalCost || 0)}`}
-              hint={`مباشر: ${money(summary.totalDirectCost || 0)} | تشغيلي: ${money(summary.totalOperatingExpense || 0)}`}
+              value={`${fm(summary.totalCost || 0)}`}
+              hint={`مباشر: ${fm(summary.totalDirectCost || 0)} | تشغيلي: ${fm(summary.totalOperatingExpense || 0)}`}
               tone="red"
               icon={Layers}
             />
             <Stat
               label="صافي المساهمة والربحية"
-              value={`${money(summary.netContribution || 0)}`}
+              value={`${fm(summary.netContribution || 0)}`}
               hint={`هامش المساهمة الكلي: ${summary.overallMarginPct || '0.0'}%`}
               tone={netContrib >= 0 ? 'indigo' : 'red'}
               icon={PieChart}
             />
             <Stat
               label="ربح قائمة الدخل المرجعي"
-              value={`${money(reconciliation.incomeStatementNetProfit || 0)}`}
+              value={`${fm(reconciliation.incomeStatementNetProfit || 0)}`}
               hint={
                 <span className="flex items-center gap-1">
                   {reconciled ? <CheckCircle2 className="size-3.5 text-emerald-500" /> : <AlertTriangle className="size-3.5 text-amber-500" />}
-                  فارق التسوية: {money(reconciliation.difference || 0)}
+                  فارق التسوية: {fm(reconciliation.difference || 0)}
                 </span>
               }
               tone={reconciled ? 'teal' : 'amber'}
@@ -370,7 +376,7 @@ export function CostCentersReportPage() {
             />
             <Stat
               label="غير مصنفة بمركز تكلفة"
-              value={`${money(summary.unassignedCost || 0)}`}
+              value={`${fm(summary.unassignedCost || 0)}`}
               hint={`${unassignedPct}% من إجمالي التكاليف`}
               tone={unassignedPct > 15 ? 'amber' : 'slate'}
               icon={AlertTriangle}
@@ -405,7 +411,7 @@ export function CostCentersReportPage() {
               >
                 <ExecutiveDonutChart
                   data={donutCostSlices}
-                  centerValue={`${money(summary.totalCost || 0)}`}
+                  centerValue={`${fm(summary.totalCost || 0)}`}
                   centerLabel={`إجمالي التكلفة (${base})`}
                   height={260}
                   unit={base}
@@ -550,12 +556,12 @@ export function CostCentersReportPage() {
                                 {r.id === 'UNASSIGNED' ? 'غير مخصص' : COST_CENTER_TYPE_LABELS[r.ccType] || r.ccType}
                               </Badge>
                             </td>
-                            <td className="num text-emerald-700 dark:text-emerald-400 font-semibold">{money(r.revenue)}</td>
-                            <td className="num">{money(r.directCost)}</td>
-                            <td className="num">{money(r.operatingExpense)}</td>
-                            <td className="num font-bold text-rose-700 dark:text-rose-400">{money(r.totalCost)}</td>
+                            <td className="num text-emerald-700 dark:text-emerald-400 font-semibold">{fm(r.revenue)}</td>
+                            <td className="num">{fm(r.directCost)}</td>
+                            <td className="num">{fm(r.operatingExpense)}</td>
+                            <td className="num font-bold text-rose-700 dark:text-rose-400">{fm(r.totalCost)}</td>
                             <td className={`num font-extrabold ${net >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
-                              {money(r.netContribution)}
+                              {fm(r.netContribution)}
                             </td>
                             <td className="num font-mono">{r.marginPct}%</td>
                             <td className="num font-mono">{r.shareOfTotalCostPct}%</td>
@@ -564,9 +570,9 @@ export function CostCentersReportPage() {
                             </td>
                             {filters.compareEnabled && (
                               <>
-                                <td className="num font-mono">{r.comparativeNet ? money(r.comparativeNet.previous) : '—'}</td>
+                                <td className="num font-mono">{r.comparativeNet ? fm(r.comparativeNet.previous) : '—'}</td>
                                 <td className={`num font-mono font-bold ${Number(r.comparativeNet?.variance || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                  {r.comparativeNet ? `${money(r.comparativeNet.variance)} (${r.comparativeNet.variancePct}%)` : '—'}
+                                  {r.comparativeNet ? `${fm(r.comparativeNet.variance)} (${r.comparativeNet.variancePct}%)` : '—'}
                                 </td>
                               </>
                             )}
@@ -626,9 +632,9 @@ export function CostCentersReportPage() {
                               {r.sectionNameAr}
                             </Badge>
                           </td>
-                          <td className="num">{money(r.debit)}</td>
-                          <td className="num">{money(r.credit)}</td>
-                          <td className="num font-bold">{money(r.netAmount)}</td>
+                          <td className="num">{fm(r.debit)}</td>
+                          <td className="num">{fm(r.credit)}</td>
+                          <td className="num font-bold">{fm(r.netAmount)}</td>
                           <td className="num font-mono">{r.txCount}</td>
                           <td>
                             <Link
@@ -689,12 +695,12 @@ export function CostCentersReportPage() {
                                 <span className="text-slate-500">{r.projectName}</span>
                               )}
                             </td>
-                            <td className="num text-emerald-700 dark:text-emerald-400 font-semibold">{money(r.revenue)}</td>
-                            <td className="num">{money(r.directCost)}</td>
-                            <td className="num">{money(r.operatingExpense)}</td>
-                            <td className="num font-bold text-rose-700 dark:text-rose-400">{money(r.totalCost)}</td>
+                            <td className="num text-emerald-700 dark:text-emerald-400 font-semibold">{fm(r.revenue)}</td>
+                            <td className="num">{fm(r.directCost)}</td>
+                            <td className="num">{fm(r.operatingExpense)}</td>
+                            <td className="num font-bold text-rose-700 dark:text-rose-400">{fm(r.totalCost)}</td>
                             <td className={`num font-extrabold ${net >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
-                              {money(r.netProfit)}
+                              {fm(r.netProfit)}
                             </td>
                             <td className="num font-mono">{r.marginPct}%</td>
                             <td className="num font-mono">{r.txCount}</td>
@@ -747,16 +753,16 @@ export function CostCentersReportPage() {
                             <td className="max-w-[200px] truncate text-slate-600 dark:text-slate-300">
                               {(r.projectNames || []).length > 0 ? r.projectNames.join('، ') : '—'}
                             </td>
-                            <td className="num text-emerald-700 dark:text-emerald-400 font-semibold">{money(r.revenueGenerated)}</td>
-                            <td className="num">{money(r.payrollAndDirectCost)}</td>
-                            <td className="num">{money(r.otherExpense)}</td>
+                            <td className="num text-emerald-700 dark:text-emerald-400 font-semibold">{fm(r.revenueGenerated)}</td>
+                            <td className="num">{fm(r.payrollAndDirectCost)}</td>
+                            <td className="num">{fm(r.otherExpense)}</td>
                             <td className="num text-xs font-mono">
-                              <span className="text-emerald-600">+{money(r.receiptsTotal || 0)}</span> / <span className="text-rose-600">-{money(r.paymentsTotal || 0)}</span>
+                              <span className="text-emerald-600">+{fm(r.receiptsTotal || 0)}</span> / <span className="text-rose-600">-{fm(r.paymentsTotal || 0)}</span>
                             </td>
-                            <td className="num text-xs font-mono">{money(r.chequesTotal || 0)}</td>
-                            <td className="num font-bold text-rose-700 dark:text-rose-400">{money(r.totalCost)}</td>
+                            <td className="num text-xs font-mono">{fm(r.chequesTotal || 0)}</td>
+                            <td className="num font-bold text-rose-700 dark:text-rose-400">{fm(r.totalCost)}</td>
                             <td className={`num font-extrabold ${net >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
-                              {money(r.netContribution)}
+                              {fm(r.netContribution)}
                             </td>
                             <td className="num font-mono">{r.marginPct}%</td>
                             <td className="num font-mono">{r.txCount}</td>
@@ -809,9 +815,9 @@ export function CostCentersReportPage() {
                           </td>
                           <td>{m.employeeName}</td>
                           <td className="max-w-[220px] truncate">{m.description}</td>
-                          <td className="num">{money(m.debitBase)}</td>
-                          <td className="num">{money(m.creditBase)}</td>
-                          <td className="num font-bold">{money(m.amount)}</td>
+                          <td className="num">{fm(m.debitBase)}</td>
+                          <td className="num">{fm(m.creditBase)}</td>
+                          <td className="num font-bold">{fm(m.amount)}</td>
                         </tr>
                       ))}
                     </tbody>

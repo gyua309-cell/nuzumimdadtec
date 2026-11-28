@@ -9,12 +9,16 @@ import { ExportMenu } from '../components/ExportMenu';
 import { ReportFilterBar, useReportFilters } from '../components/ReportFilterBar';
 import { api } from '../lib/api';
 import { money } from '../lib/format';
+import { useReportCurrency } from '../lib/fx-display';
 import { Badge, Loading, PageHeader } from '../components/ui';
 
 export function EmployeeProfitabilityReportPage() {
   const { filters, setFilters, resetAll, queryParams } = useReportFilters({
     syncUrl: true,
   });
+  const fx = useReportCurrency(filters.currencyCode, filters.to || filters.asOf);
+  const cv = (v: any) => fx.convert(v);
+  const fm = (v: any) => money(cv(v));
   const search = filters.search;
   const [activeTab, setActiveTab] = useState<'employees' | 'projects' | 'clients'>('employees');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'TOP_PERFORMER' | 'PROFITABLE' | 'LOSS_MAKER'>('ALL');
@@ -111,6 +115,7 @@ export function EmployeeProfitabilityReportPage() {
               <RefreshCw className="size-3.5" /> تحديث
             </button>
             <ExportMenu
+              currency={fx.targetCurrency}
               title={
                 activeTab === 'employees'
                   ? 'تقرير ربحية الكوادر البشرية والوقت غير المستغل'
@@ -146,7 +151,13 @@ export function EmployeeProfitabilityReportPage() {
                         { key: 'grossProfitBase', header: 'صافي الربح', width: 15, type: 'currency', isTotal: true },
                       ]
               }
-              data={activeTab === 'employees' ? filteredEmployees : activeTab === 'projects' ? filteredProjects : filteredClients}
+              data={(activeTab === 'employees' ? filteredEmployees : activeTab === 'projects' ? filteredProjects : filteredClients).map((r: any) => ({
+                ...r,
+                directCostBase: cv(r.directCostBase),
+                totalCostBase: cv(r.totalCostBase),
+                revenueBase: cv(r.revenueBase),
+                grossProfitBase: cv(r.grossProfitBase),
+              }))}
             />
           </div>
         }
@@ -211,6 +222,7 @@ export function EmployeeProfitabilityReportPage() {
         showProject
         showEmployee
         showDepartment
+        showCurrency
         showSearch
         searchPlaceholder="بحث بالرمز أو الاسم أو العميل..."
       />
@@ -229,9 +241,9 @@ export function EmployeeProfitabilityReportPage() {
                     <BarChart3 className="size-4 text-emerald-600" />
                   </div>
                   <div className="text-2xl font-bold font-mono text-emerald-600 mt-2">
-                    {money(Number(empSummary.totalRevenueBase))}
+                    {fm(empSummary.totalRevenueBase)}
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-1">مفوترة لعقود ومشاريع العملاء</div>
+                  <div className="text-[11px] text-slate-400 mt-1">مفوترة لعقود ومشاريع العملاء ({fx.targetCurrency})</div>
                 </div>
 
                 <div className="card p-4">
@@ -240,9 +252,9 @@ export function EmployeeProfitabilityReportPage() {
                     <Calculator className="size-4 text-slate-600" />
                   </div>
                   <div className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-2">
-                    {money(Number(empSummary.totalCostBase))}
+                    {fm(empSummary.totalCostBase)}
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-1">الرواتب المباشرة + 10% Overhead</div>
+                  <div className="text-[11px] text-slate-400 mt-1">الرواتب المباشرة + الأوفرهيد ({fx.targetCurrency})</div>
                 </div>
 
                 <div className="card p-4">
@@ -251,9 +263,9 @@ export function EmployeeProfitabilityReportPage() {
                     <TrendingUp className="size-4 text-rose-500" />
                   </div>
                   <div className="text-2xl font-bold font-mono text-rose-600 mt-2">
-                    {money(Number(empSummary.totalUnutilizedCostBase))}
+                    {fm(empSummary.totalUnutilizedCostBase)}
                   </div>
-                  <div className="text-[11px] text-rose-600 font-medium mt-1">تكلفة رواتب كوادر دون تخصيص</div>
+                  <div className="text-[11px] text-rose-600 font-medium mt-1">تكلفة رواتب كوادر دون تخصيص ({fx.targetCurrency})</div>
                 </div>
 
                 <div className="card p-4">
@@ -262,7 +274,7 @@ export function EmployeeProfitabilityReportPage() {
                     <Award className="size-4 text-brand-600" />
                   </div>
                   <div className="text-2xl font-bold font-mono text-brand-600 mt-2">
-                    {money(Number(empSummary.totalProfitBase))}
+                    {fm(empSummary.totalProfitBase)}
                   </div>
                   <div className="text-[11px] text-brand-600 font-bold mt-1">
                     متوسط الهامش: {empSummary.averageMarginPct}%
@@ -329,16 +341,16 @@ export function EmployeeProfitabilityReportPage() {
                               </span>
                             </td>
                             <td className="num font-mono text-rose-600 font-medium">
-                              {money(e.unutilizedCostBase)}
+                              {fm(e.unutilizedCostBase)}
                             </td>
-                            <td className="num font-mono">{money(e.directCostBase)}</td>
+                            <td className="num font-mono">{fm(e.directCostBase)}</td>
                             <td className="num font-mono">
-                              <div className="font-bold text-slate-800 dark:text-slate-200">{money(e.totalCostBase)}</div>
-                              <div className="text-[10px] text-slate-400">أوفرهيد: {money(e.overheadBase)}</div>
+                              <div className="font-bold text-slate-800 dark:text-slate-200">{fm(e.totalCostBase)}</div>
+                              <div className="text-[10px] text-slate-400">أوفرهيد: {fm(e.overheadBase)}</div>
                             </td>
-                            <td className="num font-mono font-bold text-emerald-600">{money(e.revenueBase)}</td>
+                            <td className="num font-mono font-bold text-emerald-600">{fm(e.revenueBase)}</td>
                             <td className={`num font-mono font-bold ${e.grossProfitBase >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              {money(e.grossProfitBase)}
+                              {fm(e.grossProfitBase)}
                             </td>
                             <td className="num font-mono font-bold">
                               <span className={e.grossMarginPct >= e.targetMarginPct ? 'text-emerald-600' : e.grossProfitBase >= 0 ? 'text-amber-600' : 'text-rose-600'}>
@@ -368,33 +380,33 @@ export function EmployeeProfitabilityReportPage() {
             <div className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="card p-4">
-                  <div className="text-xs text-slate-500 font-medium">إجمالي إيرادات المشاريع</div>
+                  <div className="text-xs text-slate-500 font-medium">إجمالي إيرادات المشاريع ({fx.targetCurrency})</div>
                   <div className="text-2xl font-bold font-mono text-emerald-600 mt-2">
-                    {money(projects.reduce((acc, p) => acc + Number(p.revenueBase || 0), 0))}
+                    {fm(projects.reduce((acc, p) => acc + Number(p.revenueBase || 0), 0))}
                   </div>
                   <div className="text-[11px] text-slate-400 mt-1">عقود العملاء المفوترة</div>
                 </div>
 
                 <div className="card p-4">
-                  <div className="text-xs text-slate-500 font-medium">تكاليف الكوادر المحملة</div>
+                  <div className="text-xs text-slate-500 font-medium">تكاليف الكوادر المحملة ({fx.targetCurrency})</div>
                   <div className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-2">
-                    {money(projects.reduce((acc, p) => acc + Number(p.directCostBase || p.employeeCostBase || 0), 0))}
+                    {fm(projects.reduce((acc, p) => acc + Number(p.directCostBase || p.employeeCostBase || 0), 0))}
                   </div>
                   <div className="text-[11px] text-slate-400 mt-1">حصة المشاريع من رواتب الفريق</div>
                 </div>
 
                 <div className="card p-4">
-                  <div className="text-xs text-slate-500 font-medium">المصروفات الإدارية المحملة (10%)</div>
+                  <div className="text-xs text-slate-500 font-medium">المصروفات الإدارية المحملة ({fx.targetCurrency})</div>
                   <div className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-2">
-                    {money(projects.reduce((acc, p) => acc + Number(p.overheadBase || 0), 0))}
+                    {fm(projects.reduce((acc, p) => acc + Number(p.overheadBase || 0), 0))}
                   </div>
                   <div className="text-[11px] text-slate-400 mt-1">أوفر هيد عام للمشاريع</div>
                 </div>
 
                 <div className="card p-4">
-                  <div className="text-xs text-slate-500 font-medium">إجمالي أرباح المشاريع</div>
+                  <div className="text-xs text-slate-500 font-medium">إجمالي أرباح المشاريع ({fx.targetCurrency})</div>
                   <div className="text-2xl font-bold font-mono text-brand-600 mt-2">
-                    {money(projects.reduce((acc, p) => acc + Number(p.grossProfitBase || 0), 0))}
+                    {fm(projects.reduce((acc, p) => acc + Number(p.grossProfitBase || 0), 0))}
                   </div>
                   <div className="text-[11px] text-brand-600 font-bold mt-1">صافي الأرباح التعاقدية</div>
                 </div>
@@ -443,12 +455,12 @@ export function EmployeeProfitabilityReportPage() {
                             </td>
                             <td><span className="badge-slate text-xs">{p.clientName}</span></td>
                             <td className="num font-mono">{p.teamCount} كوادر</td>
-                            <td className="num font-mono font-bold text-emerald-600">{money(p.revenueBase)}</td>
-                            <td className="num font-mono">{money(p.directCostBase || p.employeeCostBase)}</td>
-                            <td className="num font-mono text-slate-500">{money(p.overheadBase)}</td>
-                            <td className="num font-mono text-slate-800 dark:text-slate-200">{money(p.totalCostBase)}</td>
+                            <td className="num font-mono font-bold text-emerald-600">{fm(p.revenueBase)}</td>
+                            <td className="num font-mono">{fm(p.directCostBase || p.employeeCostBase)}</td>
+                            <td className="num font-mono text-slate-500">{fm(p.overheadBase)}</td>
+                            <td className="num font-mono text-slate-800 dark:text-slate-200">{fm(p.totalCostBase)}</td>
                             <td className={`num font-mono font-bold ${p.grossProfitBase >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              {money(p.grossProfitBase)}
+                              {fm(p.grossProfitBase)}
                             </td>
                             <td className="num font-mono font-bold">
                               <span className={p.grossMarginPct >= (p.requiredMarginPct || p.targetMarginPct || 25) ? 'text-emerald-600' : 'text-amber-600'}>
@@ -476,25 +488,25 @@ export function EmployeeProfitabilityReportPage() {
             <div className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="card p-4">
-                  <div className="text-xs text-slate-500 font-medium">إجمالي إيرادات العملاء</div>
+                  <div className="text-xs text-slate-500 font-medium">إجمالي إيرادات العملاء ({fx.targetCurrency})</div>
                   <div className="text-2xl font-bold font-mono text-emerald-600 mt-2">
-                    {money(clients.reduce((acc, c) => acc + Number(c.revenueBase || 0), 0))}
+                    {fm(clients.reduce((acc, c) => acc + Number(c.revenueBase || 0), 0))}
                   </div>
                   <div className="text-[11px] text-slate-400 mt-1">مبيعات العقود المباشرة</div>
                 </div>
 
                 <div className="card p-4">
-                  <div className="text-xs text-slate-500 font-medium">إجمالي تكاليف خدمة العملاء</div>
+                  <div className="text-xs text-slate-500 font-medium">إجمالي تكاليف خدمة العملاء ({fx.targetCurrency})</div>
                   <div className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-2">
-                    {money(clients.reduce((acc, c) => acc + Number(c.totalCostBase || 0), 0))}
+                    {fm(clients.reduce((acc, c) => acc + Number(c.totalCostBase || 0), 0))}
                   </div>
                   <div className="text-[11px] text-slate-400 mt-1">رواتب الكوادر + الأوفر هيد</div>
                 </div>
 
                 <div className="card p-4">
-                  <div className="text-xs text-slate-500 font-medium">صافي أرباح حسابات العملاء</div>
+                  <div className="text-xs text-slate-500 font-medium">صافي أرباح حسابات العملاء ({fx.targetCurrency})</div>
                   <div className="text-2xl font-bold font-mono text-brand-600 mt-2">
-                    {money(clients.reduce((acc, c) => acc + Number(c.grossProfitBase || 0), 0))}
+                    {fm(clients.reduce((acc, c) => acc + Number(c.grossProfitBase || 0), 0))}
                   </div>
                   <div className="text-[11px] text-brand-600 font-bold mt-1">عائد العقود الاستثماري</div>
                 </div>
@@ -545,12 +557,12 @@ export function EmployeeProfitabilityReportPage() {
                             <td className="font-bold text-slate-900 dark:text-white">{c.clientName || c.nameAr}</td>
                             <td className="num font-mono">{c.projectCount || c.projectsCount || 0} مشاريع</td>
                             <td className="num font-mono">{c.teamCount || 0} كوادر</td>
-                            <td className="num font-mono font-bold text-emerald-600">{money(c.revenueBase)}</td>
-                            <td className="num font-mono">{money(c.directCostBase)}</td>
-                            <td className="num font-mono text-slate-500">{money(c.overheadBase)}</td>
-                            <td className="num font-mono text-slate-800 dark:text-slate-200">{money(c.totalCostBase)}</td>
+                            <td className="num font-mono font-bold text-emerald-600">{fm(c.revenueBase)}</td>
+                            <td className="num font-mono">{fm(c.directCostBase)}</td>
+                            <td className="num font-mono text-slate-500">{fm(c.overheadBase)}</td>
+                            <td className="num font-mono text-slate-800 dark:text-slate-200">{fm(c.totalCostBase)}</td>
                             <td className={`num font-mono font-bold ${c.grossProfitBase >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              {money(c.grossProfitBase)}
+                              {fm(c.grossProfitBase)}
                             </td>
                             <td className="num font-mono font-bold">
                               <span className={c.grossMarginPct >= 25 ? 'text-emerald-600' : c.grossProfitBase >= 0 ? 'text-amber-600' : 'text-rose-600'}>

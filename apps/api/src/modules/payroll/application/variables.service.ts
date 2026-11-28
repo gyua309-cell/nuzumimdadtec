@@ -14,7 +14,7 @@ export const VariableTypeCreate = z.object({
   code: z.string().trim().min(1).max(30),
   nameAr: z.string().trim().min(1).max(200),
   nameEn: z.string().trim().max(200).nullable().optional(),
-  category: z.enum(['BONUS', 'OVERTIME', 'REWARD', 'ALLOWANCE', 'DEDUCTION', 'ADVANCE', 'OTHER']),
+  category: z.enum(['BONUS', 'OVERTIME', 'ADDITIONAL_PAY', 'REWARD', 'ALLOWANCE', 'DEDUCTION', 'ADVANCE', 'OTHER']),
   calcMethod: z.enum(['FIXED', 'HOURS_RATE', 'DAYS_RATE', 'PCT_BASIC']),
   defaultAmount: nonNegativeDecimal.nullable().optional(),
   defaultRate: nonNegativeDecimal.nullable().optional(),

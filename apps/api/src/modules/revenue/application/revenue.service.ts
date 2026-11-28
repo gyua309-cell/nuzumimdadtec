@@ -35,6 +35,20 @@ export const RetroactiveAdjustmentCreate = z.object({
   exchangeRate: z.string().or(z.number()).transform((v) => String(v)).optional().default('1'),
   adjustmentReason: z.string().trim().min(3).max(1000),
   notes: z.string().trim().max(2000).nullable().optional(),
+  status: z.enum(['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'RECORDED', 'POSTED']).optional().default('POSTED'),
+});
+
+export const GeneralAdjustmentCreate = z.object({
+  adjustmentKind: z.enum(['REVENUE', 'DIRECT_COST', 'OVERHEAD']),
+  employeeId: z.string().uuid().optional().nullable(),
+  projectId: z.string().uuid().optional().nullable(),
+  fiscalPeriodId: z.string().uuid(),
+  amount: z.string().or(z.number()).transform((v) => String(v)),
+  currencyCode: z.string().trim().length(3).default('SAR'),
+  exchangeRate: z.string().or(z.number()).transform((v) => String(v)).optional().default('1'),
+  adjustmentReason: z.string().trim().min(3).max(1000),
+  notes: z.string().trim().max(2000).nullable().optional(),
+  status: z.enum(['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'RECORDED', 'POSTED']).optional().default('POSTED'),
 });
 
 export interface ProfitabilityFilter {
@@ -395,42 +409,67 @@ export class RevenueService {
 
       const grossRevenue = D(body.units).times(D(body.unitPrice));
       const grossRevenueBase = grossRevenue.times(D(body.exchangeRate));
+      const dbStatus = body.status === 'DRAFT' ? 'DRAFT' : body.status === 'PENDING_APPROVAL' ? 'PENDING_APPROVAL' : 'POSTED';
 
       const row = await this.db.one<{ id: string }>(
         `INSERT INTO rev.revenue_lines
            (company_id, fiscal_period_id, original_period_id, employee_id, project_id,
             pricing_basis, unit_price, currency_code, exchange_rate, units, allocation_pct,
-            gross_revenue, gross_revenue_base, revenue_type, status, adjustment_reason, notes,
+            gross_revenue, gross_revenue_base, revenue_type, adjustment_kind, status, adjustment_reason, notes,
             created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 100, $11, $12, 'RETROACTIVE', 'POSTED', $13, $14,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 100, $11, $12, 'RETROACTIVE', 'RETROACTIVE_REVENUE', $13, $14, $15,
                  sys.current_user_id(), sys.current_user_id())
          RETURNING id`,
         [
           companyId, body.fiscalPeriodId, body.originalPeriodId, body.employeeId, body.projectId,
           body.pricingBasis, body.unitPrice, body.currencyCode, body.exchangeRate, body.units,
-          grossRevenue.toFixed(4), grossRevenueBase.toFixed(4), body.adjustmentReason, body.notes ?? null,
+          grossRevenue.toFixed(4), grossRevenueBase.toFixed(4), dbStatus, body.adjustmentReason, body.notes ?? null,
         ],
       );
 
-      return this.db.one(
-        `SELECT rl.id, rl.fiscal_period_id AS "fiscalPeriodId", fp.name AS "periodName",
-                rl.original_period_id AS "originalPeriodId", ofp.name AS "originalPeriodName",
-                rl.employee_id AS "employeeId", e.full_name_ar AS "employeeName",
-                rl.project_id AS "projectId", p.name_ar AS "projectName", p.code AS "projectCode",
-                c.name_ar AS "clientName",
-                rl.pricing_basis AS "pricingBasis", rl.unit_price::text AS "unitPrice",
-                rl.currency_code AS "currencyCode", rl.units::text, rl.gross_revenue::text AS "grossRevenue",
-                rl.gross_revenue_base::text AS "grossRevenueBase", rl.revenue_type AS "revenueType",
-                rl.adjustment_reason AS "adjustmentReason", rl.notes, rl.status, rl.created_at AS "createdAt"
-         FROM rev.revenue_lines rl
-         JOIN hr.employees e ON e.id = rl.employee_id
-         JOIN prj.projects p ON p.id = rl.project_id
-         JOIN prj.clients c ON c.id = p.client_id
-         JOIN core.fiscal_periods fp ON fp.id = rl.fiscal_period_id
-         JOIN core.fiscal_periods ofp ON ofp.id = rl.original_period_id
-         WHERE rl.company_id = $1 AND rl.id = $2`,
-        [companyId, row!.id],
+      return this.getRetroactiveAdjustmentById(companyId, row!.id);
+    });
+  }
+
+  async createGeneralAdjustment(companyId: string, body: z.infer<typeof GeneralAdjustmentCreate>) {
+    return this.db.tx(async () => {
+      const period = await this.db.one<{ status: string; name: string }>(
+        'SELECT status, name FROM core.fiscal_periods WHERE company_id = $1 AND id = $2',
+        [companyId, body.fiscalPeriodId],
       );
+      if (!period) throw new NotFoundError('FiscalPeriod', body.fiscalPeriodId);
+      if (period.status === 'CLOSED') throw new DomainError('PERIOD_CLOSED', 'الفترة المالية مغلقة ولا يمكن تسجيل تسويات فيها');
+
+      const grossAmount = D(body.amount);
+      const grossAmountBase = grossAmount.times(D(body.exchangeRate));
+      const dbStatus = body.status === 'DRAFT' ? 'DRAFT' : body.status === 'PENDING_APPROVAL' ? 'PENDING_APPROVAL' : 'POSTED';
+
+      const row = await this.db.one<{ id: string }>(
+        `INSERT INTO rev.revenue_lines
+           (company_id, fiscal_period_id, original_period_id, employee_id, project_id,
+            pricing_basis, unit_price, currency_code, exchange_rate, units, allocation_pct,
+            gross_revenue, gross_revenue_base, revenue_type, adjustment_kind, status, adjustment_reason, notes,
+            created_by, updated_by)
+         VALUES ($1, $2, $2, $3, $4, 'MONTHLY', $5, $6, $7, 1, 100, $5, $8, 'ADJUSTMENT', $9, $10, $11, $12,
+                 sys.current_user_id(), sys.current_user_id())
+         RETURNING id`,
+        [
+          companyId,
+          body.fiscalPeriodId,
+          body.employeeId ?? null,
+          body.projectId ?? null,
+          grossAmount.toFixed(4),
+          body.currencyCode,
+          body.exchangeRate,
+          grossAmountBase.toFixed(4),
+          body.adjustmentKind,
+          dbStatus,
+          body.adjustmentReason,
+          body.notes ?? null,
+        ],
+      );
+
+      return this.getRetroactiveAdjustmentById(companyId, row!.id);
     });
   }
 
@@ -444,12 +483,13 @@ export class RevenueService {
               rl.pricing_basis AS "pricingBasis", rl.unit_price::text AS "unitPrice",
               rl.currency_code AS "currencyCode", rl.units::text, rl.gross_revenue::text AS "grossRevenue",
               rl.gross_revenue_base::text AS "grossRevenueBase", rl.revenue_type AS "revenueType",
+              COALESCE(rl.adjustment_kind, 'RETROACTIVE_REVENUE') AS "adjustmentKind",
               rl.adjustment_reason AS "adjustmentReason", rl.rejection_reason AS "rejectionReason",
               rl.notes, rl.status, rl.created_at AS "createdAt"
          FROM rev.revenue_lines rl
-         JOIN hr.employees e ON e.id = rl.employee_id
-         JOIN prj.projects p ON p.id = rl.project_id
-         JOIN prj.clients c ON c.id = p.client_id
+         LEFT JOIN hr.employees e ON e.id = rl.employee_id
+         LEFT JOIN prj.projects p ON p.id = rl.project_id
+         LEFT JOIN prj.clients c ON c.id = p.client_id
          JOIN core.fiscal_periods fp ON fp.id = rl.fiscal_period_id
          LEFT JOIN core.fiscal_periods ofp ON ofp.id = rl.original_period_id
         WHERE rl.company_id = $1 AND rl.id = $2`,
@@ -460,7 +500,7 @@ export class RevenueService {
   }
 
   async listRetroactiveAdjustments(companyId: string, periodId?: string) {
-    const where = ['rl.company_id = $1', "rl.revenue_type = 'RETROACTIVE'"];
+    const where = ['rl.company_id = $1', "rl.revenue_type IN ('RETROACTIVE','ADJUSTMENT')"];
     const params: unknown[] = [companyId];
     if (periodId) {
       params.push(periodId);
@@ -475,12 +515,13 @@ export class RevenueService {
               rl.pricing_basis AS "pricingBasis", rl.unit_price::text AS "unitPrice",
               rl.currency_code AS "currencyCode", rl.units::text, rl.gross_revenue::text AS "grossRevenue",
               rl.gross_revenue_base::text AS "grossRevenueBase", rl.revenue_type AS "revenueType",
+              COALESCE(rl.adjustment_kind, 'RETROACTIVE_REVENUE') AS "adjustmentKind",
               rl.adjustment_reason AS "adjustmentReason", rl.rejection_reason AS "rejectionReason",
               rl.notes, rl.status, rl.created_at AS "createdAt"
        FROM rev.revenue_lines rl
-       JOIN hr.employees e ON e.id = rl.employee_id
-       JOIN prj.projects p ON p.id = rl.project_id
-       JOIN prj.clients c ON c.id = p.client_id
+       LEFT JOIN hr.employees e ON e.id = rl.employee_id
+       LEFT JOIN prj.projects p ON p.id = rl.project_id
+       LEFT JOIN prj.clients c ON c.id = p.client_id
        JOIN core.fiscal_periods fp ON fp.id = rl.fiscal_period_id
        LEFT JOIN core.fiscal_periods ofp ON ofp.id = rl.original_period_id
        WHERE ${where.join(' AND ')}
@@ -492,7 +533,7 @@ export class RevenueService {
   async submitRetroactiveAdjustment(companyId: string, id: string) {
     return this.db.tx(async () => {
       const cur = await this.db.one<{ status: string }>(
-        `SELECT status FROM rev.revenue_lines WHERE company_id = $1 AND id = $2 AND revenue_type = 'RETROACTIVE' FOR UPDATE`,
+        `SELECT status FROM rev.revenue_lines WHERE company_id = $1 AND id = $2 AND revenue_type IN ('RETROACTIVE','ADJUSTMENT') FOR UPDATE`,
         [companyId, id],
       );
       if (!cur) throw new NotFoundError('RetroactiveAdjustment', id);
@@ -508,7 +549,7 @@ export class RevenueService {
   async approveRetroactiveAdjustment(companyId: string, id: string) {
     return this.db.tx(async () => {
       const cur = await this.db.one<{ status: string }>(
-        `SELECT status FROM rev.revenue_lines WHERE company_id = $1 AND id = $2 AND revenue_type = 'RETROACTIVE' FOR UPDATE`,
+        `SELECT status FROM rev.revenue_lines WHERE company_id = $1 AND id = $2 AND revenue_type IN ('RETROACTIVE','ADJUSTMENT') FOR UPDATE`,
         [companyId, id],
       );
       if (!cur) throw new NotFoundError('RetroactiveAdjustment', id);
@@ -529,7 +570,7 @@ export class RevenueService {
   async rejectRetroactiveAdjustment(companyId: string, id: string, reason?: string) {
     return this.db.tx(async () => {
       const cur = await this.db.one<{ status: string }>(
-        `SELECT status FROM rev.revenue_lines WHERE company_id = $1 AND id = $2 AND revenue_type = 'RETROACTIVE' FOR UPDATE`,
+        `SELECT status FROM rev.revenue_lines WHERE company_id = $1 AND id = $2 AND revenue_type IN ('RETROACTIVE','ADJUSTMENT') FOR UPDATE`,
         [companyId, id],
       );
       if (!cur) throw new NotFoundError('RetroactiveAdjustment', id);
@@ -621,41 +662,56 @@ export class RevenueService {
     }
 
     const revLines = await this.db.query<{
-      employeeId: string; projectId: string; projectCode: string; projectName: string;
-      clientId: string; clientName: string; costCenterId: string | null; revBase: string;
+      employeeId: string | null; projectId: string | null; projectCode: string | null; projectName: string | null;
+      clientId: string | null; clientName: string | null; costCenterId: string | null;
+      adjustmentKind: string; revBase: string;
     }>(
       `SELECT rl.employee_id AS "employeeId", rl.project_id AS "projectId",
               p.code AS "projectCode", p.name_ar AS "projectName",
               p.client_id AS "clientId", c.name_ar AS "clientName",
               p.cost_center_id AS "costCenterId",
+              COALESCE(rl.adjustment_kind, 'RETROACTIVE_REVENUE') AS "adjustmentKind",
               COALESCE(SUM(rl.gross_revenue_base), 0)::text AS "revBase"
        FROM rev.revenue_lines rl
        JOIN core.fiscal_periods fp ON fp.id = rl.fiscal_period_id
-       JOIN prj.projects p ON p.id = rl.project_id
-       JOIN prj.clients c ON c.id = p.client_id
+       LEFT JOIN prj.projects p ON p.id = rl.project_id
+       LEFT JOIN prj.clients c ON c.id = p.client_id
        WHERE ${revConds.join(' AND ')}
-       GROUP BY rl.employee_id, rl.project_id, p.code, p.name_ar, p.client_id, c.name_ar, p.cost_center_id`,
+       GROUP BY rl.employee_id, rl.project_id, p.code, p.name_ar, p.client_id, c.name_ar, p.cost_center_id, COALESCE(rl.adjustment_kind, 'RETROACTIVE_REVENUE')`,
       revParams,
     );
 
     const empRevMap = new Map<string, {
       total: import('decimal.js').Decimal;
+      directCostAdj: import('decimal.js').Decimal;
+      overheadAdj: import('decimal.js').Decimal;
       byProject: Map<string, { projectCode: string; projectName: string; clientId: string; clientName: string; costCenterId: string | null; rev: import('decimal.js').Decimal }>;
     }>();
     for (const r of revLines) {
+      if (!r.employeeId) continue;
       if (!empRevMap.has(r.employeeId)) {
-        empRevMap.set(r.employeeId, { total: D(0), byProject: new Map() });
+        empRevMap.set(r.employeeId, { total: D(0), directCostAdj: D(0), overheadAdj: D(0), byProject: new Map() });
       }
       const entry = empRevMap.get(r.employeeId)!;
-      const revVal = D(r.revBase);
-      entry.total = entry.total.plus(revVal);
-      if (!entry.byProject.has(r.projectId)) {
-        entry.byProject.set(r.projectId, {
-          projectCode: r.projectCode, projectName: r.projectName, clientId: r.clientId, clientName: r.clientName, costCenterId: r.costCenterId, rev: D(0),
-        });
+      const val = D(r.revBase);
+      if (r.adjustmentKind === 'DIRECT_COST') {
+        entry.directCostAdj = entry.directCostAdj.plus(val);
+        continue;
       }
-      const pEntry = entry.byProject.get(r.projectId)!;
-      pEntry.rev = pEntry.rev.plus(revVal);
+      if (r.adjustmentKind === 'OVERHEAD') {
+        entry.overheadAdj = entry.overheadAdj.plus(val);
+        continue;
+      }
+      entry.total = entry.total.plus(val);
+      if (r.projectId) {
+        if (!entry.byProject.has(r.projectId)) {
+          entry.byProject.set(r.projectId, {
+            projectCode: r.projectCode || '', projectName: r.projectName || '', clientId: r.clientId || '', clientName: r.clientName || '', costCenterId: r.costCenterId, rev: D(0),
+          });
+        }
+        const pEntry = entry.byProject.get(r.projectId)!;
+        pEntry.rev = pEntry.rev.plus(val);
+      }
     }
 
     // Lookup project metadata for assignments enrichment
@@ -754,16 +810,17 @@ export class RevenueService {
       if (filter.costCenterId && emp.cost_center_id !== filter.costCenterId && !projectsList.length) continue;
 
       const revenue = (filter.projectId || filter.clientId) ? filteredRev : (revInfo ? revInfo.total : D(0));
+      const directCostWithAdj = directCost.plus(revInfo ? revInfo.directCostAdj : D(0));
 
       // Overhead
-      let overhead = D(0);
+      let overhead = revInfo ? revInfo.overheadAdj : D(0);
       if (overheadPolicy.method === 'PERCENTAGE') {
-        overhead = directCost.times(overheadRate.div(100));
+        overhead = overhead.plus(directCostWithAdj.times(overheadRate.div(100)));
       } else if (overheadPolicy.method === 'FIXED_PER_EMPLOYEE') {
-        overhead = overheadRate;
+        overhead = overhead.plus(overheadRate);
       }
 
-      const totalCost = directCost.plus(overhead);
+      const totalCost = directCostWithAdj.plus(overhead);
       const profit = revenue.minus(totalCost);
       const marginPct = revenue.gt(0) ? profit.div(revenue).times(100) : null;
 
@@ -782,7 +839,7 @@ export class RevenueService {
         costCenterId: emp.cost_center_id,
         costCenterName: emp.cost_center_name,
         revenueBase: revenue.toFixed(2),
-        directCostBase: directCost.toFixed(2),
+        directCostBase: directCostWithAdj.toFixed(2),
         overheadBase: overhead.toFixed(2),
         totalCostBase: totalCost.toFixed(2),
         grossProfitBase: profit.toFixed(2),
@@ -838,15 +895,29 @@ export class RevenueService {
       revParams.push(filter.employeeId);
       revWhere.push(`rl.employee_id = $${revParams.length}`);
     }
-    const revRows = await this.db.query<{ projectId: string; rev: string }>(
-      `SELECT rl.project_id AS "projectId", COALESCE(SUM(rl.gross_revenue_base), 0)::text AS rev
+    const revRows = await this.db.query<{ projectId: string; adjustmentKind: string; rev: string }>(
+      `SELECT rl.project_id AS "projectId",
+              COALESCE(rl.adjustment_kind, 'RETROACTIVE_REVENUE') AS "adjustmentKind",
+              COALESCE(SUM(rl.gross_revenue_base), 0)::text AS rev
        FROM rev.revenue_lines rl
        JOIN core.fiscal_periods fp ON fp.id = rl.fiscal_period_id
-       WHERE ${revWhere.join(' AND ')}
-       GROUP BY rl.project_id`,
+       WHERE ${revWhere.join(' AND ')} AND rl.project_id IS NOT NULL
+       GROUP BY rl.project_id, COALESCE(rl.adjustment_kind, 'RETROACTIVE_REVENUE')`,
       revParams,
     );
-    const revMap = new Map(revRows.map(r => [r.projectId, D(r.rev)]));
+    const revMap = new Map<string, import('decimal.js').Decimal>();
+    const adjDirectCostMap = new Map<string, import('decimal.js').Decimal>();
+    const adjOverheadMap = new Map<string, import('decimal.js').Decimal>();
+    for (const r of revRows) {
+      const val = D(r.rev);
+      if (r.adjustmentKind === 'DIRECT_COST') {
+        adjDirectCostMap.set(r.projectId, (adjDirectCostMap.get(r.projectId) ?? D(0)).plus(val));
+      } else if (r.adjustmentKind === 'OVERHEAD') {
+        adjOverheadMap.set(r.projectId, (adjOverheadMap.get(r.projectId) ?? D(0)).plus(val));
+      } else {
+        revMap.set(r.projectId, (revMap.get(r.projectId) ?? D(0)).plus(val));
+      }
+    }
 
     // 2. Project-linked variables
     const varParams: unknown[] = [companyId, period.start, period.end];
@@ -913,7 +984,7 @@ export class RevenueService {
       }
     }
 
-    const allProjectIds = Array.from(new Set([...revMap.keys(), ...projectCostMap.keys(), ...varMap.keys()]));
+    const allProjectIds = Array.from(new Set([...revMap.keys(), ...projectCostMap.keys(), ...varMap.keys(), ...adjDirectCostMap.keys(), ...adjOverheadMap.keys()]));
     if (allProjectIds.length === 0) return [];
 
     // 4. Projects list with details, client & cost center info
@@ -948,14 +1019,14 @@ export class RevenueService {
     return projects.map((p) => {
       const revenue = revMap.get(p.id) ?? D(0);
       const employeeCost = projectCostMap.get(p.id) ?? D(0);
-      const projectVars = varMap.get(p.id) ?? D(0);
+      const projectVars = (varMap.get(p.id) ?? D(0)).plus(adjDirectCostMap.get(p.id) ?? D(0));
       const directCost = employeeCost.plus(projectVars);
 
-      let overhead = D(0);
+      let overhead = adjOverheadMap.get(p.id) ?? D(0);
       if (overheadPolicy.method === 'PERCENTAGE') {
-        overhead = directCost.times(overheadRate.div(100));
+        overhead = overhead.plus(directCost.times(overheadRate.div(100)));
       } else if (overheadPolicy.method === 'FIXED_PER_PROJECT' && projects.length > 0) {
-        overhead = overheadRate.div(projects.length);
+        overhead = overhead.plus(overheadRate.div(projects.length));
       }
 
       const totalCost = directCost.plus(overhead);
