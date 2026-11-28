@@ -217,7 +217,7 @@ export const NAV_GROUPS: NavGroup[] = [
           { to: '/prj/clients', label: 'دليل العملاء' },
           { to: '/services/catalog', label: 'دليل الخدمات والأسعار' },
           { to: '/prj/employee-tracking', label: 'كروت تتبع الموظفين' },
-          { to: '/prj/assignments', label: 'تخصيص الموظفين' },
+          { to: '/prj/assignments', label: 'توزيع الموظفين الشهري' },
           { to: '/prj/allocation-days', label: 'توزيع الأيام والنسب' },
           { to: '/prj/utilization', label: 'معدل استغلال الكوادر' },
           { to: '/prj/prices', label: 'أسعار الخدمات' },

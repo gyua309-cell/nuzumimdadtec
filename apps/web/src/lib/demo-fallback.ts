@@ -31,10 +31,13 @@ import {
   computeAccountStatement,
   computeCostCentersReport,
   computeMultiLevelReportsOverview,
+  computePeakAllocationOverlapPct,
   evaluatePeriodClosingChecks,
   isAssignmentActiveInPeriod,
   matchesEmployee,
   matchesProject,
+  replaceEmployeeAssignmentsInPeriod,
+  resolveAssignmentPct,
 } from './fallback-engine';
 import {
   DEFAULT_LOCAL_COST_CENTERS,
@@ -910,35 +913,37 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
   const recomputeEmployeeOverAllocation = (targetEmpIdOrCode?: string) => {
     const allAsg = getEntityList<any>('assignments', []);
     if (allAsg.length === 0) return;
-    const t = new Date().toISOString().slice(0, 10);
-    const empTotals = new Map<string, number>();
+    const empsList = getEntityList<any>('employees', []);
+    const byEmp = new Map<string, any[]>();
+    const resolveKey = (a: any) => {
+      const m = empsList.find((e) => matchesEmployee(a, e));
+      return m?.id || String(a.employeeId || a.employeeCode || '');
+    };
     for (const a of allAsg) {
-      const asgEnd = a.endDate || a.effectiveTo;
-      if (asgEnd && asgEnd < t) continue;
-      const key = String(a.employeeId || a.employeeCode || '');
+      const key = resolveKey(a);
       if (!key) continue;
-      if (targetEmpIdOrCode && key !== targetEmpIdOrCode && a.employeeCode !== targetEmpIdOrCode) continue;
-      const pct = Number(a.allocationPct != null ? a.allocationPct : (a.allocationBasis === 'DAYS' ? ((Number(a.allocatedDays) || 22) / 22) * 100 : 100));
-      empTotals.set(key, (empTotals.get(key) || 0) + pct);
+      const list = byEmp.get(key) ?? [];
+      list.push(a);
+      byEmp.set(key, list);
+    }
+    const peakByEmp = new Map<string, { isOverAllocated: boolean; overAllocatedPct: number }>();
+    const todayStr = new Date().toISOString().slice(0, 10);
+    for (const [key, list] of byEmp.entries()) {
+      if (targetEmpIdOrCode) {
+        const targetMatched = list.some((a) => a.employeeId === targetEmpIdOrCode || a.employeeCode === targetEmpIdOrCode) || key === targetEmpIdOrCode;
+        if (!targetMatched) continue;
+      }
+      const res = computePeakAllocationOverlapPct(list, { activeOnOrAfter: todayStr });
+      peakByEmp.set(key, { isOverAllocated: res.isOverAllocated, overAllocatedPct: res.overAllocatedPct });
     }
     let changed = false;
     const updated = allAsg.map((a: any) => {
-      const key = String(a.employeeId || a.employeeCode || '');
-      if (targetEmpIdOrCode && key !== targetEmpIdOrCode && a.employeeCode !== targetEmpIdOrCode) return a;
-      const asgEnd = a.endDate || a.effectiveTo;
-      if (asgEnd && asgEnd < t) {
-        if (a.isOverAllocated) {
-          changed = true;
-          return { ...a, isOverAllocated: false, overAllocatedPct: 0 };
-        }
-        return a;
-      }
-      const tot = empTotals.get(key) || 0;
-      const isOver = tot > 100;
-      const overPct = Math.max(0, Number((tot - 100).toFixed(1)));
-      if (a.isOverAllocated !== isOver || a.overAllocatedPct !== overPct) {
+      const key = resolveKey(a);
+      const peak = peakByEmp.get(key);
+      if (!peak) return a;
+      if (a.isOverAllocated !== peak.isOverAllocated || a.overAllocatedPct !== peak.overAllocatedPct) {
         changed = true;
-        return { ...a, isOverAllocated: isOver, overAllocatedPct: overPct };
+        return { ...a, isOverAllocated: peak.isOverAllocated, overAllocatedPct: peak.overAllocatedPct };
       }
       return a;
     });
@@ -1284,9 +1289,197 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       }
     }
 
-    // --- 2. Robust Assignment Mutations (Business Process Section 7 & 11) ---
+    // --- 2. Robust Assignment Mutations (Business Process Section 7 & 11 + Monthly Split Planner) ---
     if (path.startsWith('/assignments')) {
       const cleanP = path.split('?')[0].replace(/\/$/, '');
+
+      const saveEmployeeMonthlyPlanLocal = (planBody: any) => {
+        const period = assertPeriodOpen(planBody?.periodId, 'تحديث التوزيع الشهري للموظفين');
+        if (!period) throw new Error('الفترة المالية المحددة غير موجودة');
+        const pStart = String(period.startDate).slice(0, 10);
+        const pEnd = String(period.endDate).slice(0, 10);
+        const emps = getEntityList<any>('employees', []);
+        const projects = getEntityList<any>('projects', []);
+        const clients = getEntityList<any>('clients', defaultClients);
+        const servicePrices = getEntityList<any>('service_prices', []).filter((sp: any) => !sp.effectiveTo);
+        const emp = emps.find((e) => e.id === planBody.employeeId || e.code === planBody.employeeId);
+        if (!emp) throw new Error('الموظف غير موجود');
+
+        const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : '1900-01-01';
+        const term = emp.terminationDate ? String(emp.terminationDate).slice(0, 10) : null;
+        const empStart = hire > pStart ? hire : pStart;
+        const empEnd = term && term < pEnd ? term : pEnd;
+        if (empEnd < empStart) {
+          throw new Error(`الموظف ${emp.fullNameAr || emp.code} غير نشط خلال الفترة ${period.name}`);
+        }
+
+        const wDaysDefault = Math.max(1, Number(planBody.workingDaysInMonth || 22));
+        const rawItems: any[] = Array.isArray(planBody.allocations) ? planBody.allocations : [];
+        const totalMonthPct = rawItems.reduce((s, it) => s + resolveAssignmentPct({ ...it, workingDaysInMonth: it.workingDaysInMonth || wDaysDefault }), 0);
+
+        const replacementRows: any[] = [];
+        for (const it of rawItems) {
+          const prj = projects.find((p) => p.id === it.projectId || p.code === it.projectId);
+          if (!prj) throw new Error('أحد المشاريع المختارة غير موجود');
+          if (['COMPLETED', 'CANCELLED'].includes(prj.status)) {
+            throw new Error(`المشروع ${prj.nameAr} مغلق ولا يقبل توزيعات جديدة`);
+          }
+          const prjStart = prj.startDate ? String(prj.startDate).slice(0, 10) : empStart;
+          const prjEnd = prj.endDate ? String(prj.endDate).slice(0, 10) : empEnd;
+          const effFrom = prjStart > empStart ? prjStart : empStart;
+          const effTo = prjEnd < empEnd ? prjEnd : empEnd;
+          if (effTo < effFrom) {
+            throw new Error(`المشروع ${prj.nameAr} لا تتداخل تواريخه مع شهر ${period.name}`);
+          }
+          const cli = clients.find((c: any) => c.id === (it.clientId || prj.clientId)) || clients[0];
+          const wDays = Math.max(1, Number(it.workingDaysInMonth || wDaysDefault));
+          const econ = computeAssignmentEconomics({
+            assignment: { ...it, workingDaysInMonth: wDays },
+            employee: emp,
+            project: prj,
+            servicePrices,
+            period,
+            totalEmployeeAllocPct: totalMonthPct,
+          });
+          replacementRows.push({
+            id: uid('asg'),
+            employeeId: emp.id,
+            employeeCode: emp.code || '',
+            employeeName: emp.fullNameAr || 'موظف',
+            employeeNameAr: emp.fullNameAr || 'موظف',
+            projectId: prj.id,
+            projectCode: prj.code || '',
+            projectName: prj.nameAr || 'مشروع',
+            projectNameAr: prj.nameAr || 'مشروع',
+            clientId: cli?.id || prj.clientId || null,
+            clientName: cli?.nameAr || prj.clientName || 'عميل',
+            clientNameAr: cli?.nameAr || prj.clientName || 'عميل',
+            costCenterId: it.costCenterId || prj.costCenterId || emp.costCenterId || null,
+            allocationBasis: econ.allocationBasis,
+            allocationPct: econ.allocationPct,
+            allocatedDays: econ.allocatedDays,
+            allocatedHours: it.allocatedHours ? Number(it.allocatedHours) : econ.allocatedHours,
+            workingDaysInMonth: wDays,
+            billableRate: econ.rawUnitPrice,
+            billingBasis: econ.pricingBasis,
+            billingCurrency: econ.rateCurrency || 'SAR',
+            startDate: effFrom,
+            endDate: effTo,
+            effectiveFrom: effFrom,
+            effectiveTo: effTo,
+            roleTitle: it.roleTitle || emp.positionTitle || 'مهندس برمجيات',
+            isBillable: it.isBillable !== false,
+            monthlyRevenue: econ.revenueBase,
+            allocatedCost: econ.directCostShareBase,
+            marginPct: String(econ.grossMarginPct),
+            changeReason: planBody.reason || `توزيع شهر ${period.name}`,
+            notes: it.notes || null,
+          });
+        }
+
+        const allAsg = getEntityList<any>('assignments', []);
+        const nextList = replaceEmployeeAssignmentsInPeriod({
+          allAssignments: allAsg,
+          isTargetEmployee: (a) => matchesEmployee(a, emp),
+          periodStart: pStart,
+          periodEnd: pEnd,
+          replacementRows,
+          createId: uid,
+        });
+        replaceEntityList('assignments', nextList);
+        recomputeEmployeeOverAllocation(emp.id);
+        return { emp, period, savedCount: replacementRows.length, totalMonthPct };
+      };
+
+      if (cleanP === '/assignments/monthly-plan' && (method === 'PUT' || method === 'POST')) {
+        const res = saveEmployeeMonthlyPlanLocal(body);
+        recordAudit({
+          action: 'UPSERT_MONTHLY_ALLOCATION',
+          schemaName: 'pmo',
+          tableName: 'assignments',
+          entityId: res.emp.id,
+          newValues: { periodId: res.period.id, periodName: res.period.name, projectsCount: res.savedCount, totalPct: res.totalMonthPct },
+          reason: body?.reason || `حفظ توزيع الموظف ${res.emp.fullNameAr} لشهر ${res.period.name}`,
+        });
+        return { success: true, ...res, periodId: res.period.id, employeeId: res.emp.id };
+      }
+
+      if (cleanP === '/assignments/copy-month' && method === 'POST') {
+        const toPeriod = assertPeriodOpen(body?.toPeriodId, 'ترحيل توزيع الشهر السابق');
+        const fromPeriod = resolvePeriodByIdOrDate(body?.fromPeriodId, null);
+        if (!fromPeriod || !toPeriod) throw new Error('يرجى تحديد فترتي المصدر والهدف');
+        const allAsg = getEntityList<any>('assignments', []);
+        const emps = getEntityList<any>('employees', []);
+        const projects = getEntityList<any>('projects', []);
+        const srcRows = allAsg.filter((a) => isAssignmentActiveInPeriod(a, fromPeriod));
+        const mode = body?.mode || 'SKIP_EXISTING';
+
+        let copiedCount = 0;
+        let skippedEmployees = 0;
+
+        for (const emp of emps) {
+          if (body?.employeeId && emp.id !== body.employeeId && emp.code !== body.employeeId) continue;
+          const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : '1900-01-01';
+          const term = emp.terminationDate ? String(emp.terminationDate).slice(0, 10) : null;
+          if (hire > toPeriod.endDate || (term && term < toPeriod.startDate) || emp.status === 'SUSPENDED') continue;
+
+          const empSrc = srcRows.filter((a) => matchesEmployee(a, emp));
+          if (empSrc.length === 0) continue;
+
+          if (mode === 'SKIP_EXISTING') {
+            const alreadyInTarget = allAsg.some((a) => matchesEmployee(a, emp) && isAssignmentActiveInPeriod(a, toPeriod));
+            if (alreadyInTarget) {
+              skippedEmployees++;
+              continue;
+            }
+          }
+
+          const allocItems = empSrc
+            .map((a) => {
+              const prj = projects.find((p) => matchesProject(a, p));
+              if (!prj || ['COMPLETED', 'CANCELLED'].includes(prj.status)) return null;
+              if (prj.startDate > toPeriod.endDate || (prj.endDate && prj.endDate < toPeriod.startDate)) return null;
+              return {
+                projectId: prj.id,
+                clientId: a.clientId || prj.clientId,
+                costCenterId: a.costCenterId || prj.costCenterId,
+                allocationBasis: a.allocationBasis || 'DAYS',
+                allocatedDays: a.allocatedDays,
+                allocationPct: a.allocationPct,
+                allocatedHours: a.allocatedHours,
+                workingDaysInMonth: a.workingDaysInMonth || 22,
+                billableRate: a.billableRate,
+                billingBasis: a.billingBasis || 'DAILY',
+                billingCurrency: a.billingCurrency || 'SAR',
+                roleTitle: a.roleTitle,
+                isBillable: a.isBillable !== false,
+                notes: a.notes,
+              };
+            })
+            .filter(Boolean);
+
+          if (allocItems.length === 0) continue;
+          const res = saveEmployeeMonthlyPlanLocal({
+            periodId: toPeriod.id,
+            employeeId: emp.id,
+            workingDaysInMonth: 22,
+            reason: `نسخ توزيع من ${fromPeriod.name} إلى ${toPeriod.name}`,
+            allocations: allocItems,
+          });
+          copiedCount += res.savedCount;
+        }
+
+        recordAudit({
+          action: 'COPY_MONTHLY_ALLOCATION',
+          schemaName: 'pmo',
+          tableName: 'assignments',
+          entityId: toPeriod.id,
+          newValues: { fromPeriodId: fromPeriod.id, toPeriodId: toPeriod.id, copiedCount, skippedEmployees },
+          reason: `ترحيل توزيع الموظفين من ${fromPeriod.name} إلى ${toPeriod.name} (${copiedCount} تخصيص)`,
+        });
+        return { success: true, copiedCount, skippedEmployees };
+      }
+
       if (cleanP.endsWith('/end') && method === 'POST') {
         const asgId = cleanP.split('/')[2];
         const allAsg = getEntityList<any>('assignments', []);
@@ -1326,12 +1519,69 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
         }
         return { success: true, message: 'تم حذف الإسناد بنجاح' };
       }
-      if (typeof body === 'object' && body !== null) {
+      if ((method === 'PATCH' || method === 'PUT') && cleanP.split('/').filter(Boolean).length === 2) {
+        const id = cleanP.split('/').filter(Boolean)[1];
+        const allAsg = getEntityList<any>('assignments', []);
+        const existing = allAsg.find((a) => a.id === id);
+        if (!existing) throw new Error('التخصيص غير موجود');
+        const nextStart = body?.startDate || body?.effectiveFrom || existing.startDate;
+        const nextEnd = body?.endDate !== undefined ? body.endDate : existing.endDate;
+        assertPeriodOpen(nextStart, 'تعديل تخصيص موظف');
         const emps = getEntityList('employees', []);
         const projects = getEntityList('projects', []);
         const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
+        const emp = emps.find((e) => e.id === (body?.employeeId || existing.employeeId) || e.code === existing.employeeCode);
+        const prj = projects.find((p) => p.id === (body?.projectId || existing.projectId) || p.code === existing.projectCode);
+        const period = resolvePeriodByIdOrDate(null, nextStart);
+        const mergedInput = { ...existing, ...body, startDate: nextStart, endDate: nextEnd };
+        const econ = computeAssignmentEconomics({
+          assignment: mergedInput,
+          employee: emp,
+          project: prj,
+          servicePrices,
+          period,
+        });
+        const updatedAsg = {
+          ...existing,
+          ...mergedInput,
+          employeeName: emp?.fullNameAr || existing.employeeName,
+          employeeNameAr: emp?.fullNameAr || existing.employeeNameAr || existing.employeeName,
+          projectName: prj?.nameAr || existing.projectName,
+          projectNameAr: prj?.nameAr || existing.projectNameAr || existing.projectName,
+          allocationBasis: econ.allocationBasis,
+          allocationPct: econ.allocationPct,
+          allocatedDays: econ.allocatedDays,
+          workingDaysInMonth: econ.workingDays,
+          billableRate: econ.rawUnitPrice,
+          billingBasis: econ.pricingBasis,
+          billingCurrency: econ.rateCurrency || 'SAR',
+          effectiveFrom: nextStart,
+          effectiveTo: nextEnd || null,
+          monthlyRevenue: econ.revenueBase,
+          allocatedCost: econ.directCostShareBase,
+          marginPct: String(econ.grossMarginPct),
+        };
+        const saved = saveEntityItem('assignments', updatedAsg);
+        recomputeEmployeeOverAllocation(saved.employeeId || saved.employeeCode);
+        recordAudit({
+          action: 'UPDATE_ASSIGNMENT',
+          schemaName: 'pmo',
+          tableName: 'assignments',
+          entityId: saved.id,
+          oldValues: { allocationPct: existing.allocationPct, allocatedDays: existing.allocatedDays },
+          newValues: { allocationPct: saved.allocationPct, allocatedDays: saved.allocatedDays },
+          reason: body?.changeReason || `تحديث تخصيص ${saved.employeeName} في ${saved.projectName}`,
+        });
+        return saved;
+      }
+      if (typeof body === 'object' && body !== null) {
+        const emps = getEntityList('employees', []);
+        const projects = getEntityList('projects', []);
+        const clients = getEntityList('clients', defaultClients);
+        const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
         const emp = emps.find((e) => e.id === body.employeeId || e.code === body.employeeId);
         const prj = projects.find((p) => p.id === body.projectId || p.code === body.projectId);
+        const cli = clients.find((c: any) => c.id === (body.clientId || prj?.clientId));
         const startDateStr = body.startDate || body.effectiveFrom || new Date().toISOString().slice(0, 10);
         const endDateStr = body.endDate || body.effectiveTo || null;
         const period = resolvePeriodByIdOrDate(null, startDateStr);
@@ -1349,10 +1599,15 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
           employeeId: emp?.id || body.employeeId,
           employeeCode: emp?.code || body.employeeCode || '',
           employeeName: emp?.fullNameAr || emp?.full_name_ar || body.employeeName || 'موظف',
+          employeeNameAr: emp?.fullNameAr || emp?.full_name_ar || body.employeeName || 'موظف',
           projectId: prj?.id || body.projectId,
           projectCode: prj?.code || body.projectCode || '',
           projectName: prj?.nameAr || body.projectName || 'مشروع',
-          clientName: prj?.clientName || body.clientName || 'عميل',
+          projectNameAr: prj?.nameAr || body.projectName || 'مشروع',
+          clientId: cli?.id || prj?.clientId || body.clientId || null,
+          clientName: cli?.nameAr || prj?.clientName || body.clientName || 'عميل',
+          clientNameAr: cli?.nameAr || prj?.clientName || body.clientName || 'عميل',
+          costCenterId: body.costCenterId || prj?.costCenterId || null,
           allocationBasis: econ.allocationBasis,
           allocationPct: econ.allocationPct,
           allocatedDays: econ.allocatedDays,
@@ -4257,18 +4512,228 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
     return makeList(clients);
   }
 
-  // 8. Assignments & Workload (الإسناد) — Live enriched via computeAssignmentEconomics
+  // 8. Assignments & Workload (الإسناد والتوزيع الشهري) — Live enriched via computeAssignmentEconomics
+  if (path.includes('/assignments/monthly-plan')) {
+    const queryStr = path.includes('?') ? path.split('?')[1] : '';
+    const params = new URLSearchParams(queryStr);
+    const period = resolvePeriodByIdOrDate(params.get('periodId'), null);
+    const qText = (params.get('q') || '').trim().toLowerCase();
+    const emps = getEntityList<any>('employees', []);
+    const allAsg = getEntityList<any>('assignments', []);
+    const projects = getEntityList<any>('projects', []);
+    const clients = getEntityList<any>('clients', defaultClients);
+    const allCc = getLocalCostCenters();
+    const ccNameMap = new Map(allCc.map((c: any) => [c.id, c.nameAr]));
+    const servicePrices = getEntityList<any>('service_prices', []).filter((sp: any) => !sp.effectiveTo);
+    const overheadPolicy = getOverheadPolicy();
+
+    let allocatedEmployees = 0;
+    let benchEmployeesCount = 0;
+    let overAllocatedCount = 0;
+    let totalAllocatedDays = 0;
+    let totalWorkingDays = 0;
+    let totalBenchDays = 0;
+    let totalRevenueBase = 0;
+    let totalCostBase = 0;
+    const employees: any[] = [];
+
+    for (const emp of emps) {
+      const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : '1900-01-01';
+      const term = emp.terminationDate ? String(emp.terminationDate).slice(0, 10) : null;
+      if (period && (hire > period.endDate || (term && term < period.startDate) || emp.status === 'SUSPENDED')) continue;
+      if (qText) {
+        const hay = `${emp.code || ''} ${emp.fullNameAr || ''} ${emp.positionTitle || ''} ${emp.departmentName || ''}`.toLowerCase();
+        const empMatched = hay.includes(qText);
+        const anyPrjMatched = allAsg.some(
+          (a) => matchesEmployee(a, emp) && isAssignmentActiveInPeriod(a, period) && `${a.projectName || ''} ${a.projectCode || ''}`.toLowerCase().includes(qText),
+        );
+        if (!empMatched && !anyPrjMatched) continue;
+      }
+
+      const bd = computeEmployeeCostBreakdown(emp, period, overheadPolicy);
+      const empAsgs = allAsg.filter((a) => matchesEmployee(a, emp) && isAssignmentActiveInPeriod(a, period));
+      const workingDays = Number(empAsgs[0]?.workingDaysInMonth || 22);
+      const rawTotalPct = empAsgs.reduce((s, a) => s + resolveAssignmentPct(a), 0);
+
+      let empDays = 0;
+      let empRev = 0;
+      let empAllocCost = 0;
+      const items = empAsgs.map((a) => {
+        const prj = projects.find((p) => matchesProject(a, p));
+        const cli = clients.find((c: any) => c.id === (a.clientId || prj?.clientId));
+        const ccId = a.costCenterId || prj?.costCenterId || emp.costCenterId || null;
+        const econ = computeAssignmentEconomics({
+          assignment: a,
+          employee: emp,
+          project: prj,
+          servicePrices,
+          period,
+          totalEmployeeAllocPct: rawTotalPct,
+          overheadPolicy,
+        });
+        empDays += econ.allocatedDays;
+        empRev += econ.revenueBase;
+        empAllocCost += econ.directCostShareBase;
+        return {
+          ...a,
+          employeeId: emp.id,
+          employeeCode: emp.code || a.employeeCode || '',
+          employeeNameAr: emp.fullNameAr || a.employeeName || '',
+          projectId: prj?.id || a.projectId,
+          projectCode: prj?.code || a.projectCode || '',
+          projectNameAr: prj?.nameAr || a.projectName || 'مشروع',
+          clientId: cli?.id || a.clientId || prj?.clientId || null,
+          clientNameAr: cli?.nameAr || a.clientName || '',
+          costCenterId: ccId,
+          costCenterName: ccId ? ccNameMap.get(ccId) || a.costCenterName || 'مركزي' : 'مركزي عام',
+          allocationBasis: econ.allocationBasis,
+          allocationPct: econ.allocationPct,
+          allocatedDays: econ.allocatedDays,
+          workingDaysInMonth: econ.workingDays,
+          billableRate: econ.rawUnitPrice,
+          billingBasis: econ.pricingBasis,
+          billingCurrency: econ.rateCurrency,
+          monthlyRevenueBase: econ.revenueBase,
+          allocatedCostShareBase: econ.directCostShareBase,
+          netProfitBase: econ.netProfitBase,
+        };
+      });
+
+      const pctRounded = Math.round(rawTotalPct * 100) / 100;
+      const daysRounded = Math.round(empDays * 100) / 100;
+      const benchDays = Math.max(0, Math.round((workingDays - daysRounded) * 100) / 100);
+      const benchPct = Math.max(0, Math.round((100 - pctRounded) * 100) / 100);
+      const isOver = pctRounded > 100.05;
+      const statusTier = isOver ? 'OVER' : pctRounded >= 99.5 ? 'FULL' : pctRounded > 0.05 ? 'PARTIAL' : 'BENCH';
+      const benchCostBase = Math.round(bd.distributableCostBase * (benchPct / 100) * 100) / 100;
+      const revRounded = Math.round(empRev * 100) / 100;
+      const allocCostRounded = Math.round(empAllocCost * 100) / 100;
+
+      if (pctRounded > 0.05) allocatedEmployees++;
+      if (benchPct > 0.05) benchEmployeesCount++;
+      if (isOver) overAllocatedCount++;
+      totalAllocatedDays += daysRounded;
+      totalWorkingDays += workingDays;
+      totalBenchDays += benchDays;
+      totalRevenueBase += revRounded;
+      totalCostBase += allocCostRounded;
+
+      employees.push({
+        employeeId: emp.id,
+        employeeCode: emp.code || '',
+        employeeNameAr: emp.fullNameAr || 'موظف',
+        positionTitle: emp.positionTitle || emp.role || 'كادر تشغيلي',
+        departmentName: emp.departmentName || '',
+        hireDate: emp.hireDate || '',
+        terminationDate: emp.terminationDate || null,
+        isBillableResource: emp.isBillableResource !== false,
+        workingDaysInMonth: workingDays,
+        totalAllocatedDays: daysRounded,
+        totalAllocatedPct: pctRounded,
+        benchDays,
+        benchPct,
+        isOverAllocated: isOver,
+        overAllocatedPct: isOver ? Math.round((pctRounded - 100) * 100) / 100 : 0,
+        statusTier,
+        monthlyCostBase: bd.distributableCostBase,
+        allocatedCostBase: allocCostRounded,
+        benchCostBase,
+        totalRevenueBase: revRounded,
+        netProfitBase: Math.round((revRounded - allocCostRounded) * 100) / 100,
+        items,
+      });
+    }
+
+    return {
+      period: { ...(period || {}), workingDaysInMonth: 22 },
+      summary: {
+        totalEmployees: employees.length,
+        allocatedEmployees,
+        benchEmployeesCount,
+        overAllocatedCount,
+        totalAllocatedDays: Math.round(totalAllocatedDays * 100) / 100,
+        totalWorkingDays: Math.round(totalWorkingDays * 100) / 100,
+        totalBenchDays: Math.round(totalBenchDays * 100) / 100,
+        avgUtilizationPct: totalWorkingDays > 0 ? Math.round((totalAllocatedDays / totalWorkingDays) * 1000) / 10 : 0,
+        totalRevenueBase: Math.round(totalRevenueBase * 100) / 100,
+        totalCostBase: Math.round(totalCostBase * 100) / 100,
+        netProfitBase: Math.round((totalRevenueBase - totalCostBase) * 100) / 100,
+      },
+      employees,
+    };
+  }
+
+  if (path.includes('/assignments/monthly-matrix')) {
+    const periods = [...getEntityList<any>('fiscal_periods', defaultFiscalPeriodsList)]
+      .filter((p) => !p.isAdjustmentPeriod)
+      .sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+    const emps = getEntityList<any>('employees', []);
+    const allAsg = getEntityList<any>('assignments', []);
+    const projects = getEntityList<any>('projects', []);
+
+    const rows = emps.map((emp) => {
+      const cells: Record<string, any> = {};
+      for (const p of periods) {
+        const pItems = allAsg.filter((a) => matchesEmployee(a, emp) && isAssignmentActiveInPeriod(a, p));
+        const totalPct = Math.round(pItems.reduce((s, a) => s + resolveAssignmentPct(a), 0) * 10) / 10;
+        const totalDays = Math.round(
+          pItems.reduce((s, a) => {
+            const w = Math.max(1, Number(a.workingDaysInMonth || 22));
+            return s + (String(a.allocationBasis || '').toUpperCase() === 'DAYS' && a.allocatedDays != null ? Number(a.allocatedDays) : (resolveAssignmentPct(a) / 100) * w);
+          }, 0) * 10,
+        ) / 10;
+        cells[p.id] = {
+          periodId: p.id,
+          totalPct,
+          totalDays,
+          projectCount: pItems.length,
+          isOverAllocated: totalPct > 100.05,
+          projects: pItems.map((a) => {
+            const prj = projects.find((pr) => matchesProject(a, pr));
+            return {
+              projectId: prj?.id || a.projectId,
+              projectCode: prj?.code || a.projectCode || '',
+              projectNameAr: prj?.nameAr || a.projectName || 'مشروع',
+              allocationPct: resolveAssignmentPct(a),
+            };
+          }),
+        };
+      }
+      return {
+        employeeId: emp.id,
+        employeeCode: emp.code || '',
+        employeeNameAr: emp.fullNameAr || 'موظف',
+        cells,
+      };
+    });
+
+    return { periods, rows };
+  }
+
   if (path.includes('/assignments')) {
     const allAsg = getEntityList('assignments', []);
     let rows = allAsg;
     const emps = getEntityList('employees', []);
     const projects = getEntityList('projects', []);
+    const clients = getEntityList('clients', defaultClients);
+    const allCc = getLocalCostCenters();
+    const ccNameMap = new Map(allCc.map((c: any) => [c.id, c.nameAr]));
     const servicePrices = getEntityList('service_prices', []).filter((sp: any) => !sp.effectiveTo);
     const overheadPolicy = getOverheadPolicy();
     const queryStr = path.includes('?') ? path.split('?')[1] : '';
     const params = new URLSearchParams(queryStr);
+    const filterPeriodId = params.get('periodId');
+    const filterAsOf = params.get('asOf');
+    const filterQ = (params.get('q') || '').trim().toLowerCase();
     const filterEmp = params.get('employeeId');
     const filterPrj = params.get('projectId');
+    const targetPeriod = filterPeriodId ? resolvePeriodByIdOrDate(filterPeriodId, null) : null;
+
+    if (targetPeriod) {
+      rows = rows.filter((a) => isAssignmentActiveInPeriod(a, targetPeriod));
+    } else if (filterAsOf) {
+      rows = rows.filter((a) => isAssignmentActiveInPeriod(a, null, filterAsOf));
+    }
     if (filterEmp) {
       const matchedEmp = emps.find((e: any) => e.id === filterEmp || e.code === filterEmp);
       rows = rows.filter((a) => (matchedEmp ? matchesEmployee(a, matchedEmp) : (a.employeeId === filterEmp || a.employeeCode === filterEmp)));
@@ -4277,40 +4742,61 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       const matchedPrj = projects.find((p: any) => p.id === filterPrj || p.code === filterPrj);
       rows = rows.filter((a) => (matchedPrj ? matchesProject(a, matchedPrj) : (a.projectId === filterPrj || a.projectCode === filterPrj)));
     }
+    if (filterQ) {
+      rows = rows.filter((a) => {
+        const hay = `${a.employeeName || ''} ${a.employeeCode || ''} ${a.projectName || ''} ${a.projectCode || ''} ${a.clientName || ''} ${a.roleTitle || ''}`.toLowerCase();
+        return hay.includes(filterQ);
+      });
+    }
     let totalDays = 0;
     let totalRevenue = 0;
     let totalCost = 0;
     const enrichedRows = rows.map((a: any) => {
       const emp = emps.find((e: any) => matchesEmployee(a, e));
       const prj = projects.find((p: any) => matchesProject(a, p));
-      const empActiveAsgs = allAsg.filter((x: any) => matchesEmployee(x, emp || a) && isAssignmentActiveInPeriod(x));
-      const empTotalPct = empActiveAsgs.reduce(
-        (s: number, x: any) => s + Number(x.allocationPct != null ? x.allocationPct : (x.allocationBasis === 'DAYS' ? ((Number(x.allocatedDays) || 22) / 22) * 100 : 100)),
-        0,
-      );
+      const cli = clients.find((c: any) => c.id === (a.clientId || prj?.clientId));
+      const effPeriod = targetPeriod || resolvePeriodByIdOrDate(null, a.startDate || a.effectiveFrom);
+      const empAllAsgs = allAsg.filter((x: any) => matchesEmployee(x, emp || a));
+      const peakRes = targetPeriod
+        ? computePeakAllocationOverlapPct(empAllAsgs, { startDate: targetPeriod.startDate, endDate: targetPeriod.endDate })
+        : computePeakAllocationOverlapPct(empAllAsgs, { activeOnOrAfter: new Date().toISOString().slice(0, 10) });
+      const empTotalPct = peakRes.peakPct;
       const econ = computeAssignmentEconomics({
         assignment: a,
         employee: emp,
         project: prj,
         servicePrices,
+        period: effPeriod,
         totalEmployeeAllocPct: empTotalPct,
         overheadPolicy,
       });
-      if (isAssignmentActiveInPeriod(a)) {
+      if (isAssignmentActiveInPeriod(a, effPeriod)) {
         totalDays += econ.allocatedDays;
         totalRevenue += econ.revenueBase;
         totalCost += econ.directCostShareBase;
       }
+      const empName = a.employeeName || emp?.fullNameAr || 'الموظف';
+      const prjName = a.projectName || prj?.nameAr || 'مشروع';
+      const cliName = cli?.nameAr || a.clientName || prj?.clientName || 'عميل';
+      const ccId = a.costCenterId || prj?.costCenterId || emp?.costCenterId || null;
       return {
         ...a,
-        employeeName: a.employeeName || emp?.fullNameAr || 'الموظف',
+        employeeName: empName,
+        employeeNameAr: empName,
         employeeCode: a.employeeCode || emp?.code || '',
-        projectName: a.projectName || prj?.nameAr || 'مشروع',
+        projectName: prjName,
+        projectNameAr: prjName,
         projectCode: a.projectCode || prj?.code || '',
-        clientName: a.clientName || prj?.clientName || 'عميل',
+        clientId: cli?.id || a.clientId || prj?.clientId || null,
+        clientName: cliName,
+        clientNameAr: cliName,
+        costCenterId: ccId,
+        costCenterName: ccId ? ccNameMap.get(ccId) || a.costCenterName || 'مركزي عام' : 'مركزي عام',
         allocationBasis: econ.allocationBasis,
         allocationPct: econ.allocationPct,
         allocatedDays: econ.allocatedDays,
+        isOverAllocated: empTotalPct > 100.05,
+        overAllocatedPct: empTotalPct > 100.05 ? Math.round((empTotalPct - 100) * 10) / 10 : 0,
         billingBasis: econ.pricingBasis,
         pricingBasis: econ.pricingBasis,
         billableRate: econ.rawUnitPrice,
@@ -4326,7 +4812,7 @@ export function getDemoFallback(path: string, method = 'GET', body?: any): any {
       summary: { totalDays: Number(totalDays.toFixed(2)), totalRevenue, totalCost, margin: margin.toFixed(1) },
       rows: enrichedRows,
       data: enrichedRows,
-      meta: { page: 1, pageSize: 50, total: enrichedRows.length },
+      meta: { page: 1, pageSize: 200, total: enrichedRows.length },
     };
   }
 

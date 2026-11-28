@@ -1,10 +1,10 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { listQuery, uuid } from '../../../shared/http/common';
 import { activeCompanyId } from '../../../shared/http/request';
 import { ZodPipe } from '../../../shared/http/zod.pipe';
 import { RequirePermission } from '../../iam/presentation/decorators';
-import { AssignmentChange, AssignmentCreate, AssignmentEnd, AssignmentsService, AssignmentUpdate } from '../application/assignments.service';
+import { AssignmentChange, AssignmentCreate, AssignmentEnd, AssignmentsService, AssignmentUpdate, CopyMonthPlan, MonthlyPlanSave } from '../application/assignments.service';
 import { PriceCreate, PriceEnd, PricingService } from '../application/pricing.service';
 import { ClientCreate, ClientUpdate, ProjectCreate, ProjectsService, ProjectStatusChange, ProjectUpdate } from '../application/projects.service';
 
@@ -110,6 +110,30 @@ export class AssignmentsController {
   @RequirePermission('prj.assignment.view')
   employeeDaysReport(@Query(periodQuery) q: { periodId: string }) {
     return this.svc.getEmployeeDaysReport(activeCompanyId(), q.periodId);
+  }
+
+  @Get('monthly-plan')
+  @RequirePermission('prj.assignment.view')
+  monthlyPlan(@Query(new ZodPipe(z.object({ periodId: uuid, q: z.string().optional() }))) q: { periodId: string; q?: string }) {
+    return this.svc.getMonthlyPlan(activeCompanyId(), q.periodId, q.q);
+  }
+
+  @Get('monthly-matrix')
+  @RequirePermission('prj.assignment.view')
+  monthlyMatrix() {
+    return this.svc.getMonthlyMatrix(activeCompanyId());
+  }
+
+  @Put('monthly-plan')
+  @RequirePermission('prj.assignment.create')
+  saveMonthlyPlan(@Body(new ZodPipe(MonthlyPlanSave)) body: z.infer<typeof MonthlyPlanSave>) {
+    return this.svc.saveMonthlyPlan(activeCompanyId(), body);
+  }
+
+  @Post('copy-month')
+  @RequirePermission('prj.assignment.create')
+  copyMonth(@Body(new ZodPipe(CopyMonthPlan)) body: z.infer<typeof CopyMonthPlan>) {
+    return this.svc.copyMonth(activeCompanyId(), body);
   }
 
   @Get(':id')

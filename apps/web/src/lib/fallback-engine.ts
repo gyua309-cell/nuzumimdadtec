@@ -1214,8 +1214,9 @@ export function isAssignmentActiveInPeriod(
   referenceDate?: string
 ): boolean {
   if (!a) return false;
-  const asgStart = a.startDate || a.effectiveFrom || '1970-01-01';
-  const asgEnd = a.endDate || a.effectiveTo || '2099-12-31';
+  const asgStart = String(a.startDate || a.effectiveFrom || '1970-01-01').slice(0, 10);
+  const asgEnd = String(a.endDate || a.effectiveTo || '2099-12-31').slice(0, 10);
+  if (asgEnd < asgStart) return false;
 
   if (period && period.startDate && period.endDate) {
     return asgStart <= period.endDate && asgEnd >= period.startDate;
@@ -1435,4 +1436,152 @@ export function computeAssignmentEconomics(params: {
     netMarginPct,
     priceSource,
   };
+}
+
+/** Shifts an ISO YYYY-MM-DD date string by N calendar days in UTC. */
+export function shiftIsoDay(iso: string, deltaDays: number): string {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) + deltaDays * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Extracts normalized assignment allocation % across DAYS / PERCENTAGE bases. */
+export function resolveAssignmentPct(a: any): number {
+  const mDays = Math.max(1, Number(a?.workingDaysInMonth || a?.working_days_in_month || 22));
+  if (String(a?.allocationBasis || '').toUpperCase() === 'DAYS' && a?.allocatedDays != null && a?.allocatedDays !== '') {
+    return Number(((Number(a.allocatedDays) / mDays) * 100).toFixed(2));
+  }
+  if (a?.allocationPct != null && a?.allocationPct !== '') return Number(a.allocationPct);
+  if (a?.allocatedDays != null && a?.allocatedDays !== '') {
+    return Number(((Number(a.allocatedDays) / mDays) * 100).toFixed(2));
+  }
+  return 100;
+}
+
+/**
+ * Computes the peak simultaneous allocation % across an employee's assignments
+ * by sweeping exact interval boundary dates so consecutive non-overlapping
+ * monthly allocations are never summed together.
+ */
+export function computePeakAllocationOverlapPct(
+  empAssignments: any[],
+  opts?: { startDate?: string; endDate?: string; activeOnOrAfter?: string },
+): {
+  peakPct: number;
+  isOverAllocated: boolean;
+  overAllocatedPct: number;
+} {
+  if (!Array.isArray(empAssignments) || empAssignments.length === 0) {
+    return { peakPct: 0, isOverAllocated: false, overAllocatedPct: 0 };
+  }
+  const normalized = empAssignments
+    .map((a) => ({
+      from: String(a.startDate || a.effectiveFrom || '1970-01-01').slice(0, 10),
+      to: a.endDate || a.effectiveTo ? String(a.endDate || a.effectiveTo).slice(0, 10) : '2099-12-31',
+      pct: resolveAssignmentPct(a),
+    }))
+    .filter((r) => {
+      if (r.to < r.from) return false;
+      if (opts?.activeOnOrAfter && r.to < opts.activeOnOrAfter) return false;
+      if (opts?.startDate && r.to < opts.startDate) return false;
+      if (opts?.endDate && r.from > opts.endDate) return false;
+      return true;
+    });
+  if (normalized.length === 0) {
+    return { peakPct: 0, isOverAllocated: false, overAllocatedPct: 0 };
+  }
+  const winStart = opts?.startDate || '1970-01-01';
+  const winEnd = opts?.endDate || '2099-12-31';
+  const samplePoints = new Set<string>();
+  for (const r of normalized) {
+    const f = r.from > winStart ? r.from : winStart;
+    const t = r.to < winEnd ? r.to : winEnd;
+    if (f <= t) {
+      samplePoints.add(f);
+      if (t < '2099-12-31') samplePoints.add(t);
+    }
+  }
+  let peakPct = 0;
+  for (const pt of samplePoints) {
+    let daySum = 0;
+    for (const r of normalized) {
+      if (r.from <= pt && r.to >= pt) daySum += r.pct;
+    }
+    if (daySum > peakPct) peakPct = daySum;
+  }
+  peakPct = Math.round(peakPct * 100) / 100;
+  const isOverAllocated = peakPct > 100.05;
+  return {
+    peakPct,
+    isOverAllocated,
+    overAllocatedPct: isOverAllocated ? Math.round((peakPct - 100) * 100) / 100 : 0,
+  };
+}
+
+/**
+ * Slices an employee's existing assignments around a target month [periodStart, periodEnd]
+ * without altering historical closed months, then merges the replacement rows.
+ */
+export function replaceEmployeeAssignmentsInPeriod(params: {
+  allAssignments: any[];
+  isTargetEmployee: (a: any) => boolean;
+  periodStart: string;
+  periodEnd: string;
+  replacementRows: any[];
+  createId: (prefix: string) => string;
+}): any[] {
+  const { allAssignments, isTargetEmployee, periodStart, periodEnd, replacementRows, createId } = params;
+  const dayBeforeStart = shiftIsoDay(periodStart, -1);
+  const dayAfterEnd = shiftIsoDay(periodEnd, 1);
+  const nextList: any[] = [];
+
+  for (const a of allAssignments) {
+    if (!isTargetEmployee(a)) {
+      nextList.push(a);
+      continue;
+    }
+    const aStart = String(a.startDate || a.effectiveFrom || '1970-01-01').slice(0, 10);
+    const rawEnd = a.endDate || a.effectiveTo ? String(a.endDate || a.effectiveTo).slice(0, 10) : null;
+    const aEnd = rawEnd || '2099-12-31';
+
+    // Disjoint from target month -> preserve untouched
+    if (aEnd < periodStart || aStart > periodEnd) {
+      nextList.push(a);
+      continue;
+    }
+
+    // Left fragment (history before this month)
+    if (aStart < periodStart) {
+      nextList.push({
+        ...a,
+        endDate: dayBeforeStart,
+        effectiveTo: dayBeforeStart,
+      });
+      // Right tail ONLY if original assignment had an explicit end date extending past periodEnd
+      if (rawEnd && rawEnd > periodEnd) {
+        nextList.push({
+          ...a,
+          id: createId('asg'),
+          startDate: dayAfterEnd,
+          effectiveFrom: dayAfterEnd,
+          endDate: rawEnd,
+          effectiveTo: rawEnd,
+        });
+      }
+      continue;
+    }
+
+    // Assignment started inside this month and explicitly extends past periodEnd -> shift start forward
+    if (rawEnd && rawEnd > periodEnd) {
+      nextList.push({
+        ...a,
+        startDate: dayAfterEnd,
+        effectiveFrom: dayAfterEnd,
+      });
+    }
+    // Otherwise completely inside [periodStart, periodEnd] (or open-ended starting this month) -> replaced
+  }
+
+  for (const r of replacementRows) {
+    nextList.push(r);
+  }
+  return nextList;
 }

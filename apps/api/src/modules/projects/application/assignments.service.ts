@@ -37,6 +37,7 @@ export const AssignmentUpdate = z.object({
   clientId: z.string().uuid().nullable().optional(),
   costCenterId: z.string().uuid().nullable().optional(),
   allocationBasis: z.enum(['PERCENTAGE', 'DAYS', 'HOURS']).optional(),
+  allocationPct: pct.optional(),
   allocatedDays: z.string().or(z.number()).transform((v) => String(v)).optional(),
   allocatedHours: z.string().or(z.number()).transform((v) => String(v)).optional(),
   workingDaysInMonth: z.string().or(z.number()).transform((v) => String(v)).optional(),
@@ -46,6 +47,35 @@ export const AssignmentUpdate = z.object({
   roleTitle: z.string().trim().max(200).nullable().optional(),
   isBillable: z.boolean().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
+});
+export const MonthlyPlanItem = z.object({
+  projectId: z.string().uuid(),
+  clientId: z.string().uuid().nullable().optional(),
+  costCenterId: z.string().uuid().nullable().optional(),
+  allocationBasis: z.enum(['PERCENTAGE', 'DAYS', 'HOURS']).default('DAYS'),
+  allocationPct: pct.optional(),
+  allocatedDays: z.string().or(z.number()).transform((v) => Number(v)).optional(),
+  allocatedHours: z.string().or(z.number()).transform((v) => Number(v)).optional(),
+  workingDaysInMonth: z.string().or(z.number()).transform((v) => Number(v)).optional(),
+  billableRate: z.string().or(z.number()).transform((v) => Number(v)).nullable().optional(),
+  billingBasis: z.enum(['DAILY', 'HOURLY', 'MONTHLY']).default('DAILY').optional(),
+  billingCurrency: z.string().length(3).default('SAR').optional(),
+  roleTitle: z.string().trim().max(200).nullable().optional(),
+  isBillable: z.boolean().default(true).optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+export const MonthlyPlanSave = z.object({
+  periodId: z.string().uuid(),
+  employeeId: z.string().uuid(),
+  workingDaysInMonth: z.number().positive().max(31).optional().default(22),
+  reason: z.string().trim().max(1000).optional(),
+  allocations: z.array(MonthlyPlanItem).max(30),
+});
+export const CopyMonthPlan = z.object({
+  fromPeriodId: z.string().uuid(),
+  toPeriodId: z.string().uuid(),
+  employeeId: z.string().uuid().optional(),
+  mode: z.enum(['SKIP_EXISTING', 'REPLACE_EXISTING']).default('SKIP_EXISTING').optional(),
 });
 export const AssignmentChange = z.object({
   effectiveFrom: isoDate,
@@ -214,6 +244,7 @@ export class AssignmentsService {
       ['isBillable', 'is_billable'],
       ['notes', 'notes'],
       ['allocationBasis', 'allocation_basis'],
+      ['allocationPct', 'allocation_pct'],
       ['allocatedDays', 'allocated_days'],
       ['allocatedHours', 'allocated_hours'],
       ['workingDaysInMonth', 'working_days_in_month'],
@@ -601,6 +632,364 @@ export class AssignmentsService {
       },
       rows,
     };
+  }
+
+  /** Returns employee-grouped monthly distribution plan for a selected fiscal period. */
+  async getMonthlyPlan(companyId: string, periodId: string, q?: string) {
+    const p = await this.cost.periodRange(companyId, periodId);
+    const periodMeta = await this.db.one<{ id: string; code: string; name: string; status: string }>(
+      'SELECT id, code, name, status FROM core.fiscal_periods WHERE company_id = $1 AND id = $2',
+      [companyId, periodId],
+    );
+    const whereEmp = ['e.company_id = $1', 'e.hire_date <= $3::date', '(e.termination_date IS NULL OR e.termination_date >= $2::date)'];
+    const empParams: unknown[] = [companyId, p.start, p.end];
+    if (q) {
+      empParams.push(`%${q}%`);
+      whereEmp.push(`(e.code ILIKE $${empParams.length} OR e.full_name_ar ILIKE $${empParams.length})`);
+    }
+    const emps = await this.db.query<{
+      id: string; code: string; full_name_ar: string; hire_date: string; termination_date: string | null; is_billable_resource: boolean;
+    }>(
+      `SELECT e.id, e.code, e.full_name_ar, e.hire_date::text, e.termination_date::text, e.is_billable_resource
+         FROM hr.employees e WHERE ${whereEmp.join(' AND ')} ORDER BY e.code ASC`,
+      empParams,
+    );
+    const asgRows = await this.db.query(
+      `SELECT ${SELECT} FROM ${FROM}
+        WHERE a.company_id = $1 AND a.effective_from <= $3::date AND (a.effective_to IS NULL OR a.effective_to >= $2::date)
+        ORDER BY e.code ASC, p.code ASC`,
+      [companyId, p.start, p.end],
+    );
+    const withCost = hasPermission('hr.compensation.view');
+    const employees = [];
+    let allocatedEmployees = 0;
+    let benchEmployeesCount = 0;
+    let overAllocatedCount = 0;
+    let totalAllocatedDays = 0;
+    let totalWorkingDays = 0;
+    let totalBenchDays = 0;
+
+    for (const e of emps) {
+      const items = asgRows.filter((a: any) => a.employeeId === e.id);
+      const workingDays = Number(items[0]?.workingDaysInMonth || 22);
+      let empDays = 0;
+      let empPct = 0;
+      for (const a of items) {
+        const w = Number(a.workingDaysInMonth || workingDays);
+        const d = a.allocatedDays != null ? Number(a.allocatedDays) : Number(((Number(a.allocationPct) / 100) * w).toFixed(2));
+        const pctVal = a.allocationBasis === 'DAYS' ? Number(((d / w) * 100).toFixed(2)) : Number(a.allocationPct);
+        empDays += d;
+        empPct += pctVal;
+      }
+      empDays = Number(empDays.toFixed(2));
+      empPct = Number(empPct.toFixed(2));
+      const benchDays = Math.max(0, Number((workingDays - empDays).toFixed(2)));
+      const benchPct = Math.max(0, Number((100 - empPct).toFixed(2)));
+      const isOver = empPct > 100.05;
+      const statusTier = isOver ? 'OVER' : empPct >= 99.5 ? 'FULL' : empPct > 0.05 ? 'PARTIAL' : 'BENCH';
+      if (empPct > 0.05) allocatedEmployees++;
+      if (benchPct > 0.05) benchEmployeesCount++;
+      if (isOver) overAllocatedCount++;
+      totalAllocatedDays += empDays;
+      totalWorkingDays += workingDays;
+      totalBenchDays += benchDays;
+
+      let monthlyCostBase = 0;
+      if (withCost) {
+        try {
+          const c = await this.cost.compute(companyId, e.id, p);
+          monthlyCostBase = Number(c.distributableCostBase || 0);
+        } catch {
+          monthlyCostBase = 0;
+        }
+      }
+      employees.push({
+        employeeId: e.id,
+        employeeCode: e.code,
+        employeeNameAr: e.full_name_ar,
+        hireDate: e.hire_date,
+        terminationDate: e.termination_date,
+        isBillableResource: e.is_billable_resource,
+        workingDaysInMonth: workingDays,
+        totalAllocatedDays: empDays,
+        totalAllocatedPct: empPct,
+        benchDays,
+        benchPct,
+        isOverAllocated: isOver,
+        overAllocatedPct: isOver ? Number((empPct - 100).toFixed(2)) : 0,
+        statusTier,
+        monthlyCostBase,
+        allocatedCostBase: Number((monthlyCostBase * Math.min(1, empPct / 100)).toFixed(2)),
+        benchCostBase: Number((monthlyCostBase * (benchPct / 100)).toFixed(2)),
+        items,
+      });
+    }
+    return {
+      period: { ...p, ...periodMeta, workingDaysInMonth: 22 },
+      summary: {
+        totalEmployees: employees.length,
+        allocatedEmployees,
+        benchEmployeesCount,
+        overAllocatedCount,
+        totalAllocatedDays: Number(totalAllocatedDays.toFixed(2)),
+        totalWorkingDays: Number(totalWorkingDays.toFixed(2)),
+        totalBenchDays: Number(totalBenchDays.toFixed(2)),
+        avgUtilizationPct: totalWorkingDays > 0 ? Number(((totalAllocatedDays / totalWorkingDays) * 100).toFixed(1)) : 0,
+      },
+      employees,
+    };
+  }
+
+  /** Saves or updates all project allocations for one employee in a specific fiscal period without altering closed history. */
+  async saveMonthlyPlan(companyId: string, body: z.infer<typeof MonthlyPlanSave>) {
+    return this.db.tx(async () => {
+      const p = await this.cost.periodRange(companyId, body.periodId);
+      await this.db.query('SELECT core.assert_dates_open($1, $2::date, $3::date)', [companyId, p.start, p.end]);
+
+      const emp = await this.db.one<{ id: string; hire_date: string; termination_date: string | null }>(
+        'SELECT id, hire_date::text, termination_date::text FROM hr.employees WHERE company_id = $1 AND id = $2',
+        [companyId, body.employeeId],
+      );
+      if (!emp) throw new NotFoundError('Employee', body.employeeId);
+
+      const empStart = emp.hire_date > p.start ? emp.hire_date : p.start;
+      const empEnd = emp.termination_date && emp.termination_date < p.end ? emp.termination_date : p.end;
+      if (empEnd < empStart) throw new DomainError('DATE_OUTSIDE_EMPLOYMENT', 'Employee is not active in this period');
+
+      // Slice any overlapping assignments for this employee cleanly around [p.start, p.end]
+      const overlapping = await this.db.query<{
+        id: string; project_id: string; client_id: string | null; cost_center_id: string | null;
+        allocation_pct: string; allocation_basis: string; allocated_days: string | null; allocated_hours: string | null;
+        working_days_in_month: string | null; billable_rate: string | null; billing_basis: string | null; billing_currency: string | null;
+        role_title: string | null; is_billable: boolean; effective_from: string; effective_to: string | null; change_reason: string | null; notes: string | null;
+      }>(
+        `SELECT id, project_id, client_id, cost_center_id, allocation_pct::text, allocation_basis,
+                allocated_days::text, allocated_hours::text, working_days_in_month::text,
+                billable_rate::text, billing_basis, billing_currency, role_title, is_billable,
+                effective_from::text, effective_to::text, change_reason, notes
+           FROM prj.assignments
+          WHERE company_id = $1 AND employee_id = $2
+            AND effective_from <= $4::date AND (effective_to IS NULL OR effective_to >= $3::date)
+          FOR UPDATE`,
+        [companyId, body.employeeId, p.start, p.end],
+      );
+
+      for (const old of overlapping) {
+        if (old.effective_from >= p.start && old.effective_to !== null && old.effective_to <= p.end) {
+          await this.db.query('DELETE FROM prj.assignments WHERE company_id = $1 AND id = $2', [companyId, old.id]);
+        } else if (old.effective_from >= p.start && old.effective_to === null) {
+          await this.db.query('DELETE FROM prj.assignments WHERE company_id = $1 AND id = $2', [companyId, old.id]);
+        } else if (old.effective_from < p.start) {
+          // Only update effective_to so closed-period rows pass core.trg_effective_history_guard cleanly
+          await this.db.query(
+            'UPDATE prj.assignments SET effective_to = $2::date, updated_by = sys.current_user_id() WHERE id = $1',
+            [old.id, dayBefore(p.start)],
+          );
+          if (old.effective_to !== null && old.effective_to > p.end) {
+            await this.db.query(
+              `INSERT INTO prj.assignments (
+                 company_id, employee_id, project_id, client_id, cost_center_id,
+                 allocation_pct, allocation_basis, allocated_days, allocated_hours, working_days_in_month,
+                 billable_rate, billing_basis, billing_currency, role_title, is_billable,
+                 effective_from, effective_to, change_reason, notes, created_by, updated_by
+               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::date,$17::date,$18,$19, sys.current_user_id(), sys.current_user_id())`,
+              [
+                companyId, body.employeeId, old.project_id, old.client_id, old.cost_center_id,
+                old.allocation_pct, old.allocation_basis, old.allocated_days, old.allocated_hours, old.working_days_in_month,
+                old.billable_rate, old.billing_basis, old.billing_currency, old.role_title, old.is_billable,
+                dayAfter(p.end), old.effective_to, old.change_reason, old.notes,
+              ],
+            );
+          }
+        } else if (old.effective_to !== null && old.effective_to > p.end) {
+          await this.db.query('DELETE FROM prj.assignments WHERE company_id = $1 AND id = $2', [companyId, old.id]);
+          await this.db.query(
+            `INSERT INTO prj.assignments (
+               company_id, employee_id, project_id, client_id, cost_center_id,
+               allocation_pct, allocation_basis, allocated_days, allocated_hours, working_days_in_month,
+               billable_rate, billing_basis, billing_currency, role_title, is_billable,
+               effective_from, effective_to, change_reason, notes, created_by, updated_by
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::date,$17::date,$18,$19, sys.current_user_id(), sys.current_user_id())`,
+            [
+              companyId, body.employeeId, old.project_id, old.client_id, old.cost_center_id,
+              old.allocation_pct, old.allocation_basis, old.allocated_days, old.allocated_hours, old.working_days_in_month,
+              old.billable_rate, old.billing_basis, old.billing_currency, old.role_title, old.is_billable,
+              dayAfter(p.end), old.effective_to, old.change_reason, old.notes,
+            ],
+          );
+        }
+      }
+
+      for (const item of body.allocations) {
+        const prj = await this.db.one<{ status: string; start_date: string; end_date: string | null; client_id: string; cost_center_id: string | null }>(
+          'SELECT status, start_date::text, end_date::text, client_id, cost_center_id FROM prj.projects WHERE company_id = $1 AND id = $2',
+          [companyId, item.projectId],
+        );
+        if (!prj) throw new NotFoundError('Project', item.projectId);
+        if (!['DRAFT', 'ACTIVE', 'ON_HOLD'].includes(prj.status)) {
+          throw new DomainError('PROJECT_NOT_OPEN_FOR_ASSIGNMENT', 'Project is closed to new assignments');
+        }
+        const effFrom = prj.start_date > empStart ? prj.start_date : empStart;
+        const effTo = prj.end_date && prj.end_date < empEnd ? prj.end_date : empEnd;
+        if (effTo < effFrom) throw new DomainError('ASSIGNMENT_OUTSIDE_PROJECT', 'Project dates do not overlap selected month');
+
+        const wDays = Number(item.workingDaysInMonth || body.workingDaysInMonth || 22);
+        let pctVal = item.allocationPct ? Number(item.allocationPct) : 100;
+        let daysVal = item.allocatedDays ?? null;
+        if (item.allocationBasis === 'DAYS' && daysVal != null) {
+          pctVal = Math.min(100, Math.max(0.1, Number(((daysVal / wDays) * 100).toFixed(4))));
+        } else if (daysVal == null) {
+          daysVal = Number(((pctVal / 100) * wDays).toFixed(2));
+        }
+        await this.db.query(
+          `INSERT INTO prj.assignments (
+             company_id, employee_id, project_id, client_id, cost_center_id,
+             allocation_pct, allocation_basis, allocated_days, allocated_hours, working_days_in_month,
+             billable_rate, billing_basis, billing_currency, role_title, is_billable,
+             effective_from, effective_to, change_reason, notes, created_by, updated_by
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::date,$17::date,$18,$19, sys.current_user_id(), sys.current_user_id())`,
+          [
+            companyId, body.employeeId, item.projectId, item.clientId ?? prj.client_id, item.costCenterId ?? prj.cost_center_id,
+            pctVal, item.allocationBasis || 'DAYS', daysVal, item.allocatedHours ?? null, wDays,
+            item.billableRate ?? null, item.billingBasis ?? 'DAILY', item.billingCurrency ?? 'SAR',
+            item.roleTitle ?? null, item.isBillable ?? true, effFrom, effTo, body.reason ?? 'توزيع شهري مخطط', item.notes ?? null,
+          ],
+        );
+      }
+
+      const warnings = await this.warningsFor(companyId, body.employeeId, p.start, p.end);
+      return { success: true, warnings, periodId: body.periodId, employeeId: body.employeeId };
+    });
+  }
+
+  /** Clones active allocations from a previous/source period to an open target period. */
+  async copyMonth(companyId: string, body: z.infer<typeof CopyMonthPlan>) {
+    return this.db.tx(async () => {
+      const fromP = await this.cost.periodRange(companyId, body.fromPeriodId);
+      const toP = await this.cost.periodRange(companyId, body.toPeriodId);
+      await this.db.query('SELECT core.assert_dates_open($1, $2::date, $3::date)', [companyId, toP.start, toP.end]);
+
+      const sourceRows = await this.db.query<{
+        employee_id: string; project_id: string; client_id: string | null; cost_center_id: string | null;
+        allocation_basis: string; allocation_pct: string; allocated_days: string | null; allocated_hours: string | null;
+        working_days_in_month: string | null; billable_rate: string | null; billing_basis: string | null;
+        billing_currency: string | null; role_title: string | null; is_billable: boolean; notes: string | null;
+      }>(
+        `SELECT a.employee_id, a.project_id, a.client_id, a.cost_center_id, a.allocation_basis,
+                a.allocation_pct::text, a.allocated_days::text, a.allocated_hours::text, a.working_days_in_month::text,
+                a.billable_rate::text, a.billing_basis, a.billing_currency, a.role_title, a.is_billable, a.notes
+           FROM prj.assignments a
+          WHERE a.company_id = $1 AND a.effective_from <= $3::date AND (a.effective_to IS NULL OR a.effective_to >= $2::date)
+            AND ($4::uuid IS NULL OR a.employee_id = $4::uuid)`,
+        [companyId, fromP.start, fromP.end, body.employeeId ?? null],
+      );
+
+      const byEmp = new Map<string, typeof sourceRows>();
+      for (const r of sourceRows) {
+        const list = byEmp.get(r.employee_id) ?? [];
+        list.push(r);
+        byEmp.set(r.employee_id, list);
+      }
+
+      let copiedCount = 0;
+      let skippedEmployees = 0;
+      const mode = body.mode || 'SKIP_EXISTING';
+
+      for (const [empId, list] of byEmp.entries()) {
+        if (mode === 'SKIP_EXISTING') {
+          const exists = await this.db.one<{ n: string }>(
+            `SELECT count(*) AS n FROM prj.assignments
+              WHERE company_id = $1 AND employee_id = $2
+                AND effective_from <= $4::date AND (effective_to IS NULL OR effective_to >= $3::date)`,
+            [companyId, empId, toP.start, toP.end],
+          );
+          if (Number(exists?.n ?? 0) > 0) {
+            skippedEmployees++;
+            continue;
+          }
+        }
+        const validItems: z.infer<typeof MonthlyPlanItem>[] = [];
+        for (const r of list) {
+          const prj = await this.db.one<{ status: string; start_date: string; end_date: string | null }>(
+            'SELECT status, start_date::text, end_date::text FROM prj.projects WHERE company_id = $1 AND id = $2',
+            [companyId, r.project_id],
+          );
+          if (!prj || !['DRAFT', 'ACTIVE', 'ON_HOLD'].includes(prj.status)) continue;
+          if (prj.start_date > toP.end || (prj.end_date && prj.end_date < toP.start)) continue;
+          validItems.push({
+            projectId: r.project_id,
+            clientId: r.client_id,
+            costCenterId: r.cost_center_id,
+            allocationBasis: (r.allocation_basis as any) || 'DAYS',
+            allocationPct: r.allocation_pct,
+            allocatedDays: r.allocated_days ? Number(r.allocated_days) : undefined,
+            allocatedHours: r.allocated_hours ? Number(r.allocated_hours) : undefined,
+            workingDaysInMonth: r.working_days_in_month ? Number(r.working_days_in_month) : 22,
+            billableRate: r.billable_rate ? Number(r.billable_rate) : null,
+            billingBasis: (r.billing_basis as any) || 'DAILY',
+            billingCurrency: r.billing_currency || 'SAR',
+            roleTitle: r.role_title,
+            isBillable: r.is_billable,
+            notes: r.notes,
+          });
+        }
+        if (validItems.length === 0) continue;
+        await this.saveMonthlyPlan(companyId, {
+          periodId: body.toPeriodId,
+          employeeId: empId,
+          workingDaysInMonth: 22,
+          reason: `ترحيل توزيع من ${fromP.start.slice(0, 7)} إلى ${toP.start.slice(0, 7)}`,
+          allocations: validItems,
+        });
+        copiedCount += validItems.length;
+      }
+
+      return { success: true, copiedCount, skippedEmployees };
+    });
+  }
+
+  /** Returns multi-month matrix across non-adjustment fiscal periods for year-long comparison. */
+  async getMonthlyMatrix(companyId: string) {
+    const periods = await this.db.query<{ id: string; code: string; name: string; startDate: string; endDate: string; status: string }>(
+      `SELECT id, code, name, start_date::text AS "startDate", end_date::text AS "endDate", status
+         FROM core.fiscal_periods
+        WHERE company_id = $1 AND NOT is_adjustment_period
+        ORDER BY start_date ASC LIMIT 12`,
+      [companyId],
+    );
+    const emps = await this.db.query<{ id: string; code: string; full_name_ar: string }>(
+      'SELECT id, code, full_name_ar FROM hr.employees WHERE company_id = $1 ORDER BY code ASC',
+      [companyId],
+    );
+    const assignments = await this.db.query(
+      `SELECT ${SELECT} FROM ${FROM} WHERE a.company_id = $1 ORDER BY a.effective_from ASC`,
+      [companyId],
+    );
+    const rows = emps.map((e) => {
+      const cells: Record<string, any> = {};
+      for (const p of periods) {
+        const pItems = assignments.filter(
+          (a: any) => a.employeeId === e.id && a.startDate <= p.endDate && (!a.endDate || a.endDate >= p.startDate),
+        );
+        const totalPct = pItems.reduce((s: number, a: any) => s + Number(a.allocationPct || 0), 0);
+        const totalDays = pItems.reduce((s: number, a: any) => s + Number(a.allocatedDays || ((Number(a.allocationPct) / 100) * 22)), 0);
+        cells[p.id] = {
+          periodId: p.id,
+          totalPct: Number(totalPct.toFixed(1)),
+          totalDays: Number(totalDays.toFixed(1)),
+          projectCount: pItems.length,
+          isOverAllocated: totalPct > 100.05,
+          projects: pItems.map((a: any) => ({
+            projectId: a.projectId,
+            projectCode: a.projectCode,
+            projectNameAr: a.projectNameAr,
+            allocationPct: Number(a.allocationPct || 0),
+          })),
+        };
+      }
+      return { employeeId: e.id, employeeCode: e.code, employeeNameAr: e.full_name_ar, cells };
+    });
+    return { periods, rows };
   }
 
   private async projectNames(companyId: string, ids: string[]): Promise<Map<string, { projectCode: string; projectNameAr: string }>> {

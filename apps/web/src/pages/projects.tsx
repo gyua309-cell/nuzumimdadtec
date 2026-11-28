@@ -894,13 +894,18 @@ export function ProjectDetailPage() {
       {/* Assignments tab */}
       {tab === 'assignments' && (
         <div className="card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
-            <h3 className="font-semibold">تخصيصات الموظفين</h3>
-            <button className="btn-primary h-8" onClick={() => setAddAssign(true)}><Plus className="size-4" /> إضافة تخصيص</button>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
+            <h3 className="font-semibold">تخصيصات الموظفين على المشروع</h3>
+            <div className="flex items-center gap-2">
+              <Link to="/prj/assignments" className="btn-secondary h-8 text-xs flex items-center gap-1.5">
+                <Layers className="size-3.5 text-brand-600" /> إدارة التوزيع الشهري ومقارنة الأشهر
+              </Link>
+              <button className="btn-primary h-8 text-xs flex items-center gap-1" onClick={() => setAddAssign(true)}><Plus className="size-4" /> إضافة تخصيص</button>
+            </div>
           </div>
           <table className="table">
             <thead>
-              <tr><th>الموظف</th><th>النسبة%</th><th>من</th><th>إلى</th><th>فائض؟</th><th>ملاحظات</th><th /></tr>
+              <tr><th>الموظف</th><th>النسبة والأيام</th><th>من</th><th>إلى</th><th>فائض؟</th><th>ملاحظات</th><th /></tr>
             </thead>
             <tbody>
               {assignments.length === 0
@@ -908,7 +913,7 @@ export function ProjectDetailPage() {
                 : assignments.map((a: any) => (
                   <tr key={a.id}>
                     <td><Link to={`/hr/employees/${a.employeeId}`} className="text-brand-600 hover:underline">{a.employeeName}</Link></td>
-                    <td className="num">{a.allocationPct}%</td>
+                    <td className="num font-mono">{a.allocationPct}% <span className="text-[11px] text-slate-500">({a.allocatedDays ?? Math.round((Number(a.allocationPct || 0) / 100) * 22)} يوم)</span></td>
                     <td>{date(a.startDate)}</td>
                     <td>{a.endDate ? date(a.endDate) : 'مفتوح'}</td>
                     <td>{a.isOverAllocated ? <Badge color="red">فائض</Badge> : <Badge color="green">طبيعي</Badge>}</td>
@@ -1061,207 +1066,8 @@ export function ProjectDetailPage() {
   );
 }
 
-export function AssignmentsPage() {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [page, setPage] = useState(1);
-  const [q, setQ] = useState('');
-  const [search, setSearch] = useState('');
-  const [adding, setAdding] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => { setSearch(q); setPage(1); }, 300);
-    return () => clearTimeout(t);
-  }, [q]);
-  const list = useQuery({
-    queryKey: ['/assignments', page, search],
-    queryFn: () => api.get<Page<any>>('/assignments', { page, pageSize: 50, q: search }),
-  });
-
-  const rawAssign: any = list.data;
-  const assignmentItems: any[] = Array.isArray(rawAssign) ? rawAssign : (Array.isArray(rawAssign?.data) ? rawAssign.data : []);
-  const activeCount = assignmentItems.filter((a) => !a.endDate || a.endDate >= today()).length;
-  const overAllocatedCount = assignmentItems.filter((a) => a.isOverAllocated).length;
-
-  const fields: FieldDef[] = [
-    { name: 'employeeId', label: 'الموظف *', type: 'ref', ref: REF.employee, required: true },
-    { name: 'clientId', label: 'العميل المتعاقد', type: 'ref', ref: REF.client, hint: 'اختياري: لتصفية وتحديد العميل المتعاقد' },
-    { name: 'projectId', label: 'المشروع التعاقدي *', type: 'ref', ref: REF.project, required: true },
-    { name: 'costCenterId', label: 'مركز التكلفة', type: 'ref', ref: REF.costCenter, hint: 'مركز التكلفة المستفيد (إن ترك فارغاً يؤخذ من المشروع)' },
-    {
-      name: 'allocationBasis',
-      label: 'أساس التخصيص *',
-      type: 'select',
-      options: [
-        { value: 'DAYS', label: 'أيام عمل محددة (مثل: 18 يوم بمشروع و3 بمشروع آخر)' },
-        { value: 'PERCENTAGE', label: 'نسبة مئوية % (مثل: 100% أو 70%)' },
-      ],
-      default: 'DAYS',
-      required: true,
-    },
-    { name: 'allocatedDays', label: 'عدد أيام العمل المخصصة', type: 'decimal', hint: 'إذا اخترت أياماً (مثلاً: 18 يوماً)' },
-    { name: 'workingDaysInMonth', label: 'أيام العمل الشهرية للمقارنة', type: 'number', default: 22, hint: 'الافتراضي 22 يوم' },
-    { name: 'allocationPct', label: 'نسبة التخصيص %', type: 'decimal', default: '100', hint: 'إن تُركت فارغة تُحسب آلياً من الأيام' },
-    {
-      name: 'billingBasis',
-      label: 'أساس سعر الفوترة للعميل',
-      type: 'select',
-      options: [
-        { value: 'DAILY', label: 'سعر يومية محدد للعميل (Daily Rate) — الافتراضي' },
-        { value: 'HOURLY', label: 'سعر ساعة عمل للعميل (Hourly Rate T&M)' },
-        { value: 'MONTHLY', label: 'مبلغ مقطوع شهرياً للعميل (Monthly Dedicated Retainer)' },
-      ],
-      default: 'DAILY',
-    },
-    { name: 'billableRate', label: 'سعر البيع / الفوترة للعميل', type: 'decimal', hint: 'سعر محاسبة العميل عن الموظف (مثال: 1,800 SAR/يوم)' },
-    {
-      name: 'billingCurrency',
-      label: 'عملة الفوترة للعميل',
-      type: 'select',
-      options: [
-        { value: 'SAR', label: 'SAR (ريال سعودي) — العملة الأساسية' },
-        { value: 'EGP', label: 'EGP (جنيه مصري)' },
-        { value: 'USD', label: 'USD (دولار أمريكي)' },
-      ],
-      default: 'SAR',
-    },
-    { name: 'roleTitle', label: 'المسمى / الدور التعاقدي للعميل', type: 'text', hint: 'مثال: كبير مهندسي الحلول / Lead Full-Stack' },
-    { name: 'startDate', label: 'من تاريخ *', type: 'date', required: true },
-    { name: 'endDate', label: 'إلى تاريخ', type: 'date' },
-    { name: 'notes', label: 'ملاحظات وتفاصيل التكليف', type: 'textarea' },
-  ];
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="تخصيصات الموظفين على المشاريع"
-        subtitle="توزيع أوقات المبرمجين والموظفين على مشاريع العملاء بنسب مئوية. يُحسب التوزيع وتكلفة المشروع والوقت الضائع آلياً."
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Link to="/prj/allocation-days" className="btn-secondary text-xs flex items-center gap-1.5 text-brand-700 bg-brand-50 border-brand-200 hover:bg-brand-100">
-              <Layers className="size-3.5 text-brand-600" /> تقرير الأيام والنسب وربط المبيعات
-            </Link>
-            <ExportMenu
-              title="سجل تخصيصات الموظفين على المشاريع"
-              columns={[
-                { key: 'employeeNameAr', header: 'الموظف', width: 22 },
-                { key: 'projectNameAr', header: 'المشروع', width: 22 },
-                { key: 'allocationPct', header: 'نسبة التخصيص %', width: 14, type: 'percent' },
-                { key: 'billableRate', header: 'سعر الفوترة', width: 15, type: 'currency', isTotal: true },
-                { key: 'startDate', header: 'من تاريخ', width: 14 },
-                { key: 'endDate', header: 'إلى تاريخ', width: 14 },
-                { key: 'status', header: 'الحالة', width: 12 },
-              ]}
-              data={assignmentItems}
-            />
-            <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => setAdding(true)}>
-              <Plus className="size-4" /> إضافة تخصيص
-            </button>
-          </div>
-        }
-      />
-
-      {/* KPI Stats Strip */}
-      <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">
-        <Stat label="إجمالي التخصيصات" value={String(list.data?.meta.total ?? assignmentItems.length)} tone="blue" hint="توزيعات المسجلة" />
-        <Stat label="تخصيصات جارية وفعالة" value={String(activeCount)} tone="green" hint="تعمل في فترات حالية" />
-        <Stat label="تخصيصات فائضة (> 100%)" value={String(overAllocatedCount)} tone="amber" hint="يتم تطبيع تكلفتها تلقائياً" />
-        <Stat label="المعروض في الصفحة" value={String(assignmentItems.length)} tone="slate" hint="سجلات حالية" />
-      </div>
-
-      <div className="card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-200 p-3 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-          <div className="relative w-72">
-            <Search className="absolute start-2.5 top-2.5 size-4 text-slate-400" />
-            <input className="input ps-8 h-9 text-xs" placeholder="بحث بالموظف أو المشروع…" value={q} onChange={(e) => setQ(e.target.value)} />
-          </div>
-          {list.data?.meta && (
-            <div className="text-xs text-slate-500 font-mono">
-              المعروض: <strong>{assignmentItems.length}</strong> من <strong>{list.data.meta.total}</strong>
-            </div>
-          )}
-        </div>
-        {list.isLoading ? <Loading /> : list.error ? <div className="p-4"><ErrorState error={list.error} /></div>
-          : assignmentItems.length === 0 ? <EmptyState text="لا توجد تخصيصات." />
-          : (
-            <>
-              <div className="overflow-x-auto">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>الموظف</th>
-                      <th>المشروع التعاقدي والعميل</th>
-                      <th>مركز التكلفة</th>
-                      <th>التخصيص والأيام</th>
-                      <th>سعر الفوترة للعميل</th>
-                      <th>من</th>
-                      <th>إلى</th>
-                      <th>الحالة</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {assignmentItems.map((a: any) => (
-                      <tr key={a.id}>
-                        <td>
-                          <Link to={`/hr/employees/${a.employeeId}`} className="font-bold text-brand-600 hover:underline">
-                            {a.employeeNameAr || a.employeeName}
-                          </Link>
-                          {a.roleTitle && <div className="text-[11px] text-slate-500">{a.roleTitle}</div>}
-                        </td>
-                        <td>
-                          <Link to={`/prj/projects/${a.projectId}`} className="font-semibold text-slate-900 hover:underline">
-                            {a.projectCode} — {a.projectNameAr || a.projectName}
-                          </Link>
-                          {a.clientNameAr && <div className="text-[11px] text-slate-500 font-medium">العميل: {a.clientNameAr}</div>}
-                        </td>
-                        <td className="text-xs text-slate-600 font-medium">
-                          {a.costCenterName || 'مركزي عام'}
-                        </td>
-                        <td>
-                          <span className="font-mono font-bold text-blue-700">{a.allocationPct}%</span>
-                          <span className="text-[11px] text-slate-500 ms-1.5 font-mono">({a.allocatedDays || Math.round((Number(a.allocationPct)/100)*22)} يوم)</span>
-                        </td>
-                        <td>
-                          {a.billableRate ? (
-                            <span className="font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-xs inline-block">
-                              {Number(a.billableRate).toLocaleString()} {a.billingCurrency || 'SAR'}{a.billingBasis === 'DAILY' ? ' / يوم' : a.billingBasis === 'HOURLY' ? ' / ساعة' : ' / شهر'}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 text-xs">—</span>
-                          )}
-                        </td>
-                        <td>{date(a.startDate)}</td>
-                        <td>{a.endDate ? date(a.endDate) : 'مفتوح'}</td>
-                        <td>{a.isOverAllocated ? <Badge color="red">فائض تخصيص</Badge> : <Badge color="green">طبيعي</Badge>}</td>
-                        <td>
-                          <div className="flex justify-end gap-1">
-                            {!a.endDate && (
-                              <button className="btn-ghost h-7 px-2 text-rose-600 text-xs"
-                                onClick={async () => {
-                                  if (!confirm('إنهاء التخصيص اليوم؟')) return;
-                                  try { await api.post(`/assignments/${a.id}/end`, { endDate: new Date().toISOString().slice(0, 10) }); qc.invalidateQueries({ queryKey: ['/assignments'] }); toast.success('تم الإنهاء'); } catch (e) { toast.error(e); }
-                                }}>إنهاء</button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {list.data?.meta && <Pager {...list.data.meta} onPage={setPage} />}
-            </>
-          )}
-      </div>
-      <FormModal
-        open={adding} wide title="إضافة تخصيص جديد"
-        fields={fields}
-        onClose={() => setAdding(false)}
-        onSubmit={async (b) => { await api.post('/assignments', b); qc.invalidateQueries({ queryKey: ['/assignments'] }); }}
-      />
-    </div>
-  );
-}
+// ------------------------------------------------------------------ monthly staff distribution planner
+export { AssignmentsPlannerPage as AssignmentsPage } from './assignments-planner';
 
 // ------------------------------------------------------------------ utilization report (Executive Module)
 export { UtilizationPage } from './utilization-report';

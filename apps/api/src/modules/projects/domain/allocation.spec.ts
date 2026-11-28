@@ -58,4 +58,23 @@ describe('allocation & utilization', () => {
     const seg = segmentWindow(jan, [A('1', 'P1', '100', '2025-01-01', '2025-12-31'), A('2', 'P2', '100', '2026-02-01')]);
     expect(summarize(seg).unutilizedPct).toBe('100.0000');
   });
+
+  it('consecutive non-overlapping monthly plans isolate each month with 0% overlap contamination', () => {
+    const dec = { from: '2026-12-01', to: '2026-12-31' };
+    const nov = { from: '2026-11-01', to: '2026-11-30' };
+    const monthlyAssignments = [
+      A('n1', 'P1', '100', '2026-11-01', '2026-11-30'),
+      A('d1', 'P1', '60', '2026-12-01', '2026-12-31'),
+      A('d2', 'P2', '40', '2026-12-01', '2026-12-31'),
+    ];
+    const novSum = summarize(segmentWindow(nov, monthlyAssignments));
+    const decSum = summarize(segmentWindow(dec, monthlyAssignments));
+    expect(novSum.isOverAllocated).toBe(false);
+    expect(novSum.byProject).toHaveLength(1);
+    expect(novSum.byProject[0].effectivePct).toBe('100.0000');
+    expect(decSum.isOverAllocated).toBe(false);
+    expect(decSum.byProject).toHaveLength(2);
+    expect(decSum.byProject.find((x) => x.projectId === 'P1')?.effectivePct).toBe('60.0000');
+    expect(decSum.byProject.find((x) => x.projectId === 'P2')?.effectivePct).toBe('40.0000');
+  });
 });
